@@ -5,6 +5,7 @@ where call carries the adapter's mapped fields: agent_type, agent_id, session_id
 scratchpad_dir, tool_name, tool_input, and `target` (write tools) or `command` (Bash).
 """
 
+import json
 import os
 import time
 from pathlib import Path
@@ -104,6 +105,41 @@ def test_kill_switch_blocks_everything(ctx):
     assert blocked(write(ctx, "forge-dev", ctx.ws["worktree"] / "src/a.py"), "KILL_SWITCH")
     (ctx.ws["worktree"] / ".STOP_FORGE").unlink()
     assert ctx("forge-verifier", tool_name="Read")["allow"] is True
+
+
+# @spec GUARD-KILL-001
+def test_kill_switch_in_main_worktree_stops_workstreams(ctx):
+    (ctx.ws["repo"] / ".STOP_FORGE").write_text("")
+    assert blocked(ctx("forge-verifier", tool_name="Read"), "KILL_SWITCH")
+    (ctx.ws["repo"] / ".STOP_FORGE").unlink()
+    assert ctx("forge-verifier", tool_name="Read")["allow"] is True
+
+
+def dispatched(ctx, agent, dispatch_id="d-123"):
+    state = json.loads(ctx.ws["state_path"].read_text())
+    state["lifecycle"]["dispatched"] = {"dispatch_id": dispatch_id, "agent": agent, "mode": "full",
+                                        "base_sha": "0" * 40}
+    ctx.ws["state_path"].write_text(json.dumps(state))
+    return ctx.sd / "envelopes"
+
+
+# @spec GUARD-WRITE-009
+def test_dispatched_agent_writes_its_envelope(ctx):
+    env = dispatched(ctx, "forge-dev")
+    assert write(ctx, "forge-dev", env / "d-123.json")["allow"] is True
+
+
+# @spec GUARD-WRITE-009
+@pytest.mark.parametrize("agent, name", [("forge-qa", "d-123.json"), ("forge-dev", "d-999.json"),
+                                         ("forge-dev", "d-123.event.json"), ("forge-council-critic", "d-123.json")])
+def test_other_envelope_writes_blocked(ctx, agent, name):
+    env = dispatched(ctx, "forge-dev")
+    assert blocked(write(ctx, agent, env / name), "BOUNDARY_VIOLATION")
+
+
+# @spec GUARD-WRITE-009
+def test_no_envelope_write_without_dispatch(ctx):
+    assert blocked(write(ctx, "forge-dev", ctx.sd / "envelopes" / "d-123.json"), "BOUNDARY_VIOLATION")
 
 
 # -------------------------------------------------------------- duplicate calls

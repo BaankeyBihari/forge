@@ -16,7 +16,7 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 ## Re-derivation
 
 - [ ] **ROUTE-REDO-001**: When called with no event while `lifecycle.awaiting` is set, `next_step.py` shall return the same pause again.
-- [ ] **ROUTE-REDO-002**: When called with no event while `lifecycle.dispatched` is set and no drift is reported, `next_step.py` shall return the invocation envelope stored in `lifecycle.invoke` again, unchanged.
+- [ ] **ROUTE-REDO-002**: When called with no event while `lifecycle.dispatched` is set, no drift is reported, and ROUTE-DRIFT-008 does not apply, `next_step.py` shall return the invocation envelope stored in `lifecycle.invoke` again, unchanged.
 - [ ] **ROUTE-REDO-003**: When called with no event while `lifecycle.current_phase` is `INIT`, `next_step.py` shall return `stop` with `NOT_STARTED` and change no state.
 - [ ] **ROUTE-REDO-004**: When called with no event while `lifecycle.current_phase` is `DONE`, `next_step.py` shall return `done`.
 
@@ -128,6 +128,7 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 - [ ] **ROUTE-DRIFT-003**: When handling drift per ROUTE-DRIFT-001 while `lifecycle.dispatched` is set, `next_step.py` shall clear `lifecycle.dispatched` before routing to `RECONCILE`.
 - [ ] **ROUTE-DRIFT-004**: While `lifecycle.awaiting` is set, `next_step.py` shall defer drift handling until the pause is answered.
 - [ ] **ROUTE-DRIFT-005**: If the wake reports a dirty tree when `next_step.py` would dispatch any agent other than `forge-scout` or `forge-reporter`, then it shall pause `dirty_tree` with options `checkpoint` and `stash` instead of dispatching.
+- [ ] **ROUTE-DRIFT-008**: If the wake reports a dirty tree when `next_step.py` would return an outstanding dispatch again for an agent other than `forge-scout` or `forge-reporter`, then it shall pause `dirty_tree` instead, stating in the question that the changes may be the dispatched agent's unfinished work.
 - [ ] **ROUTE-DRIFT-006**: When the user answers `dirty_tree`, `next_step.py` shall clear the pause and re-check the tree on the same call before dispatching.
 
 ## Attempt limits

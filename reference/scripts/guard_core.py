@@ -108,7 +108,7 @@ def duplicate_check(call):
 
 
 # @spec GUARD-WRITE-001, GUARD-WRITE-002, GUARD-WRITE-003, GUARD-WRITE-004, GUARD-WRITE-005
-# @spec GUARD-WRITE-006, GUARD-WRITE-007, GUARD-WRITE-008
+# @spec GUARD-WRITE-006, GUARD-WRITE-007, GUARD-WRITE-008, GUARD-WRITE-009
 def check_write(agent, call, sd, state):
     target = _real(os.path.join(call.get("cwd") or ".", call["target"]))
     if agent.startswith("forge-council-"):
@@ -131,6 +131,9 @@ def check_write(agent, call, sd, state):
     for sub, owner in (("scout", "forge-scout"), ("council", "forge-council")):
         if _inside(target, os.path.join(sd, sub)):
             return None if agent == owner else block("BOUNDARY_VIOLATION", f"{sub}/ belongs to {owner} ({target})")
+    d = (state.get("lifecycle") or {}).get("dispatched")
+    if d and agent == d.get("agent") and target == os.path.join(sd, "envelopes", f"{d.get('dispatch_id')}.json"):
+        return None
     if _inside(target, _real(call.get("scratchpad_dir"))):
         return None
     return block("BOUNDARY_VIOLATION", f"{target} is outside every place {agent} may write")
@@ -273,8 +276,10 @@ def decide(call):
         checkout = resolve_state.Checkout(call.get("cwd") or ".")
     except resolve_state.GitError:
         checkout = None
-    if checkout and Path(checkout.root, ".STOP_FORGE").exists():
-        return block("KILL_SWITCH", ".STOP_FORGE exists at the repository root; Forge agents are stopped")
+    if checkout:
+        for root in (checkout.main_root(), checkout.root):
+            if Path(root, ".STOP_FORGE").exists():
+                return block("KILL_SWITCH", f"{Path(root, '.STOP_FORGE')} exists; Forge agents are stopped")
     found = find_workstream(checkout, call.get("session_id")) if checkout else None
     if not found:
         return block("NO_ACTIVE_WORKSTREAM", "no Forge workstream in this repository is held by this session")

@@ -1130,6 +1130,27 @@ def test_dirty_tree_allows_scout(r):
     assert dispatches(r.start(), "forge-scout", "PRE_PLAN")
 
 
+# @spec ROUTE-DRIFT-008, ROUTE-REDO-002
+def test_outstanding_dispatch_on_dirty_tree_pauses(r):
+    first = r.goto("DEV_FULL")
+    Path(r.wt, "src").mkdir(exist_ok=True)
+    Path(r.wt, "src", "half.py").write_text("half-written\n")
+    decision = r.run()
+    assert pauses(decision, "dirty_tree")
+    assert "unfinished" in decision["question"]
+    Path(r.wt, "src", "half.py").unlink()
+    again = r.user("stash")
+    assert dispatches(again, "forge-dev", "full")
+    assert again["invoke"]["dispatch_id"] != first["invoke"]["dispatch_id"]
+
+
+# @spec ROUTE-DRIFT-008
+def test_outstanding_scout_dispatch_ignores_dirty_tree(r):
+    first = r.goto("RECON")
+    Path(r.wt, "wip.txt").write_text("wip\n")
+    assert r.run()["invoke"] == first["invoke"]
+
+
 # @spec ROUTE-DRIFT-006
 def test_dirty_tree_answer_rechecks(r):
     wip = Path(r.wt, "wip.txt")

@@ -596,6 +596,7 @@ def new(cwd, args):
         (sd / "memory" / part).mkdir(parents=True)
     (sd / "scout").mkdir()
     (sd / "council").mkdir()
+    (sd / "envelopes").mkdir()
     write_state(sd / "state.json", initial_state(identity, config, base_sha))
     try_acquire(sd, args.holder_pid, args.holder_session)
     return {"status": "CREATED", "identity": identity, "worktree_path": worktree,

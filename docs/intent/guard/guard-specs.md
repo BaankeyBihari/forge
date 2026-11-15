@@ -14,7 +14,7 @@ Design: `guard-design.md`. Implementation: `reference/scripts/guard_core.py` (de
 
 ## Kill switch
 
-- [ ] **GUARD-KILL-001**: While a file named `.STOP_FORGE` exists at the root of the repository containing the call's `cwd`, `guard_core.py` shall block every guarded call with `KILL_SWITCH`.
+- [ ] **GUARD-KILL-001**: While a file named `.STOP_FORGE` exists at the root of the main worktree of the repository containing the call's `cwd`, or at the root of the worktree containing the call's `cwd`, `guard_core.py` shall block every guarded call with `KILL_SWITCH`.
 
 ## Duplicate calls
 
@@ -29,8 +29,9 @@ Design: `guard-design.md`. Implementation: `reference/scripts/guard_core.py` (de
 - [ ] **GUARD-WRITE-003**: When blocking a `forge-dev` write to a test path, `guard_core.py` shall state in the reason that the agent must stop and return `TEST_CHANGE_REQUESTED`.
 - [ ] **GUARD-WRITE-004**: `guard_core.py` shall allow a write under the active workstream's `memory/<partition>/` only to the agent owning that partition: `planner` to `forge-planner`, `qa` to `forge-qa`, `dev` to `forge-dev`, `verifier` to `forge-verifier`, `reviewer` to `forge-reviewer`, and `scout` to `forge-scout`.
 - [ ] **GUARD-WRITE-005**: `guard_core.py` shall allow a write under the active workstream's `scout/` directory only to `forge-scout`, and under its `council/` directory only to `forge-council`.
+- [ ] **GUARD-WRITE-009**: `guard_core.py` shall allow a write to the active workstream's `envelopes/<dispatch_id>.json` only when `<dispatch_id>` equals `lifecycle.dispatched.dispatch_id` and the agent equals `lifecycle.dispatched.agent`.
 - [ ] **GUARD-WRITE-006**: `guard_core.py` shall allow a write under the hook input's `scratchpad_dir` to every Forge agent whose name does not start with `forge-council-`.
-- [ ] **GUARD-WRITE-007**: If a write target is not covered by GUARD-WRITE-002 through GUARD-WRITE-006, then `guard_core.py` shall block it with `BOUNDARY_VIOLATION`.
+- [ ] **GUARD-WRITE-007**: If a write target is not covered by GUARD-WRITE-002 through GUARD-WRITE-006 or GUARD-WRITE-009, then `guard_core.py` shall block it with `BOUNDARY_VIOLATION`.
 - [ ] **GUARD-WRITE-008**: `guard_core.py` shall block every write by an agent whose name starts with `forge-council-`.
 
 ## Commands

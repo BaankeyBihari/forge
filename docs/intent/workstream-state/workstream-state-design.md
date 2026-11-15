@@ -22,7 +22,7 @@ $FORGE_HOME/
   config.json                         # global defaults
   state/<org>/<repo>/<workstream>/
     state.json  lock.json
-    scout/  council/
+    scout/  council/  envelopes/
     memory/{hub,shared,planner,qa,dev,verifier,reviewer,scout}/
   archive/<org>/<repo>/<workstream>-<UTC timestamp>/
 ```

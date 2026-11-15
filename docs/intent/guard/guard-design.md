@@ -36,7 +36,7 @@ Checks run in this order — kill switch, active-workstream lookup, circuit brea
 
 ### 1. Kill switch
 
-A file named `.STOP_FORGE` at the repository root blocks every guarded call with `KILL_SWITCH`. Removing the file lifts it.
+A file named `.STOP_FORGE` at the root of the main worktree, or at the root of the worktree containing the call's `cwd`, blocks every guarded call with `KILL_SWITCH`. Removing the file lifts it. The main worktree's file stops every workstream of the repository at once; a file in one workstream's worktree stops only that workstream.
 
 ### 2. Duplicate-call circuit breaker
 
@@ -56,6 +56,7 @@ Write tools — Claude Code's `Write`, `Edit`, and `NotebookEdit` — are checke
 | The workstream's `memory/<partition>/` | The agent owning that partition: `forge-planner` → `planner`, `forge-qa` → `qa`, `forge-dev` → `dev`, `forge-verifier` → `verifier`, `forge-reviewer` → `reviewer`, `forge-scout` → `scout` |
 | The workstream's `scout/` | `forge-scout` |
 | The workstream's `council/` | `forge-council` |
+| The workstream's `envelopes/<dispatch_id>.json`, where `<dispatch_id>` is `lifecycle.dispatched.dispatch_id` | The agent named in `lifecycle.dispatched.agent` |
 | The session's scratchpad directory (hook input `scratchpad_dir`) | Every Forge agent except council personas |
 | Anywhere else | Nobody |
 

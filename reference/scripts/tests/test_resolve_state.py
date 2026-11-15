@@ -511,7 +511,7 @@ def test_new_initializes_everything(workstream):
     assert state["lifecycle"]["current_phase"] == "INIT"
     for part in ["hub", "shared", "planner", "qa", "dev", "verifier", "reviewer", "scout"]:
         assert (sd / "memory" / part).is_dir()
-    assert (sd / "scout").is_dir() and (sd / "council").is_dir()
+    assert (sd / "scout").is_dir() and (sd / "council").is_dir() and (sd / "envelopes").is_dir()
     lock = json.loads((sd / "lock.json").read_text())
     assert (lock["holder_pid"], lock["holder_session"]) == (os.getpid(), HOLDER_SESSION)
     report = workstream["report"]

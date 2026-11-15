@@ -35,8 +35,10 @@ Everything that can be decided mechanically is decided by a Python script (stand
 - **`next_step.py`** — the router. Given the workstream state and a spoke's result envelope, it returns the next phase, the agent and mode to dispatch, whether to pause for the user, and the updated state. It is the only writer of routing state.
 - **`verify_gate.py`** — checks commit trailers and write boundaries over a commit range, checks that no agent commit modified human-authored lines without a recorded approval, and evaluates the publish gate.
 - **`guard_core.py`** — the per-tool-call guard logic: kill switch, duplicate-call circuit breaker, read-only roles, path boundaries.
+- **`forge_memory.py`** — loads an agent's episodic memory, marking notes anchored to commits the branch no longer contains.
+- **`forge_hub.py`** — the Commander's mechanical steps: classifying the `/forge` argument, composing the resume brief, and picking up result envelopes and user answers as router events.
 
-The Hub prompt handles what needs judgment: talking to the user, dispatching, synthesizing Council output, and presenting resume briefs.
+The Hub prompt handles what needs judgment: talking to the user, naming workstreams, dispatching, and presenting Council output. Envelopes travel between the Hub, the router, and spokes as files, so no model retypes them.
 
 ### Git as the provenance record
 
@@ -99,16 +101,19 @@ The `forge-memory` skill loads and saves each agent's episodic notes (decisions,
 rev                          # upstream pins: one entry per dependency, a main-branch commit
 reference/                   # CLI-neutral
   PROTOCOL.md                # state.json schema, envelopes, trailers, phases, routing table
-  scripts/                   # resolve_state.py, next_step.py, verify_gate.py, guard_core.py
+  scripts/                   # resolve_state.py, next_step.py, verify_gate.py, guard_core.py,
+                             # forge_memory.py, forge_hub.py
     tests/                   # pytest suite
   skills/
     forge-memory/            # load / save episodic memory
+      scripts -> ../../scripts
     forge-planner/  forge-qa/  forge-dev/  forge-verifier/
     forge-reviewer/ forge-scout/ forge-publisher/ forge-reporter/
     forge-council/           # council orchestration + persona definitions
 claude/                      # Claude Code adapter
   installer.sh               # install, --uninstall, --vendor
   skills/forge/SKILL.md      # Commander (Hub)
+  skills/forge/scripts -> ../../../reference/scripts
   skills/forge-*  -> ../../reference/skills/forge-*
   agents/forge-*.md          # subagent profiles: model alias, tool limits, preloaded skills
   hooks/guard_paths.py       # PreToolUse adapter: reads agent_type, calls guard_core

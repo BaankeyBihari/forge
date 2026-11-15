@@ -176,7 +176,7 @@ def stage_for(ctx, phase):
 
 # @spec ROUTE-DISP-001, ROUTE-DISP-002, ROUTE-DISP-004, ROUTE-GUARD-001, ROUTE-GUARD-002, ROUTE-DRIFT-005
 # @spec ROUTE-LIMIT-001, ROUTE-LIMIT-002, ROUTE-LIMIT-006, ROUTE-BLK-004, ROUTE-BLK-015
-# @spec ROUTE-DISP-005, ROUTE-DISP-006, ROUTE-DISP-007
+# @spec ROUTE-DISP-005, ROUTE-DISP-006, ROUTE-DISP-007, ROUTE-DRIFT-008
 def dispatch(ctx, phase, opts):
     head = ctx.head()
     if phase == "REVIEW_INTERNAL" and ctx.anchors.get("verifier_pass_sha") != head:
@@ -187,8 +187,10 @@ def dispatch(ctx, phase, opts):
     agent, mode = agent_and_mode(ctx, phase, opts)
     pending = {"phase": phase, "opts": opts}
     if ctx.report.get("dirty") and agent not in DIRTY_OK:
-        return pause("dirty_tree", phase, {"pending": pending},
-                     context_refs=[], question=PAUSES["dirty_tree"][1] + " Paths: " + ", ".join(ctx.report["dirty"]))
+        why = " They may be the dispatched agent's unfinished work, or your own edits." \
+            if opts.get("redispatch") else ""
+        return pause("dirty_tree", phase, {"pending": pending}, context_refs=[],
+                     question=PAUSES["dirty_tree"][1] + why + " Paths: " + ", ".join(ctx.report["dirty"]))
     attempts = ctx.lc.setdefault("attempts", {})
     if opts.get("user_caused") or opts.get("new_repair_item") or phase != ctx.prev_phase:
         count = 1
@@ -198,6 +200,12 @@ def dispatch(ctx, phase, opts):
         count = attempts.get(phase, 0) + 1
     attempts[phase] = count
 
+    if opts.get("redispatch") and phase == ctx.prev_phase and ctx.lc.get("invoke"):
+        # Same invocation as the outstanding dispatch, under a fresh ID and the current HEAD.
+        invoke = {**ctx.lc["invoke"], "dispatch_id": uuid.uuid4().hex, "base_sha": head}
+        ctx.lc["dispatched"] = {"dispatch_id": invoke["dispatch_id"], "agent": agent, "mode": mode, "base_sha": head}
+        ctx.lc["invoke"] = invoke
+        return {"kind": "dispatched", "phase": phase, "invoke": invoke}
     refs = list(opts.get("context_refs", []))
     notes = opts.get("notes")
     scope = []
@@ -547,7 +555,7 @@ def unaccounted_drift(ctx):
 
 
 # @spec ROUTE-REDO-001, ROUTE-REDO-002, ROUTE-REDO-003, ROUTE-REDO-004, ROUTE-DRIFT-003, ROUTE-BUILD-001
-# @spec ROUTE-BUILD-003, ROUTE-PR-001
+# @spec ROUTE-BUILD-003, ROUTE-PR-001, ROUTE-DRIFT-008
 def apply_event(ctx, event):
     if event is None:
         if ctx.lc.get("awaiting"):
@@ -555,6 +563,8 @@ def apply_event(ctx, event):
             return {"kind": "repause", **pause_from_awaiting(ctx, aw)}
         if ctx.lc.get("dispatched"):
             if not unaccounted_drift(ctx):
+                if ctx.report.get("dirty") and ctx.lc["dispatched"]["agent"] not in DIRTY_OK:
+                    return goto(ctx.lc["current_phase"], redispatch=True)
                 return {"kind": "dispatched", "phase": ctx.lc["current_phase"], "invoke": ctx.lc["invoke"],
                         "rederived": True}
             ctx.lc["dispatched"] = None  # drift while a spoke was out: account for it first
