@@ -197,8 +197,8 @@ identity:
   repo: "payments-service"
   workstream: "feat-jira-412"
   branch: "feat/JIRA-412"
-  git_common_dir: "/Users/sudhanshu/work/acme-corp/payments-service/.git"
-  worktree_path: "/Users/sudhanshu/work/acme-corp/payments-service-wt-412"
+  git_common_dir: "/home/dev/work/acme-corp/payments-service/.git"
+  worktree_path: "/home/dev/work/acme-corp/payments-service-wt-412"
   session_id: "sess_20261115_2130"
 
 config:
