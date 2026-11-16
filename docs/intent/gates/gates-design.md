@@ -72,7 +72,7 @@ Human-authored lines fall into two groups by their origin commit:
 
 Workstream lines are always protected. Baseline lines are protected except in a path that matches the planner's `scope_manifest.assigned` patterns, once the plan is approved (`anchors.plan_base_sha` is set): approving the plan approves changing the existing code it says to change.
 
-A Forge commit that is `anchors.plan_base_sha` or one of its ancestors is a planning commit the user approved with the plan, and is exempt from the human-authored line checks. Its trailers and boundaries are still checked.
+A Forge commit that is `anchors.plan_base_sha` or one of its ancestors is a planning commit the user approved with the plan, and is exempt from the human-authored line checks. A `forge-planner` commit after `plan_base_sha` is exempt too: it can change only plan paths, and the user approved it at the pause that caused it (the findings sign-off for a planner repair). Trailers and boundaries of every Forge commit are still checked.
 
 For each file the commit changes, the gate takes the commit's diff against its parent with no context (`-U0`) and collects the line ranges the commit removes or replaces on the parent side. It blames exactly those lines in the parent (`git blame --porcelain -L … <commit>^ -- <path>`). Each blamed line has an origin commit and an origin line number; the line is human-authored when its origin commit has no `Forge-Agent` trailer.
 
@@ -99,14 +99,14 @@ Identities, not line numbers, are compared because the line numbers of an approv
 
 ## Human-Line Query
 
-`human-lines --path P --state STATE_JSON` returns the line ranges of `P` at `HEAD` that are protected human-authored lines, applying the baseline rule above. A spoke uses it before editing a file to know which lines it would need approval for, rather than discovering a violation after it commits.
+`human-lines --path P --agent AGENT --state STATE_JSON` returns the line ranges of `P` at `HEAD` that are protected human-authored lines, applying the baseline rule above and leaving out every line covered by an approval for `AGENT` and `P` (*Approvals*). A spoke uses it before editing a file to know which lines it would need approval for, rather than discovering a violation after it commits; after the user approves a change, the approved lines no longer appear. For `forge-planner` it returns no ranges, because planner commits are exempt.
 
 ## Command Interface
 
 ```text
 verify_gate.py check-commits --range A..B --state STATE_JSON
 verify_gate.py check-publish --target push|merge --state STATE_JSON
-verify_gate.py human-lines --path PATH --state STATE_JSON
+verify_gate.py human-lines --path PATH --agent AGENT --state STATE_JSON
 ```
 
 Each command prints one JSON object: `{"ok": true|false, "findings": [...]}` (or `{"ranges": [...]}` for `human-lines`). `ok` is `false` when any finding has severity `error`; warnings alone leave it `true`. Exit `0` means `ok`, `1` means not `ok`, `2` means a usage error or not a git repository.
@@ -134,7 +134,8 @@ Each finding carries `kind` and `severity` (`error` unless the table says otherw
 |---|---|---|---|
 | Human-line rule | Modifying or deleting a protected human line needs approval; insertions between protected lines are warnings | Any change to a file with human lines needs approval; insertions between human lines need approval | Agents must be able to add code beside human code; the rule protects what the human wrote, and the warning keeps insertions into human code visible at review without blocking. Detecting "inside a human function" from neighbouring lines is too approximate to block on. |
 | Pre-existing code | Covered by plan approval within the plan's assigned paths | Protected everywhere; never protected | Protecting all of a brownfield codebase would put an approval on nearly every dev step; never protecting it would let agents rewrite code the plan did not mention. |
-| Planning commits | Exempt from the human-line checks once the plan is approved; trailers and boundaries still checked | Human-line checks apply; no checks at all | The planner revises existing design docs, which are human-authored; the user reviewed those edits when approving the plan, so an approval per line would repeat that review. Trailers and boundaries cost nothing to check and catch a planner writing outside `docs/`. |
+| Planning commits | Every `forge-planner` commit is exempt from the human-line checks; trailers and boundaries still checked | Human-line checks apply to planner commits; exempt only up to `plan_base_sha` | The planner revises existing design docs, which are human-authored; the user reviews those edits at plan approval, and planner repairs only follow a findings sign-off, so an approval per line would repeat that review. Trailers and boundaries cost nothing to check and catch a planner writing outside `docs/`. |
+| Approved lines in the human-line query | Left out for the approved agent | Reported; the spoke reconciles approvals itself | A spoke dispatched again after an approval would otherwise see the same lines protected and ask again. Matching identities is mechanical. |
 | Commits examined | First-parent chain of the range | Every commit in the range | Merging another branch in brings other workstreams' Forge commits, whose approvals live in other workstreams' state. |
 | Approval matching | Blame line identities (origin commit, origin line) | Line numbers at approval time | Identities survive edits elsewhere in the file; line numbers would silently cover the wrong lines after the first insertion above them. |
 | Plan paths | `docs/**` and `PLAN.md` | Also `.lid/**` | Current LID keeps its design tree under `docs/`; a `.lid/` directory is not part of it. |

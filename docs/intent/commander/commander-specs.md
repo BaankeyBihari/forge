@@ -6,52 +6,52 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 
 ## forge_hub.py invocation
 
-- [ ] **CMD-CLI-001**: `forge_hub.py` shall provide the subcommands `classify`, `brief`, `envelope`, and `answer`, print exactly one JSON object to stdout, and exit `0` for every status.
-- [ ] **CMD-CLI-002**: If `forge_hub.py` is called with an unknown subcommand or missing or invalid arguments, then it shall exit `2` with a message on stderr.
-- [ ] **CMD-CLI-003**: If `forge_hub.py classify` or `brief` runs in a directory that is not inside a git repository, then it shall exit `1` with a message on stderr.
+- [x] **CMD-CLI-001**: `forge_hub.py` shall provide the subcommands `classify`, `brief`, `envelope`, and `answer`, print exactly one JSON object to stdout, and exit `0` for every status.
+- [x] **CMD-CLI-002**: If `forge_hub.py` is called with an unknown subcommand or missing or invalid arguments, then it shall exit `2` with a message on stderr.
+- [x] **CMD-CLI-003**: If `forge_hub.py classify` or `brief` runs in a directory that is not inside a git repository, then it shall exit `1` with a message on stderr.
 
 ## Arguments
 
-- [ ] **CMD-ARG-001**: When `classify` is given no words, `forge_hub.py` shall return kind `current`.
-- [ ] **CMD-ARG-002**: When `classify` is given the single word `list`, `forge_hub.py` shall return kind `list`.
-- [ ] **CMD-ARG-003**: When `classify` is given `pr` followed by one word, or a single GitHub pull request URL (`https://github.com/<owner>/<repo>/pull/<n>`), `forge_hub.py` shall return kind `pr` with `ref` set to that word or URL.
-- [ ] **CMD-ARG-004**: When `classify` is given `adopt` followed by one word, `forge_hub.py` shall return kind `adopt` with `branch` set to that word.
-- [ ] **CMD-ARG-005**: If `classify` is given `pr` or `adopt` as the first word followed by other than exactly one word, then `forge_hub.py` shall return kind `invalid` with a `detail` giving the expected form.
-- [ ] **CMD-ARG-006**: When `classify` is given a single GitHub issue URL (`https://github.com/<owner>/<repo>/issues/<n>`), `#<n>`, or `<n>`, where `<n>` is a positive integer, `forge_hub.py` shall return kind `issue` with `ref` set to that word.
-- [ ] **CMD-ARG-007**: When `classify` is given a single word that is a valid workstream slug and names a workstream directory of the current repository's state directory, `forge_hub.py` shall return kind `resume` with `workstream` set to that word.
-- [ ] **CMD-ARG-008**: When `classify` is given a single word that is a valid workstream slug but names no workstream of the current repository, `forge_hub.py` shall return kind `unknown` with `workstream` set to that word.
-- [ ] **CMD-ARG-009**: When no other rule matches, `forge_hub.py classify` shall return kind `describe` with `text` set to the words joined by single spaces.
-- [ ] **CMD-ARG-010**: `forge_hub.py classify` shall apply CMD-ARG-001 through CMD-ARG-009 in order and return the first kind that matches.
+- [x] **CMD-ARG-001**: When `classify` is given no words, `forge_hub.py` shall return kind `current`.
+- [x] **CMD-ARG-002**: When `classify` is given the single word `list`, `forge_hub.py` shall return kind `list`.
+- [x] **CMD-ARG-003**: When `classify` is given `pr` followed by one word, or a single GitHub pull request URL (`https://github.com/<owner>/<repo>/pull/<n>`), `forge_hub.py` shall return kind `pr` with `ref` set to that word or URL.
+- [x] **CMD-ARG-004**: When `classify` is given `adopt` followed by one word, `forge_hub.py` shall return kind `adopt` with `branch` set to that word.
+- [x] **CMD-ARG-005**: If `classify` is given `pr` or `adopt` as the first word followed by other than exactly one word, then `forge_hub.py` shall return kind `invalid` with a `detail` giving the expected form.
+- [x] **CMD-ARG-006**: When `classify` is given a single GitHub issue URL (`https://github.com/<owner>/<repo>/issues/<n>`), `#<n>`, or `<n>`, where `<n>` is a positive integer, `forge_hub.py` shall return kind `issue` with `ref` set to that word.
+- [x] **CMD-ARG-007**: When `classify` is given a single word that is a valid workstream slug and names a workstream directory of the current repository's state directory, `forge_hub.py` shall return kind `resume` with `workstream` set to that word.
+- [x] **CMD-ARG-008**: When `classify` is given a single word that is a valid workstream slug but names no workstream of the current repository, `forge_hub.py` shall return kind `unknown` with `workstream` set to that word.
+- [x] **CMD-ARG-009**: When no other rule matches, `forge_hub.py classify` shall return kind `describe` with `text` set to the words joined by single spaces.
+- [x] **CMD-ARG-010**: `forge_hub.py classify` shall apply CMD-ARG-001 through CMD-ARG-009 in order and return the first kind that matches.
 
 ## Resume brief
 
-- [ ] **CMD-BRIEF-001**: When `brief` runs, `forge_hub.py` shall run the workstream-state wake with the given `--workstream`, `--holder-pid`, and `--holder-session`, and when the wake status is not `OK`, return the wake report unchanged.
-- [ ] **CMD-BRIEF-002**: When the wake status is `OK`, `forge_hub.py brief` shall return `status` `OK`, `lines` holding exactly five strings, and `pending_envelope`.
-- [ ] **CMD-BRIEF-003**: `forge_hub.py brief` shall make line 1 `Workstream: <org>/<repo>/<workstream> (<repo_mode>, <collaborative or sequential>, plan <plan_mode>)` from `identity` and `config`.
-- [ ] **CMD-BRIEF-004**: `forge_hub.py brief` shall make line 2 `Phase: <current_phase> (<last_agent> → <last_status>)`, or `Phase: <current_phase> (nothing run yet)` while `lifecycle.last_agent` is `null`.
-- [ ] **CMD-BRIEF-005**: `forge_hub.py brief` shall make line 3 `Progress: <completed count> of <assigned count> scope patterns complete; remaining: <remaining patterns joined by ", ", or none>`, or `Progress: no plan yet` while `scope_manifest.assigned` is empty, followed by `; open blockers: <n>` when `blockers` is not empty.
-- [ ] **CMD-BRIEF-006**: `forge_hub.py brief` shall make line 4 `Hub context: ` followed by the first decision of the newest non-historical `hub` memory entry that has a decision, or `none recorded` when there is none.
-- [ ] **CMD-BRIEF-007**: While `lifecycle.dispatched` is set and `envelopes/<dispatch_id>.json` exists, `forge_hub.py brief` shall make line 5 `Next step: Apply the result <agent> left (<status>)`, using `(unreadable)` when the file is not a JSON object with a `status`, and set `pending_envelope` to `true`.
-- [ ] **CMD-BRIEF-008**: While CMD-BRIEF-007 does not apply and the phase is `INIT`, `forge_hub.py brief` shall make line 5 `Next step: Start routing (nothing has run yet)`.
-- [ ] **CMD-BRIEF-009**: While CMD-BRIEF-007 and CMD-BRIEF-008 do not apply, `forge_hub.py brief` shall make line 5 from the router's `--dry-run` decision: `Next step: Waiting for you: <question>` for a pause, `Next step: Stopped: <status>: <detail>` for a stop, and `Next step: <summary>` otherwise.
-- [ ] **CMD-BRIEF-010**: `forge_hub.py brief` shall set `pending_envelope` to `false` whenever CMD-BRIEF-007 does not apply.
-- [ ] **CMD-BRIEF-011**: `forge_hub.py brief` shall not change `state.json` other than through the wake.
+- [x] **CMD-BRIEF-001**: When `brief` runs, `forge_hub.py` shall run the workstream-state wake with the given `--workstream`, `--holder-pid`, and `--holder-session`, and when the wake status is not `OK`, return the wake report unchanged.
+- [x] **CMD-BRIEF-002**: When the wake status is `OK`, `forge_hub.py brief` shall return `status` `OK`, `lines` holding exactly five strings, and `pending_envelope`.
+- [x] **CMD-BRIEF-003**: `forge_hub.py brief` shall make line 1 `Workstream: <org>/<repo>/<workstream> (<repo_mode>, <collaborative or sequential>, plan <plan_mode>)` from `identity` and `config`.
+- [x] **CMD-BRIEF-004**: `forge_hub.py brief` shall make line 2 `Phase: <current_phase> (<last_agent> → <last_status>)`, or `Phase: <current_phase> (nothing run yet)` while `lifecycle.last_agent` is `null`.
+- [x] **CMD-BRIEF-005**: `forge_hub.py brief` shall make line 3 `Progress: <completed count> of <assigned count> scope patterns complete; remaining: <remaining patterns joined by ", ", or none>`, or `Progress: no plan yet` while `scope_manifest.assigned` is empty, followed by `; open blockers: <n>` when `blockers` is not empty.
+- [x] **CMD-BRIEF-006**: `forge_hub.py brief` shall make line 4 `Hub context: ` followed by the first decision of the newest non-historical `hub` memory entry that has a decision, or `none recorded` when there is none.
+- [x] **CMD-BRIEF-007**: While `lifecycle.dispatched` is set and `envelopes/<dispatch_id>.json` exists, `forge_hub.py brief` shall make line 5 `Next step: Apply the result <agent> left (<status>)`, using `(unreadable)` when the file is not a JSON object with a `status`, and set `pending_envelope` to `true`.
+- [x] **CMD-BRIEF-008**: While CMD-BRIEF-007 does not apply and the phase is `INIT`, `forge_hub.py brief` shall make line 5 `Next step: Start routing (nothing has run yet)`.
+- [x] **CMD-BRIEF-009**: While CMD-BRIEF-007 and CMD-BRIEF-008 do not apply, `forge_hub.py brief` shall make line 5 from the router's `--dry-run` decision: `Next step: Waiting for you: <question>` for a pause, `Next step: Stopped: <status>: <detail>` for a stop, and `Next step: <summary>` otherwise.
+- [x] **CMD-BRIEF-010**: `forge_hub.py brief` shall set `pending_envelope` to `false` whenever CMD-BRIEF-007 does not apply.
+- [x] **CMD-BRIEF-011**: `forge_hub.py brief` shall not change `state.json` other than through the wake.
 
 ## Envelope pickup
 
-- [ ] **CMD-ENV-001**: When `envelope` runs while `lifecycle.dispatched` is set and `envelopes/<dispatch_id>.json` holds a JSON object, `forge_hub.py` shall write `{"type": "result", "envelope": <that object>}` to `envelopes/<dispatch_id>.event.json` and return `status` `OK` with its absolute path in `event_path`.
-- [ ] **CMD-ENV-002**: If `envelope` runs while `lifecycle.dispatched` is `null`, then `forge_hub.py` shall return `status` `NO_DISPATCH`.
-- [ ] **CMD-ENV-003**: If `envelope` runs while `envelopes/<dispatch_id>.json` does not exist, then `forge_hub.py` shall return `status` `ENVELOPE_MISSING` with the expected path.
-- [ ] **CMD-ENV-004**: If `envelopes/<dispatch_id>.json` does not parse as a JSON object, then `forge_hub.py envelope` shall return `status` `ENVELOPE_UNREADABLE` with the parse error in `detail` and write no event.
-- [ ] **CMD-ENV-005**: When `envelope` is given `--discard` and `envelopes/<dispatch_id>.json` exists, `forge_hub.py` shall rename it to `<dispatch_id>.rejected-<YYYYMMDDTHHMMSSZ>.json` in the same directory and return `status` `DISCARDED` with the new path.
-- [ ] **CMD-ENV-006**: If the `--state` file of `envelope` or `answer` is missing or does not parse as a JSON object, then `forge_hub.py` shall return `status` `STATE_INVALID` with a `detail` saying which.
-- [ ] **CMD-ENV-007**: `forge_hub.py envelope` shall read the envelope from, and write the event to, the `envelopes/` directory beside the `--state` file, creating that directory when it is missing.
+- [x] **CMD-ENV-001**: When `envelope` runs while `lifecycle.dispatched` is set and `envelopes/<dispatch_id>.json` holds a JSON object, `forge_hub.py` shall write `{"type": "result", "envelope": <that object>}` to `envelopes/<dispatch_id>.event.json` and return `status` `OK` with its absolute path in `event_path`.
+- [x] **CMD-ENV-002**: If `envelope` runs while `lifecycle.dispatched` is `null`, then `forge_hub.py` shall return `status` `NO_DISPATCH`.
+- [x] **CMD-ENV-003**: If `envelope` runs while `envelopes/<dispatch_id>.json` does not exist, then `forge_hub.py` shall return `status` `ENVELOPE_MISSING` with the expected path.
+- [x] **CMD-ENV-004**: If `envelopes/<dispatch_id>.json` does not parse as a JSON object, then `forge_hub.py envelope` shall return `status` `ENVELOPE_UNREADABLE` with the parse error in `detail` and write no event.
+- [x] **CMD-ENV-005**: When `envelope` is given `--discard` and `envelopes/<dispatch_id>.json` exists, `forge_hub.py` shall rename it to `<dispatch_id>.rejected-<YYYYMMDDTHHMMSSZ>.json` in the same directory and return `status` `DISCARDED` with the new path.
+- [x] **CMD-ENV-006**: If the `--state` file of `envelope` or `answer` is missing or does not parse as a JSON object, then `forge_hub.py` shall return `status` `STATE_INVALID` with a `detail` saying which.
+- [x] **CMD-ENV-007**: `forge_hub.py envelope` shall read the envelope from, and write the event to, the `envelopes/` directory beside the `--state` file, creating that directory when it is missing.
 
 ## Answer events
 
-- [ ] **CMD-ANS-001**: When `answer` runs while `lifecycle.awaiting` is set, `forge_hub.py` shall write `{"type": "user", "awaiting": <lifecycle.awaiting.kind>, "decision": <--decision>}`, plus `option` when `--option` is given and `notes` (the file's text) when `--notes-file` is given, to `envelopes/answer-<YYYYMMDDTHHMMSSZ>.event.json`, and return `status` `OK` with its absolute path in `event_path`.
-- [ ] **CMD-ANS-002**: If `answer` runs while `lifecycle.awaiting` is `null`, then `forge_hub.py` shall return `status` `NOT_PAUSED` and write nothing.
-- [ ] **CMD-ANS-003**: If `answer`'s `--notes-file` cannot be read, then `forge_hub.py` shall exit `2` with a message on stderr and write nothing.
+- [x] **CMD-ANS-001**: When `answer` runs while `lifecycle.awaiting` is set, `forge_hub.py` shall write `{"type": "user", "awaiting": <lifecycle.awaiting.kind>, "decision": <--decision>}`, plus `option` when `--option` is given and `notes` (the file's text) when `--notes-file` is given, to `envelopes/answer-<YYYYMMDDTHHMMSSZ>.event.json`, and return `status` `OK` with its absolute path in `event_path`.
+- [x] **CMD-ANS-002**: If `answer` runs while `lifecycle.awaiting` is `null`, then `forge_hub.py` shall return `status` `NOT_PAUSED` and write nothing.
+- [x] **CMD-ANS-003**: If `answer`'s `--notes-file` cannot be read, then `forge_hub.py` shall exit `2` with a message on stderr and write nothing.
 
 ## Identity
 

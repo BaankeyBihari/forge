@@ -37,6 +37,8 @@ Everything that can be decided mechanically is decided by a Python script (stand
 - **`guard_core.py`** — the per-tool-call guard logic: kill switch, duplicate-call circuit breaker, read-only roles, path boundaries.
 - **`forge_memory.py`** — loads an agent's episodic memory, marking notes anchored to commits the branch no longer contains.
 - **`forge_hub.py`** — the Commander's mechanical steps: classifying the `/forge` argument, composing the resume brief, and picking up result envelopes and user answers as router events.
+- **`forge_spoke.py`** — the spokes' mechanical steps: reading the invocation, committing with Forge trailers written from state, completing and checking the result envelope, and reporting scope facts.
+- **`lid_check.py`** — structural LID checks for the verifier: every workstream spec has a test and a code tag, and every `@spec` annotation names a real spec.
 
 The Hub prompt handles what needs judgment: talking to the user, naming workstreams, dispatching, and presenting Council output. Envelopes travel between the Hub, the router, and spokes as files, so no model retypes them.
 
@@ -75,7 +77,7 @@ The `forge-memory` skill loads and saves each agent's episodic notes (decisions,
 - Publishing is impossible unless the verifier and reviewer both passed the exact current HEAD on a clean tree.
 - Any workstream can be resumed in a fresh session from its state alone, with the resume brief correct about phase, progress, and next step.
 - Workstream state never leaks into the repo or into another workstream.
-- Protocol, scripts, spoke skills, Council, and `forge-memory` live in `reference/` with no Claude-specific content, so another CLI can adopt them with its own adapter.
+- Scripts, spoke skills, Council, `forge-spoke`, and `forge-memory` live in `reference/` with no Claude-specific content, so another CLI can adopt them with its own adapter.
 
 ## Non-Goals
 
@@ -84,6 +86,7 @@ The `forge-memory` skill loads and saves each agent's episodic notes (decisions,
 - **Prompt-behavior evaluation suites.** Correctness of the deterministic scripts is tested; behavioral evals of spoke prompts are out of scope.
 - **Jira and other non-GitHub trackers.** Scout and reporter work with GitHub (issues, PRs, Actions) through `gh` only.
 - **Plugin packaging.** Forge installs by symlink, not as a Claude Code plugin.
+- **Bootstrapping linked-intent development.** A repository is planned with LID only when it already has LID structure; otherwise Forge plans with a `PLAN.md`. Adding LID to a repository is the user's job, with their own tools.
 - **Autonomous recovery from ambiguous state.** Forge does not guess its way out of drift, dirty trees, or contested locks.
 
 ## Tenets
@@ -100,16 +103,17 @@ The `forge-memory` skill loads and saves each agent's episodic notes (decisions,
 ```text
 rev                          # upstream pins: one entry per dependency, a main-branch commit
 reference/                   # CLI-neutral
-  PROTOCOL.md                # state.json schema, envelopes, trailers, phases, routing table
   scripts/                   # resolve_state.py, next_step.py, verify_gate.py, guard_core.py,
-                             # forge_memory.py, forge_hub.py
+                             # forge_memory.py, forge_hub.py, forge_spoke.py, lid_check.py
     tests/                   # pytest suite
   skills/
+    forge-spoke/             # the dispatch procedure every spoke follows
+      scripts -> ../../scripts
     forge-memory/            # load / save episodic memory
       scripts -> ../../scripts
     forge-planner/  forge-qa/  forge-dev/  forge-verifier/
     forge-reviewer/ forge-scout/ forge-publisher/ forge-reporter/
-    forge-council/           # council orchestration + persona definitions
+    forge-council/           # council orchestration + personas/<persona>.md charters
 claude/                      # Claude Code adapter
   installer.sh               # install, --uninstall, --vendor
   skills/forge/SKILL.md      # Commander (Hub)
@@ -141,7 +145,7 @@ flowchart TB
 
 ### Phase flow
 
-Planning runs LID stages 1–4 (or naive planning) in `strict` cadence (pause after each stage) or `auto` cadence (chain until done or blocked). Build runs `sequential` (QA full → Dev full) or `collaborative` (QA skeletons → Dev stubs → QA full → Dev full, with the verifier recomputing remaining scope after every pass so human commits shrink it). Then final verification, internal review, publish, CI watch, and report. The complete phase set and transition table live in `PROTOCOL.md` and are implemented only by `next_step.py`.
+Planning runs LID stages 1–4 (or naive planning) in `strict` cadence (pause after each stage) or `auto` cadence (chain until done or blocked). Build runs `sequential` (QA full → Dev full) or `collaborative` (QA skeletons → Dev stubs → QA full → Dev full, with the verifier recomputing remaining scope after every pass so human commits shrink it). Then final verification, internal review, publish, CI watch, and report. The complete phase set and transition table live in the router design and are implemented only by `next_step.py`.
 
 ### Installation
 
@@ -149,7 +153,7 @@ Planning runs LID stages 1–4 (or naive planning) in `strict` cadence (pause af
 
 ### Dependencies
 
-- **Required:** the `linked-intent-dev` and `arrow-maintenance` Claude Code plugins. The planner uses LID; `map-codebase` and the arrow audit come from `arrow-maintenance`.
+- **Required:** the `linked-intent-dev` Claude Code plugin, which the planner follows for LID stages 1–4.
 - **Provenance only:** upstream sources Forge's Council personas and memory format are adapted from are pinned in `rev` so they can be diffed later; nothing is installed from them.
 
 ## Key Design Decisions
@@ -175,5 +179,5 @@ Planning runs LID stages 1–4 (or naive planning) in `strict` cadence (pause af
 ## References
 
 - `docs/notes.md` — original blueprint for Forge across four CLIs.
-- Linked-intent development (`linked-intent-dev`, `arrow-maintenance` plugins) — the planner's methodology and audit tooling.
+- Linked-intent development (`linked-intent-dev` plugin) — the planner's methodology.
 - Claude Code subagents and hooks documentation — subagent nesting, `agent_type` in hook input, per-agent tool limits.

@@ -102,7 +102,7 @@ On success it returns `CREATED` with the identity and `worktree_path`.
 
 ## state.json
 
-`state.json` is the authoritative record of a workstream. The schema lives in `PROTOCOL.md`; this section fixes its top-level shape and which component writes each section.
+`state.json` is the authoritative record of a workstream. This section fixes its top-level shape and which component writes each section; the router design defines the fields it writes.
 
 | Section | Contents | Written by |
 |---|---|---|
