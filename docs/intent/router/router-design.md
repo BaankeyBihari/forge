@@ -112,12 +112,13 @@ The router owns these `lifecycle` fields:
 | `dispatched` | `{dispatch_id, agent, mode, base_sha}` while a spoke is out; `null` otherwise |
 | `invoke` | The complete invocation envelope of the latest dispatch, so a re-derived dispatch carries the same notes and context files |
 | `awaiting` | `{kind, payload}` while paused; `null` otherwise |
-| `resume_phase` | Phase to return to after a reconcile, council, or repair detour |
+| `resume_phase` | Phase to return to after a council or repair detour |
+| `after_reconcile` | Phase to return to after a drift-caused `RECONCILE`; `null` otherwise. Kept apart from `resume_phase` so drift during a council or repair detour does not lose where that detour returns |
 | `repair_queue` | Ordered `[{agent, notes, context_refs, blocker_id}]` of repair dispatches still to run; `blocker_id` names the blocker the repair resolves |
 | `attempts` | Dispatch count per phase since that phase was last entered |
 | `blocker_counts` | Blockers raised per kind over the workstream's life |
 | `last_agent`, `last_status` | From the most recently applied envelope |
-| `last_envelope` | Absolute path of the most recently applied result envelope's file, `envelopes/<dispatch_id>.json` beside `state.json` |
+| `report_input` | Absolute path of the envelope file the next report is built from: set when a `PUBLISHED`, `PR_REVIEW_READY`, or `REPORT_DRAFTED` envelope is applied, to `envelopes/<dispatch_id>.json` beside `state.json` |
 
 It also writes `anchors` (except `stale_shas`), `scope_manifest`, `blockers`, `council_decisions`, and `approvals`.
 
@@ -160,9 +161,9 @@ A row applies when the current phase and the accepted envelope status match. Pau
 | `INIT` | `start` event | `RECON` if `identity.issue` is set; else the first planning phase (`PLAN_S1` for LID, `PLAN` for naive) |
 | `RECON` | `OK` | First planning phase; the workstream's `scout/` directory, which holds the scout's brief, joins the planner's `context_refs` |
 | `PLAN_Sn` (strict) | `STAGE_COMPLETE` | Pause `plan_approval` → `approve`: `PLAN_S(n+1)`; `revise`: re-dispatch `PLAN_Sn` with `notes` |
-| `PLAN_Sn` / `PLAN` | `READY_FOR_QA` | Record `scope_manifest.assigned`; pause `plan_approval` → `approve`: set `plan_base_sha = HEAD`, go to `POST_PLAN`; `revise`: re-dispatch the current planning phase with `notes` |
+| `PLAN_Sn` / `PLAN` | `READY_FOR_QA` | Record `scope_manifest.assigned` (empty when the plan changes only plan paths); pause `plan_approval` → `approve`: set `plan_base_sha = HEAD`, `scope_manifest.remaining = assigned`, `completed = []`, go to `POST_PLAN`; `revise`: re-dispatch the current planning phase with `notes` |
 | `PLAN_Sn` / `PLAN` | `CONCERNS` | Blocker `CONCERNS` |
-| `POST_PLAN` | `PASS` | Collaborative: `pass = 1`, `PRE_QA`. Sequential: `QA_FULL` |
+| `POST_PLAN` | `PASS` | `scope_manifest.assigned` empty: `VERIFY_FINAL`. Otherwise collaborative: `pass = 1`, `PRE_QA`; sequential: `QA_FULL` |
 | `POST_PLAN` | `AUDIT_FAILED` | Blocker `AUDIT_FAILED` |
 | `PRE_QA` | `PARTIAL_REMAINING` | Record scope; pass 1: `QA_SKEL`; pass 2: `QA_FULL` |
 | `PRE_QA` | `NOTHING_REMAINING` | Record scope; pass 1: `PRE_DEV`; pass 2: `PRE_DEV` |
@@ -175,7 +176,7 @@ A row applies when the current phase and the accepted envelope status match. Pau
 | `POST_QA` | `AUDIT_FAILED` | Blocker `AUDIT_FAILED` |
 | `DEV_STUB` / `DEV_FULL` | `TEST_CHANGE_REQUESTED` or `CONTRACT_MISMATCH` | Blocker of that kind |
 | `DEV_FULL` | `IMPLEMENTATION_COMPLETE` | `VERIFY_FINAL` |
-| `VERIFY_FINAL` | `PASS` | Run the commit gate (below); on success set `verifier_pass_sha = HEAD`, go to `REVIEW_INTERNAL`; on failure blocker `AUDIT_FAILED`, agent `commit-gate`, with the gate's error findings |
+| `VERIFY_FINAL` | `PASS` | Run the commit gate (below); on success set `verifier_pass_sha = HEAD`, go to `REVIEW_INTERNAL`; on failure see *Commit gate* |
 | `VERIFY_FINAL` | `AUDIT_FAILED` or `TESTS_FAILED` | Blocker of that kind |
 | `REVIEW_INTERNAL` | `REVIEW_APPROVED` | Set `reviewer_pass_sha = HEAD`; pause `publish_approval` → `approve` with `option` `push` or `merge`: `PUBLISH`; `hold`: stay paused |
 | `REVIEW_INTERNAL` | `CHANGES_REQUESTED` | Blocker `CHANGES_REQUESTED` |
@@ -186,15 +187,15 @@ A row applies when the current phase and the accepted envelope status match. Pau
 | `CI_WATCH` | `CI_GREEN` | `close` |
 | `CI_WATCH` | `CI_FAILED` | Blocker `CI_FAILED` |
 | `CI_WATCH` | `CI_NONE` | Pause `ci_none` → `approve`: `close`; `wait`: re-dispatch `CI_WATCH` |
-| `REPORT` | `REPORT_DRAFTED` | Pause `report_approval`, with `last_envelope` (the draft) in `context_refs` → `approve`: re-dispatch reporter `send`; `revise`: re-dispatch reporter `draft` with `notes`; `skip`: as for `REPORT_SENT` |
+| `REPORT` | `REPORT_DRAFTED` | Pause `report_approval`, with `report_input` (the draft) in `context_refs` → `approve`: re-dispatch reporter `send`; `revise`: re-dispatch reporter `draft` with `notes`; `skip`: as for `REPORT_SENT` |
 | `REPORT` | `REPORT_SENT` | `CI_WATCH` |
-| `RECONCILE` | `PASS` | Replace `scope_manifest.completed` and `remaining` with the envelope's scope; go to `resume_phase` |
+| `RECONCILE` | `PASS` | Replace `scope_manifest.completed` and `remaining` with the envelope's scope; go to `after_reconcile` and clear it |
 | `COUNCIL` | `COUNCIL_RULING` | See *Blockers and Council* |
 | `REPAIR` | `REPAIR_COMMITTED` | When the agent is `forge-planner` and the envelope carries `scope.assigned`, replace `scope_manifest.assigned` with it. Pop the queue head; next queue item, or `resume_phase` when empty |
 | `QA_SKEL` / `QA_FULL` / `REPAIR` (qa) | `CONTRACT_MISMATCH` | Blocker `CONTRACT_MISMATCH` |
 | any phase dispatching `forge-qa` or `forge-dev` | `HUMAN_CODE_CHANGE_REQUESTED` | See *Human-Code Approvals*. The planner never returns it: its commits are exempt from the human-code rule (gates design) |
 
-Every `REPORT` dispatch carries `last_envelope` first in `context_refs`: the publisher's `PUBLISHED` envelope, the reviewer's `PR_REVIEW_READY` envelope, or the reporter's own `REPORT_DRAFTED` envelope when it sends or revises that draft. The reporter sends exactly the draft the user saw.
+Every `REPORT` dispatch carries exactly one `context_refs` entry, `report_input`: the publisher's `PUBLISHED` envelope, the reviewer's `PR_REVIEW_READY` envelope, or the reporter's own latest `REPORT_DRAFTED` envelope when it sends or revises that draft. The reporter sends exactly the draft the user saw.
 
 A `push` publish creates or updates the pull request before CI is watched, because many repositories run CI only on pull requests. Forge never merges into the base branch itself. The `merge` target only confirms the merge is possible and hands it to the user; once the branch is merged there is no remote branch for CI or a pull request, so the workstream closes. After a `MERGE_BLOCKED` stop, the user typically merges `main` into the branch; the next call sees that as drift and the branch goes back through verification and review before publishing again.
 
@@ -209,7 +210,12 @@ Before dispatching, the router enforces:
 
 ### Commit gate
 
-On a `VERIFY_FINAL` `PASS`, the router itself runs the gate checks (`verify_gate.py` trailer, boundary, and human-code checks over `workstream_base_sha..HEAD`, or over every first-parent commit reachable from `HEAD` when `workstream_base_sha` is `null`). The range starts at the workstream's base so the planner's commits are checked too; the gate exempts commits up to `plan_base_sha` from the human-code check, because approving the plan approved them. The verifier spoke's own claim is not enough to set `verifier_pass_sha`: the checks that can be computed are computed here.
+On a `VERIFY_FINAL` `PASS`, the router itself runs the gate checks (`verify_gate.py` trailer, boundary, and human-code checks over `workstream_base_sha..HEAD`, or over every first-parent commit reachable from `HEAD` when `workstream_base_sha` is `null`). The range starts at the workstream's base so the planner's commits are checked too; the gate exempts planner commits from the human-code check. The verifier spoke's own claim is not enough to set `verifier_pass_sha`: the checks that can be computed are computed here.
+
+A gate error names a commit already in the branch, and agents cannot rewrite history, so no repair dispatch can clear it:
+
+- When every error finding is `HUMAN_CODE_MODIFIED`, the router pauses `human_code_approval` presenting each finding's commit, path, and lines. `approve` appends one approval per finding — `{id, agent: the commit's Forge-Agent, paths: [path], ranges: {path: lines}, base_sha: the commit's parent, approved_by: "user"}` — and re-dispatches `VERIFY_FINAL`; `reject` stops with `GATE_REJECTED`.
+- Otherwise the router stops with `GATE_UNREPAIRABLE` and the error findings. The user rewrites the branch themselves; the next call sees that as drift and verifies again.
 
 ## Transition Table — PR Review Flow
 
@@ -223,38 +229,40 @@ On a `VERIFY_FINAL` `PASS`, the router itself runs the gate checks (`verify_gate
 
 ## Blockers and Council
 
-A blocker status appends `{id, kind, agent, phase, details}` to `blockers`, sets `resume_phase`, and routes by kind. A blocker raised by the commit gate rather than a spoke has agent `commit-gate`.
+A blocker status appends `{id, kind, agent, phase, details}` to `blockers`, sets `resume_phase`, and routes by kind. A blocker raised while in `REPAIR` keeps the existing `resume_phase`, and the repairs its ruling queues go to the front of `repair_queue`, so the interrupted repair runs after them and the detour still returns where it began.
 
 | Kind | Raised by | Council panel | User sign-off | After approval |
 |---|---|---|---|---|
 | `CONCERNS` | planner | `pm`, `architect`, `critic` | Always | Re-dispatch the blocked planning phase with the ruling's matrix in `context_refs` and the chosen option's `delta` in `notes` |
 | `TEST_CHANGE_REQUESTED`, `CONTRACT_MISMATCH` | dev, or qa for `CONTRACT_MISMATCH` | `senior-dev`, `architect` | Unless auto-resolve applies | Queue the ruling's `route_to` agents with its delta; resume the blocked phase. An empty `route_to` resolves the blocker and runs the blocked phase again with the delta in `notes` |
-| `AUDIT_FAILED` | verifier or commit gate | `architect`, `senior-dev` | Unless auto-resolve applies | Queue the ruling's `route_to` agents; resume the failed verifier phase |
-| `TESTS_FAILED` | verifier | `debugger`, `senior-dev` | Unless auto-resolve applies | Queue the ruling's `route_to` agents; resume `VERIFY_FINAL` |
-| `CI_FAILED` | scout | `debugger`, `senior-dev` | Unless auto-resolve applies | Queue the ruling's `route_to` agents; resume `VERIFY_FINAL`. An empty `route_to` (a flaky failure) goes to `CI_WATCH` with mode `CI_RERUN`, which re-runs the failed jobs and watches again |
+| `AUDIT_FAILED` | verifier | `architect`, `senior-dev` | Unless auto-resolve applies | Queue the ruling's `route_to` agents with its delta; resume the failed verifier phase |
+| `TESTS_FAILED` | verifier, in `VERIFY_FINAL` only | `debugger`, `senior-dev` | Unless auto-resolve applies | Queue the ruling's `route_to` agents with its delta; resume `VERIFY_FINAL` |
+| `CI_FAILED` | scout | `debugger`, `senior-dev` | Unless auto-resolve applies | Queue the ruling's `route_to` agents with its delta; resume `VERIFY_FINAL`. An empty `route_to` (a flaky failure) resolves the blocker and goes to `CI_WATCH` with mode `CI_RERUN`, which re-runs the failed jobs and watches again |
 | `CHANGES_REQUESTED` | reviewer | none | Only when a finding routes to the planner (pause `findings_signoff`) | Queue repairs for each `route_to` agent in arrow order (planner, qa, dev); resume `VERIFY_FINAL` |
 
-**Auto-resolve applies** when `config.council_auto_resolve` is `true` and the ruling's `requires_user` is `false`. Otherwise the router pauses `council_signoff`, presenting the ruling's options; `approve` (with the chosen `option`, which must be one of the ruling's option labels, otherwise `EVENT_INVALID`) records a `council_decisions` entry `{id, blocker_id, panel, option, approved_by: "user"}`, where `panel` is the ruling's `panel` (the personas actually convened) and applies the "after approval" column using that option's `route_to` and `delta`; auto-resolve applies the recommended option's; `reject` with `notes` re-dispatches the council once with those notes.
+**Auto-resolve applies** when `config.council_auto_resolve` is `true` and the ruling's `requires_user` is `false`. Otherwise the router pauses `council_signoff`, presenting the ruling's options; `approve` (with the chosen `option`, which must be one of the ruling's option labels, otherwise `EVENT_INVALID`) records a `council_decisions` entry `{id, blocker_id, panel, option, approved_by: "user"}`, where `panel` is the ruling's `panel` (the personas actually convened) and applies the "after approval" column using that option's `route_to` and `delta`; auto-resolve applies the recommended option's and records the entry with `approved_by: "auto"`; `reject` with `notes` re-dispatches the council once with those notes.
 
 Before dispatching the council, the router writes the blocker to `council/<blocker id>.json` in the workstream's state directory and puts that file first in `context_refs`, followed by the `context_refs` of the dispatch that raised the blocker. The returned ruling is stored on the blocker as `ruling`, so a `council_signoff` answered in a later session applies exactly the ruling the user was shown. A ruling for `AUDIT_FAILED` or `TESTS_FAILED` with an empty `route_to` needs no repair: the blocker is resolved and the failed phase runs again. The applied option's `route_to` limits which agents the queue may contain; a ruling whose top-level or option `route_to` names an agent outside `forge-planner`, `forge-qa`, `forge-dev` is an envelope error.
 
-Resolving a blocker removes it from `blockers`. Each repair-queue item names its blocker in `blocker_id`, so draining the queue removes the right one.
+Resolving a blocker removes it from `blockers`. Each repair-queue item names its blocker in `blocker_id` and carries the applied option's `delta` as `notes` and the ruling's matrix followed by the blocked dispatch's `context_refs` as `context_refs`. When an item completes and no remaining item names the same blocker, that blocker is removed, so a blocker raised during a repair is removed when its own repairs finish, not with the outer one.
 
 `lifecycle.blocker_counts` counts blockers raised per kind over the workstream's life. Raising a fourth blocker of the same kind pauses `attempt_limit` instead of routing it, with the same `retry` (resets that kind's count) and `stop` options as the per-phase limit. This bounds loops that re-enter phases — review, repair, verify, review — which the per-phase count alone resets.
 
 ## Human-Code Approvals
 
-`HUMAN_CODE_CHANGE_REQUESTED` pauses `human_code_approval`, presenting the paths and line ranges from the escalation. `approve` appends `{id, agent, paths, ranges, base_sha, approved_by: "user"}` to `approvals`, with `base_sha` set to the escalating envelope's `head_sha` (the commit whose lines the user was shown), and re-dispatches the same phase with the approval ID in `notes` (in `REPAIR`, appended to the queue item's notes, which are kept); `reject` with `notes` re-dispatches the same phase with the user's notes. The gate component treats an approval as covering only the listed ranges as they stood at `base_sha`.
+`HUMAN_CODE_CHANGE_REQUESTED` pauses `human_code_approval`, presenting the paths and line ranges from the escalation. `approve` appends `{id, agent, paths, ranges, base_sha, approved_by: "user"}` to `approvals`, with `base_sha` set to the escalating envelope's `head_sha` (the commit whose lines the user was shown), and re-dispatches the same phase with the approval ID appended to the replaced dispatch's `notes`; `reject` re-dispatches the same phase with the user's notes appended to the replaced dispatch's `notes`. In `REPAIR`, the replaced dispatch's notes are the queue item's, so its delta is kept either way. The gate component treats an approval as covering only the listed ranges as they stood at `base_sha`.
 
 ## Drift and Dirty Trees
 
 On every call, after any event is applied:
 
-1. **Drift `ahead` with human commits, `behind`, or `diverged`:** set `verifier_pass_sha` and `reviewer_pass_sha` to `null`. If the next phase is already a verifier phase (`PRE_QA`, `PRE_DEV`, `POST_QA`, `VERIFY_FINAL`, `RECONCILE`), continue to it. Otherwise set `resume_phase` to the current phase and go to `RECONCILE`. In both cases set `last_known_head_sha = HEAD`.
+1. **Drift `ahead` with human commits, `behind`, or `diverged`:** set `verifier_pass_sha` and `reviewer_pass_sha` to `null`. If the next phase is already a verifier phase (`PRE_QA`, `PRE_DEV`, `POST_QA`, `VERIFY_FINAL`, `RECONCILE`), continue to it. Otherwise set `after_reconcile` to the next phase — or to `VERIFY_FINAL` when the next phase is `REPORT` or `CI_WATCH`, whose commits were never verified, reviewed, or pushed — and go to `RECONCILE`. In both cases set `last_known_head_sha = HEAD`.
+
+   In a `pr_review` workstream, the worktree is pinned at the pull request's head and nothing should commit there; drift stops with `REVIEW_WORKTREE_MOVED` instead.
 2. **Drift `ahead` with only Forge commits** from a dispatch whose envelope never arrived (the session ended while the spoke ran): treated as in step 1, so the verifier accounts for the work before the phase is retried.
 3. **Applied envelope from a committing agent:** set `last_known_head_sha = head_sha`. When the envelope's range also holds commits from someone else and the envelope leads to a pause, `last_known_head_sha` keeps its value from before the call, so those commits are still reported as drift when the pause is answered rather than absorbed into the anchor.
 4. **Outstanding dispatch on a dirty tree:** returning an outstanding dispatch again counts as dispatching, so a dirty tree pauses `dirty_tree` as in step 7. The changes may be the unfinished work of a spoke whose session ended, or the user's own edits; the question says so, because only the user can tell which, and a `checkpoint` records them as human-authored.
-5. **Workstream about to close:** drift found on a call that would return `close` goes to `RECONCILE` with `resume_phase = VERIFY_FINAL`, so the new commits are verified and reviewed before the workstream finishes.
+5. **Workstream about to close:** drift found on a call that would return `close` goes to `RECONCILE` with `after_reconcile = VERIFY_FINAL`, so the new commits are verified and reviewed before the workstream finishes.
 6. **First dispatch:** when `last_known_head_sha` is still `null`, dispatching sets it to `HEAD`, so commits made before the first spoke commit are still seen as drift.
 7. **Dirty tree:** before dispatching any agent except `forge-scout` and `forge-reporter`, pause `dirty_tree` with options `checkpoint` (the Hub commits the changes as `wip(user): partial implementation`, without Forge trailers) and `stash`. The answer clears the pause; the next call re-checks the tree.
 
@@ -265,6 +273,33 @@ A pause that is waiting for the user is not disturbed by drift: drift is handled
 Each dispatch into a phase increments `attempts[phase]`; entering a phase from another phase resets its count, and so does dispatching the next item of the repair queue, so in `REPAIR` the limit counts retries of one repair rather than the length of the queue. A phase about to be dispatched for the fourth time pauses `attempt_limit` instead, with options `retry` (resets the count) and `stop`. This bounds automatic loops: repeated verifier failures, repeated council rulings that do not resolve a blocker, and crash–retry loops.
 
 A dispatch made while applying a user event — `revise`, `reject`, `wait`, an approval that re-dispatches the same phase, or `retry` itself — sets that phase's count to `1` and is never paused by the limit. The user's answer is new input, so the automatic retries after it start a fresh count; loops that pass through the user each time remain bounded by the per-kind blocker count.
+
+## Statuses by Phase
+
+Besides `ERROR`, which every dispatch may return, the router accepts exactly these statuses:
+
+| Phase | Accepted |
+|---|---|
+| `RECON`, `PR_FETCH` | `OK` |
+| `PLAN_S1`–`PLAN_S4` | `STAGE_COMPLETE`, `READY_FOR_QA`, `CONCERNS` |
+| `PLAN` | `READY_FOR_QA`, `CONCERNS` |
+| `POST_PLAN`, `POST_QA` | `PASS`, `AUDIT_FAILED` |
+| `PRE_QA`, `PRE_DEV` | `PARTIAL_REMAINING`, `NOTHING_REMAINING` |
+| `QA_SKEL` | `SKELETON_COMMITTED`, `CONTRACT_MISMATCH`, `HUMAN_CODE_CHANGE_REQUESTED` |
+| `QA_FULL` | `TESTS_COMMITTED`, `CONTRACT_MISMATCH`, `HUMAN_CODE_CHANGE_REQUESTED` |
+| `DEV_STUB` | `STUBS_COMMITTED`, `TEST_CHANGE_REQUESTED`, `CONTRACT_MISMATCH`, `HUMAN_CODE_CHANGE_REQUESTED` |
+| `DEV_FULL` | `IMPLEMENTATION_COMPLETE`, `TEST_CHANGE_REQUESTED`, `CONTRACT_MISMATCH`, `HUMAN_CODE_CHANGE_REQUESTED` |
+| `VERIFY_FINAL` | `PASS`, `AUDIT_FAILED`, `TESTS_FAILED` |
+| `REVIEW_INTERNAL` | `REVIEW_APPROVED`, `CHANGES_REQUESTED` |
+| `PUBLISH` | `PUBLISHED`, `MERGE_READY`, `MERGE_BLOCKED`, `PUBLISH_REFUSED` |
+| `CI_WATCH` | `CI_GREEN`, `CI_FAILED`, `CI_NONE` |
+| `REPORT` | `REPORT_DRAFTED`, `REPORT_SENT` |
+| `RECONCILE` | `PASS` |
+| `COUNCIL` | `COUNCIL_RULING` |
+| `REPAIR` | `REPAIR_COMMITTED`, `CONTRACT_MISMATCH`, `HUMAN_CODE_CHANGE_REQUESTED` |
+| `PR_REVIEW` | `PR_REVIEW_READY` |
+
+`TESTS_FAILED` is accepted only in `VERIFY_FINAL`: earlier verifier phases expect red tests, so failing tests there are not a blocker.
 
 ## Statuses by Mode
 
@@ -320,6 +355,10 @@ A dispatch of the same phase caused by a user answer (`revise`, `reject` of a hu
 | Council option applied | The option the user chose, each option carrying its own `route_to` and `delta` | Always the recommended option's repair | A user who picks another option must get that option's repair. |
 | Status checks | By phase and mode | By phase only | A strict stage-2 planner returning `READY_FOR_QA` would skip stages 3 and 4; a `PLAN_S4` `STAGE_COMPLETE` would route to a stage that does not exist. |
 | Council routing for test disputes | The ruling's `route_to`, like every other kind | Always `forge-qa` | The council may find the code, not the test, at fault; forcing QA would repair the wrong side. |
+| Unrepairable gate errors | Human-code findings get a retroactive approval pause; anything else stops for the user | Raise `AUDIT_FAILED` and let the council route repairs | A repair adds commits after the bad one, which stays in the range; agents cannot rewrite history, so the loop would only end at the attempt limit. |
+| Drift return | `after_reconcile`, separate from `resume_phase` | One shared field | Drift during a council or repair detour would overwrite where the detour returns. |
+| Drift after publishing | Back to `VERIFY_FINAL` | Back to the interrupted phase | `REPORT` and `CI_WATCH` would describe and watch commits nobody verified, reviewed, or pushed. |
+| Docs-only plans | Empty scope allowed; `POST_PLAN` goes straight to `VERIFY_FINAL` | Require a scope | A plan that changes only docs has no tests or code for QA and dev to write. |
 | Read-only agents and dirty trees | Scout and reporter may run on a dirty tree; every other agent waits | Block all dispatch | Scout and reporter read remote state or committed receipts only; the verifier and reviewer would otherwise certify a HEAD that differs from the files on disk. |
 
 ## Open Questions & Future Decisions

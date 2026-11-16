@@ -36,7 +36,7 @@ Watches the CI runs for `HEAD`:
 2. Wait for every run to finish (`gh run watch <id> --exit-status`).
 3. All passed: `CI_GREEN`. Any failed: for each failed run, `gh run view <id> --log-failed`, and write `ci-<run id>.md` with the run, the failed jobs and steps, and the shortest log excerpt that shows each failure. Return `CI_FAILED` with `escalation.details` naming those files and a one-line cause per run.
 
-Each wait is one shell command that loops internally and stays within the shell call's time limit, so the guard's duplicate-call breaker never sees the same call repeated. A run's conclusion `success`, `skipped`, or `neutral` passes; `failure`, `timed_out`, `startup_failure`, or `cancelled` fails; a run waiting for approval or `action_required` is returned as `ERROR` naming the run, because only the user can release it.
+Each wait is one shell command that loops internally, stays within the shell call's time limit, exits early when `.STOP_FORGE` exists at the main worktree's root or the workstream worktree's root, and carries its round number, so no two wait calls are identical and the guard's duplicate-call breaker never trips. The scout keeps issuing rounds for up to 60 minutes in total; runs still unfinished then are returned as `ERROR` saying they are in progress, and resuming the workstream watches again. A run's conclusion `success`, `skipped`, or `neutral` passes; `failure`, `timed_out`, `startup_failure`, or `cancelled` fails; a run waiting for approval or `action_required` is returned as `ERROR` naming the run, because only the user can release it.
 
 ### `CI_RERUN`
 
@@ -54,7 +54,7 @@ Re-runs the failed jobs of every run for `HEAD` whose latest attempt failed (`gh
 ## Open Questions & Future Decisions
 
 ### Unverified
-1. How long one subagent dispatch can keep watching a slow CI run. When it cannot finish, the scout returns `ERROR` saying the runs are still in progress; resuming the workstream dispatches `CI_WATCH` again. The sandbox run measures it.
+1. Whether one subagent dispatch can keep watching for 60 minutes. The sandbox run measures it; the limit is lowered if not.
 
 ## References
 

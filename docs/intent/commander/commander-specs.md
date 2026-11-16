@@ -2,7 +2,7 @@
 
 Design: `commander-design.md`. Implementation: `reference/scripts/forge_hub.py` and `claude/skills/forge/SKILL.md`.
 
-Specs in the sections from *Identity* onward describe the Commander skill's procedure; they are verified by the sandbox scenario run, not by pytest. The `forge_hub.py` specs before them are tested with pytest.
+Specs in the sections from *Identity* onward describe the Commander skill's procedure. Deferred (`[D]`) until the sandbox scenario run checks them: no automated test can verify what a skill tells an agent to do. The `forge_hub.py` specs before them are tested with pytest.
 
 ## forge_hub.py invocation
 
@@ -55,64 +55,64 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 
 ## Identity
 
-- [ ] **CMD-ID-001**: The Commander shall pass `--holder-pid $CLAUDE_PID --holder-session ${CLAUDE_SESSION_ID}` to every `resolve_state.py`, `next_step.py`, and `forge_hub.py brief` call.
-- [ ] **CMD-ID-002**: The Commander shall run Forge scripts from `${CLAUDE_SKILL_DIR}/scripts/`.
-- [ ] **CMD-ID-003**: Before starting or resuming a workstream other than the one it holds in this session, the Commander shall run `resolve_state.py release` for the held workstream.
+- [D] **CMD-ID-001**: The Commander shall pass `--holder-pid $CLAUDE_PID --holder-session ${CLAUDE_SESSION_ID}` to every `resolve_state.py`, `next_step.py`, and `forge_hub.py brief` call.
+- [D] **CMD-ID-002**: The Commander shall run Forge scripts from `${CLAUDE_SKILL_DIR}/scripts/`.
+- [D] **CMD-ID-003**: Before starting or resuming a workstream other than the one it holds in this session, the Commander shall run `resolve_state.py release` for the held workstream.
 
 ## Starting a workstream
 
-- [ ] **CMD-START-001**: When `/forge` is classified `issue`, `pr`, or `adopt`, the Commander shall run `resolve_state.py new` with `--issue`, `--pr`, or `--branch` and the classified value, and `--worktree-root .claude/worktrees`.
-- [ ] **CMD-START-002**: When `/forge` is classified `describe`, the Commander shall derive a valid slug of two to five words from the text, other than `list`, `pr`, and `adopt`, and run `new --name` with it, or ask the user for a name when the text gives nothing to name.
-- [ ] **CMD-START-003**: The Commander shall pass `--base` only when the user named a base branch, and `--set` only for settings the user asked for.
-- [ ] **CMD-START-004**: When `new` returns `CREATED`, the Commander shall move the session into `worktree_path` with `EnterWorktree` and route with a `start` event.
-- [ ] **CMD-START-005**: When `new` returns `BASE_CONFIRM_REQUIRED`, the Commander shall ask the user to confirm the base and, on confirmation, run `new` again with `--base-confirmed`.
-- [ ] **CMD-START-006**: When `new` returns `DUPLICATE` or `STATE_EXISTS`, the Commander shall offer to resume the named workstream.
-- [ ] **CMD-START-007**: When `new` returns `BRANCH_CHECKED_OUT`, `BRANCH_EXISTS`, or `GH_FAILED`, the Commander shall report the status and its detail and start nothing.
-- [ ] **CMD-START-008**: When `/forge` is classified `unknown`, the Commander shall ask whether to start a new workstream with that name or show the list.
-- [ ] **CMD-START-009**: When `/forge` is classified `invalid`, the Commander shall show the detail and do nothing else.
+- [D] **CMD-START-001**: When `/forge` is classified `issue`, `pr`, or `adopt`, the Commander shall run `resolve_state.py new` with `--issue`, `--pr`, or `--branch` and the classified value, and `--worktree-root .claude/worktrees`.
+- [D] **CMD-START-002**: When `/forge` is classified `describe`, the Commander shall derive a valid slug of two to five words from the text, other than `list`, `pr`, and `adopt`, and run `new --name` with it, or ask the user for a name when the text gives nothing to name.
+- [D] **CMD-START-003**: The Commander shall pass `--base` only when the user named a base branch, and `--set` only for settings the user asked for.
+- [D] **CMD-START-004**: When `new` returns `CREATED`, the Commander shall move the session into `worktree_path` with `EnterWorktree` and route with a `start` event.
+- [D] **CMD-START-005**: When `new` returns `BASE_CONFIRM_REQUIRED`, the Commander shall ask the user to confirm the base and, on confirmation, run `new` again with `--base-confirmed`.
+- [D] **CMD-START-006**: When `new` returns `DUPLICATE` or `STATE_EXISTS`, the Commander shall offer to resume the named workstream.
+- [D] **CMD-START-007**: When `new` returns `BRANCH_CHECKED_OUT`, `BRANCH_EXISTS`, or `GH_FAILED`, the Commander shall report the status and its detail and start nothing.
+- [D] **CMD-START-008**: When `/forge` is classified `unknown`, the Commander shall ask whether to start a new workstream with that name or show the list.
+- [D] **CMD-START-009**: When `/forge` is classified `invalid`, the Commander shall show the detail and do nothing else.
 
 ## Resuming
 
-- [ ] **CMD-RESUME-001**: When `/forge` is classified `current` or `resume`, the Commander shall run `forge_hub.py brief`, with `--workstream` for `resume`.
-- [ ] **CMD-RESUME-002**: When `brief` returns `OK`, the Commander shall show the five lines and ask whether to continue before routing.
-- [ ] **CMD-RESUME-003**: When the user continues, the Commander shall route once with the event from `forge_hub.py envelope` when `pending_envelope` is `true`, with a `start` event when the phase is `INIT`, and with no event otherwise, then enter the routing loop.
-- [ ] **CMD-RESUME-004**: When the user declines to continue, the Commander shall write a `hub` memory entry recording where the workstream stands and run `resolve_state.py release`.
-- [ ] **CMD-RESUME-005**: When `brief` returns `ELSEWHERE`, the Commander shall move the session into the reported worktree with `EnterWorktree` and run `brief` again.
-- [ ] **CMD-RESUME-006**: When `brief` returns `LOCKED`, the Commander shall show the holder and, only on the user's confirmation, run `resolve_state.py wake --steal` and then `brief` again.
-- [ ] **CMD-RESUME-007**: When `brief` returns `LIST` or `NO_STATE`, or `/forge` is classified `list`, the Commander shall show the repository's workstreams from `resolve_state.py list` with name, phase, last status, last update, lock holder and liveness, and branch, and ask which to resume; for `NO_STATE` it shall also mention `/forge adopt <branch>`.
-- [ ] **CMD-RESUME-008**: When `brief` returns `IDENTITY_MISMATCH`, `STATE_INVALID`, or `DRIFT_UNKNOWN`, the Commander shall report the status and its detail and stop.
+- [D] **CMD-RESUME-001**: When `/forge` is classified `current` or `resume`, the Commander shall run `forge_hub.py brief`, with `--workstream` for `resume`.
+- [D] **CMD-RESUME-002**: When `brief` returns `OK`, the Commander shall show the five lines and ask whether to continue before routing.
+- [D] **CMD-RESUME-003**: When the user continues, the Commander shall route once with the event from `forge_hub.py envelope` when `pending_envelope` is `true`, with a `start` event when the phase is `INIT`, and with no event otherwise, then enter the routing loop.
+- [D] **CMD-RESUME-004**: When the user declines to continue, the Commander shall write a `hub` memory entry recording where the workstream stands and run `resolve_state.py release`.
+- [D] **CMD-RESUME-005**: When `brief` returns `ELSEWHERE`, the Commander shall move the session into the reported worktree with `EnterWorktree` and run `brief` again.
+- [D] **CMD-RESUME-006**: When `brief` returns `LOCKED`, the Commander shall show the holder and, only on the user's confirmation, run `resolve_state.py wake --steal` and then `brief` again.
+- [D] **CMD-RESUME-007**: When `brief` returns `LIST` or `NO_STATE`, or `/forge` is classified `list`, the Commander shall show the repository's workstreams from `resolve_state.py list` with name, phase, last status, last update, lock holder and liveness, and branch, and ask which to resume; for `NO_STATE` it shall also mention `/forge adopt <branch>`.
+- [D] **CMD-RESUME-008**: When `brief` returns `IDENTITY_MISMATCH`, `STATE_INVALID`, or `DRIFT_UNKNOWN`, the Commander shall report the status and its detail and stop.
 
 ## Routing loop
 
-- [ ] **CMD-LOOP-001**: While routing, the Commander shall call `next_step.py` with at most one event and act on each decision until a decision ends the loop.
-- [ ] **CMD-LOOP-002**: Before every `next_step.py` call, if `.STOP_FORGE` exists at the root of the main worktree or of the workstream's worktree, then the Commander shall end the loop and tell the user which file to remove.
-- [ ] **CMD-LOOP-003**: When the router returns `dispatch`, the Commander shall start the subagent named by `invoke.agent` with a prompt giving only the `dispatch_id`, the `state_path`, and the envelope path `<state dir>/envelopes/<dispatch_id>.json`.
-- [ ] **CMD-LOOP-004**: When a dispatched subagent returns, the Commander shall run `forge_hub.py envelope` and route with `--event <event_path>` on `OK`, or with no event on `NO_DISPATCH`.
-- [ ] **CMD-LOOP-005**: When `envelope` returns `ENVELOPE_MISSING`, the Commander shall tell the user and, on retry, route with no event.
-- [ ] **CMD-LOOP-006**: When `envelope` returns `ENVELOPE_UNREADABLE` or the router stops with `ENVELOPE_INVALID`, the Commander shall show the reason and, on retry, run `forge_hub.py envelope --discard` and route with no event.
-- [ ] **CMD-LOOP-007**: When the router returns `stop`, the Commander shall report the status and detail and end the loop.
-- [ ] **CMD-LOOP-008**: When the router returns `close` or `done`, the Commander shall close the workstream per CMD-CLOSE-001.
-- [ ] **CMD-LOOP-009**: The Commander shall not write `state.json`, push, or commit other than the `dirty_tree` checkpoint.
+- [D] **CMD-LOOP-001**: While routing, the Commander shall call `next_step.py` with at most one event and act on each decision until a decision ends the loop.
+- [D] **CMD-LOOP-002**: Before every `next_step.py` call, if `.STOP_FORGE` exists at the root of the main worktree or of the workstream's worktree, then the Commander shall end the loop and tell the user which file to remove.
+- [D] **CMD-LOOP-003**: When the router returns `dispatch`, the Commander shall start the subagent named by `invoke.agent` with a prompt giving only the `dispatch_id`, the `state_path`, and the envelope path `<state dir>/envelopes/<dispatch_id>.json`.
+- [D] **CMD-LOOP-004**: When a dispatched subagent returns, the Commander shall run `forge_hub.py envelope` and route with `--event <event_path>` on `OK`, or with no event on `NO_DISPATCH`.
+- [D] **CMD-LOOP-005**: When `envelope` returns `ENVELOPE_MISSING`, the Commander shall tell the user and, on retry, route with no event.
+- [D] **CMD-LOOP-006**: When `envelope` returns `ENVELOPE_UNREADABLE` or the router stops with `ENVELOPE_INVALID`, the Commander shall show the reason and, on retry, run `forge_hub.py envelope --discard` and route with no event.
+- [D] **CMD-LOOP-007**: When the router returns `stop`, the Commander shall report the status and detail and end the loop.
+- [D] **CMD-LOOP-008**: When the router returns `close` or `done`, the Commander shall close the workstream per CMD-CLOSE-001.
+- [D] **CMD-LOOP-009**: The Commander shall not write `state.json`, push, or commit other than the `dirty_tree` checkpoint.
 
 ## Pauses
 
-- [ ] **CMD-PAUSE-001**: When the router pauses with `plan_approval`, `council_signoff`, `findings_signoff`, `human_code_approval`, `publish_approval`, `report_approval`, `ci_none`, `dirty_tree`, or `attempt_limit`, the Commander shall ask the user with `AskUserQuestion` and route the answer.
-- [ ] **CMD-PAUSE-002**: When the router pauses with `edit_window` or `manual_merge`, the Commander shall show the question and what the user should do, and end its turn without asking.
-- [ ] **CMD-PAUSE-003**: When routing an answer returns a pause of the same kind, the Commander shall show the router's question and end its turn.
-- [ ] **CMD-PAUSE-004**: The Commander shall route every answer as the event written by `forge_hub.py answer`, writing any notes to a file with the file-write tool and passing it as `--notes-file`.
-- [ ] **CMD-PAUSE-005**: When presenting `publish_approval`, the Commander shall offer approve and push, approve and merge, and hold, sending `approve` with `option` `push` or `merge` for the first two.
-- [ ] **CMD-PAUSE-006**: When presenting `council_signoff`, the Commander shall show the ruling's decision matrix and send `approve` with the chosen option's label, asking for notes on `reject`.
-- [ ] **CMD-PAUSE-007**: When the user answers `revise` to `plan_approval` or `report_approval`, or `reject` to `human_code_approval` or `council_signoff`, the Commander shall ask for notes before routing the answer.
-- [ ] **CMD-PAUSE-008**: When the user answers `dirty_tree` with `checkpoint`, the Commander shall commit every change as `wip(user): partial implementation` with no Forge trailers; with `stash`, it shall run `git stash push --include-untracked`; and when the git command fails, it shall report git's message and ask again without routing.
+- [D] **CMD-PAUSE-001**: When the router pauses with `plan_approval`, `council_signoff`, `findings_signoff`, `human_code_approval`, `publish_approval`, `report_approval`, `ci_none`, `dirty_tree`, or `attempt_limit`, the Commander shall ask the user with `AskUserQuestion` and route the answer.
+- [D] **CMD-PAUSE-002**: When the router pauses with `edit_window` or `manual_merge`, the Commander shall show the question and what the user should do, and end its turn without asking.
+- [D] **CMD-PAUSE-003**: When routing an answer returns a pause of the same kind, the Commander shall show the router's question and end its turn.
+- [D] **CMD-PAUSE-004**: The Commander shall route every answer as the event written by `forge_hub.py answer`, writing any notes to a file with the file-write tool and passing it as `--notes-file`.
+- [D] **CMD-PAUSE-005**: When presenting `publish_approval`, the Commander shall offer approve and push, approve and merge, and hold, sending `approve` with `option` `push` or `merge` for the first two.
+- [D] **CMD-PAUSE-006**: When presenting `council_signoff`, the Commander shall show the ruling's decision matrix and send `approve` with the chosen option's label, asking for notes on `reject`.
+- [D] **CMD-PAUSE-007**: When the user answers `revise` to `plan_approval` or `report_approval`, or `reject` to `human_code_approval` or `council_signoff`, the Commander shall ask for notes before routing the answer.
+- [D] **CMD-PAUSE-008**: When the user answers `dirty_tree` with `checkpoint`, the Commander shall commit every change as `wip(user): partial implementation` with no Forge trailers; with `stash`, it shall run `git stash push --include-untracked`; and when the git command fails, it shall report git's message and ask again without routing.
 
 ## Close
 
-- [ ] **CMD-CLOSE-001**: When closing a workstream, the Commander shall ask whether to remove the worktree, leave the worktree with `ExitWorktree` keeping it, and run `resolve_state.py close --workstream <slug>`, adding `--remove-worktree` only when the user said yes.
-- [ ] **CMD-CLOSE-002**: When `close` returns `WORKTREE_DIRTY`, the Commander shall report git's message and tell the user that `/forge <workstream>` retries the close.
+- [D] **CMD-CLOSE-001**: When closing a workstream, the Commander shall ask whether to remove the worktree, leave the worktree with `ExitWorktree` keeping it, and run `resolve_state.py close --workstream <slug>`, adding `--remove-worktree` only when the user said yes.
+- [D] **CMD-CLOSE-002**: When `close` returns `WORKTREE_DIRTY`, the Commander shall report git's message and tell the user that `/forge <workstream>` retries the close.
 
 ## Hub memory
 
-- [ ] **CMD-MEM-001**: When resuming a workstream, the Commander shall load `hub` and `shared` memory with `forge_memory.py load --agent hub`.
-- [ ] **CMD-MEM-002**: After routing a user answer that carried notes, rejected a ruling, or held a publish, the Commander shall write a `hub` entry anchored to `HEAD` after the answer was applied, with `stage` set to the phase the router returned.
-- [ ] **CMD-MEM-003**: When the user tells the Commander to stop mid-workstream, the Commander shall write a `hub` entry recording where the workstream stands.
-- [ ] **CMD-MEM-004**: After the user approves a council ruling, or states an invariant every agent must respect, the Commander shall write a `shared` entry recording it.
+- [D] **CMD-MEM-001**: When resuming a workstream, the Commander shall load `hub` and `shared` memory with `forge_memory.py load --agent hub`.
+- [D] **CMD-MEM-002**: After routing a user answer that carried notes, rejected a ruling, or held a publish, the Commander shall write a `hub` entry anchored to `HEAD` after the answer was applied, with `stage` set to the phase the router returned.
+- [D] **CMD-MEM-003**: When the user tells the Commander to stop mid-workstream, the Commander shall write a `hub` entry recording where the workstream stands.
+- [D] **CMD-MEM-004**: After the user approves a council ruling, or states an invariant every agent must respect, the Commander shall write a `shared` entry recording it.

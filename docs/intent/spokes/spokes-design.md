@@ -49,13 +49,13 @@ The guard (guard design) confines every spoke's file writes and shell commands; 
 
 ### Human-authored code
 
-Before changing an existing file, `forge-qa` and `forge-dev` run `verify_gate.py human-lines --agent <self>` on it. When the change needs protected human-authored lines, the spoke does not make it: it commits any valid progress and returns `HUMAN_CODE_CHANGE_REQUESTED` with the paths and line ranges. After the user approves, the same phase is dispatched again with the approval ID in `notes`, and `human-lines` no longer reports the approved lines. After the user rejects, the phase is dispatched again with the user's notes; when the work cannot be done without those lines, the spoke returns `ERROR` saying so, and the workstream stops for the user.
+Before changing an existing file, `forge-qa` and `forge-dev` run `verify_gate.py human-lines --agent <self>` on it. When the change needs protected human-authored lines, the spoke does not make it: it commits any valid progress, runs `human-lines` again at that `HEAD`, and returns `HUMAN_CODE_CHANGE_REQUESTED` with the paths and line ranges as they stand at its own final `HEAD`, which is the `head_sha` the approval is recorded against. After the user approves, the same phase is dispatched again with the approval ID in `notes`, and `human-lines` no longer reports the approved lines. After the user rejects, the phase is dispatched again with the user's notes; when the work cannot be done without those lines, the spoke returns `ERROR` saying so, and the workstream stops for the user.
 
 The planner needs no such check: its commits are exempt from the human-code rule (gates design).
 
 ### Test commands
 
-A spoke that runs tests uses `config.test_command` when it is set. Otherwise it determines the command from the repository (its build files, CI configuration, and README) and records it in its memory partition as a tooling quirk, so later dispatches reuse it. When it cannot determine a command that runs, it returns `ERROR`.
+A spoke that runs tests uses `config.test_command` when it is set. Otherwise it determines the command from the repository (its build files, CI configuration, and README) and records it in its memory partition as a tooling quirk, so later dispatches reuse it. When it cannot determine a command that runs, it returns `ERROR`. A spoke removes files its test runs leave untracked in the worktree (caches, reports) unless the repository ignores them, because an untracked file makes the tree dirty.
 
 ### Statuses
 

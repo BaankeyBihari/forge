@@ -2,7 +2,7 @@
 
 Design: `forge-memory-design.md`. Implementation: `reference/scripts/forge_memory.py` and `reference/skills/forge-memory/SKILL.md`.
 
-Specs under *Skill instructions* describe what the skill tells agents to do; they are verified by the sandbox scenario run, not by pytest. Every other spec is tested with pytest.
+Specs under *Skill instructions* describe what the skill tells agents to do. Deferred (`[D]`) until the sandbox scenario run checks them: no automated test can verify what a skill tells an agent to do. Every other spec is tested with pytest.
 
 ## Invocation
 
@@ -44,9 +44,9 @@ Specs under *Skill instructions* describe what the skill tells agents to do; the
 
 ## Skill instructions
 
-- [ ] **MEM-SKILL-001**: The `forge-memory` skill shall tell every Forge agent to run `forge_memory.py load` with its own name and `state_path` at the start of every dispatch, before planning any work.
-- [ ] **MEM-SKILL-002**: The `forge-memory` skill shall tell agents to treat `historical` decisions as no longer in force and `historical` dead ends as possibly still relevant.
-- [ ] **MEM-SKILL-003**: The `forge-memory` skill shall tell agents with a partition to save at most one entry per dispatch, just before writing the result envelope, and only for a decision, dead end, or tooling quirk that a later dispatch would need and that the commits, specs, and `state.json` do not already record.
-- [ ] **MEM-SKILL-004**: The `forge-memory` skill shall tell agents to write an entry with the file-write tool into their own partition only, in the format of MEM-ENTRY-001 through MEM-ENTRY-006, with `sha_anchor` from `git rev-parse HEAD` or `null` in a repository with no commits.
-- [ ] **MEM-SKILL-005**: The `forge-memory` skill shall tell agents to use the next second in the file name when a file of the same name already exists.
-- [ ] **MEM-SKILL-006**: The `forge-memory` skill shall tell `forge-publisher`, `forge-reporter`, and `forge-council` to load `shared` and save nothing.
+- [D] **MEM-SKILL-001**: The `forge-memory` skill shall tell every Forge agent to run `forge_memory.py load` with its own name and `state_path` at the start of every dispatch, before planning any work.
+- [D] **MEM-SKILL-002**: The `forge-memory` skill shall tell agents to treat `historical` decisions as no longer in force and `historical` dead ends as possibly still relevant.
+- [D] **MEM-SKILL-003**: The `forge-memory` skill shall tell agents with a partition to save at most one entry per dispatch, just before writing the result envelope, and only for a decision, dead end, or tooling quirk that a later dispatch would need and that the commits, specs, and `state.json` do not already record.
+- [D] **MEM-SKILL-004**: The `forge-memory` skill shall tell agents to write an entry with the file-write tool into their own partition only, in the format of MEM-ENTRY-001 through MEM-ENTRY-006, with `sha_anchor` from `git rev-parse HEAD` or `null` in a repository with no commits.
+- [D] **MEM-SKILL-005**: The `forge-memory` skill shall tell agents to use the next second in the file name when a file of the same name already exists.
+- [D] **MEM-SKILL-006**: The `forge-memory` skill shall tell `forge-publisher`, `forge-reporter`, and `forge-council` to load `shared` and save nothing.

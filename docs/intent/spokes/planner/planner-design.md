@@ -32,7 +32,7 @@ The invocation's `context_refs` carry the scout's directory when the workstream 
 
 Each stage follows the `linked-intent-dev` skill's phase of the same content, applied to the workstream's task, and commits its output with that stage's `Forge-Stage` (`LID-S1`–`LID-S4`). The edge audit's resolutions land as narrowing edits to the specs in the same stage. A stage whose content needs no change (the HLD already covers the task) commits nothing and says so in the summary.
 
-The skill's instructions to stop for the user are met by Forge's pauses: in `strict` cadence the planner returns after each stage; in `auto` cadence the user chose to see the plan once, when it is complete. In both, a spec fork — a requirement with more than one plausible reading that the task, the issue, and the repository do not settle — is returned as `CONCERNS`, with each reading and its consequences in `escalation.details`. Work finished before the fork stays committed; the dispatch that resumes after the ruling continues from it. In `auto` cadence it finds the stages already done from the `Forge-Stage` trailers of the planner's commits since `workstream_base_sha`, and resumes at the first stage with no commit.
+The skill's instructions to stop for the user are met by Forge's pauses: in `strict` cadence the planner returns after each stage; in `auto` cadence the user chose to see the plan once, when it is complete. In both, a spec fork — a requirement with more than one plausible reading that the task, the issue, and the repository do not settle — is returned as `CONCERNS`, with each reading and its consequences in `escalation.details`. Work finished before the fork stays committed; the dispatch that resumes after the ruling continues from it. In `auto` cadence it goes through every stage again in order, checking each against the ruling and keeping what still holds, so a stage left half-done before the fork is finished and a stage that needed no commit is not skipped.
 
 ### Naive plan
 
@@ -40,13 +40,17 @@ The skill's instructions to stop for the user are met by Forge's pauses: in `str
 
 ### Scope
 
-`READY_FOR_QA` carries `scope.assigned`: path patterns in the gate's glob syntax covering every test and production path the plan expects to add or change. Plan paths are not included. The patterns are the verifier's unit of progress, so they name areas the plan treats as units (`src/limits/**`), not every file.
+`READY_FOR_QA` carries `scope.assigned`: path patterns in the gate's glob syntax covering every test and production path the plan expects to add or change. Plan paths are not included, so a plan that changes only docs returns an empty list and the workstream goes from plan verification straight to final verification. The patterns are the verifier's unit of progress, so they name areas the plan treats as units (`src/limits/**`), not every file.
 
 ### Revisions and repairs
 
-After `revise`, the same phase runs again with the user's notes; the planner changes what the notes ask for and commits it under the same stage.
+After `revise`, the same phase runs again with the user's notes; the planner changes what the notes ask for and commits it under the stage each change belongs to.
 
-A `repair` that changes which paths the plan touches returns the new `scope.assigned` with `REPAIR_COMMITTED`.
+A `repair` that changes which paths the plan touches returns the new `scope.assigned` with `REPAIR_COMMITTED`; the router then sends the workstream back through plan verification, so new areas reach QA and dev.
+
+### Specs no test can verify
+
+A spec whose behavior no automated test can check (a prompt's wording, a manual procedure) is written with the `D` marker, and the spec file states why it is deferred, following linked-intent development. The verifier's coverage check is strict for every other spec.
 
 ### Human-authored docs
 

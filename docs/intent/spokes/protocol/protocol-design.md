@@ -63,7 +63,7 @@ It then checks the envelope, collecting every problem:
 
 - The file parses as a JSON object with a string `status` and a string `summary`.
 - `status` is allowed for the agent in the current phase and mode, by the router's tables (`ERROR` is always allowed).
-- Unless `status` is `ERROR`: for a committing agent, the worktree has no uncommitted changes, because the router would pause on them; for any other agent, no commit since `base_sha` carries its own `Forge-Agent`.
+- Unless `status` is `ERROR`: for a committing agent, the worktree has no uncommitted changes, counting untracked files that are not ignored, because the router would pause on them; for any other agent, no commit since `base_sha` carries its own `Forge-Agent`.
 - The status's required fields are present and well formed:
 
 | Status | Required |
@@ -71,7 +71,7 @@ It then checks the envelope, collecting every problem:
 | `ERROR`, `CONCERNS`, `TEST_CHANGE_REQUESTED`, `CONTRACT_MISMATCH`, `AUDIT_FAILED`, `TESTS_FAILED`, `CI_FAILED`, `CHANGES_REQUESTED`, `HUMAN_CODE_CHANGE_REQUESTED`, `PUBLISH_REFUSED`, `MERGE_BLOCKED` | `escalation.details`, a non-empty string |
 | `HUMAN_CODE_CHANGE_REQUESTED` | Also `escalation.paths` (list of strings) and `escalation.ranges` (object mapping each path to a list of `[start, end]` line pairs) |
 | `CHANGES_REQUESTED` | Also `escalation.findings`, a non-empty list of `{route_to, detail}` with `route_to` one of `forge-planner`, `forge-qa`, `forge-dev` |
-| `READY_FOR_QA` | `scope.assigned`, a non-empty list of path patterns |
+| `READY_FOR_QA` | `scope.assigned`, a list of path patterns, empty only for a plan that changes plan paths alone |
 | `REPAIR_COMMITTED` from `forge-planner` | `scope.assigned`, when present, a non-empty list of path patterns |
 | `PARTIAL_REMAINING`, `NOTHING_REMAINING`, and `PASS` in `RECONCILE` | `scope.completed` and `scope.remaining`, lists of path patterns that together equal `scope_manifest.assigned` |
 | `COUNCIL_RULING` | `ruling` with `matrix_ref` (an absolute path to an existing file under the workstream's `council/`), `requires_user` (boolean), `panel` (non-empty list of persona names), `options` (non-empty list of `{label, summary, route_to, delta}` with distinct labels), `recommended` (one of the labels), and `route_to` and `delta` equal to the recommended option's; every `route_to` a list of `forge-planner`, `forge-qa`, `forge-dev` and every `delta` a string |
@@ -86,7 +86,7 @@ It then checks the envelope, collecting every problem:
 | `INVALID` | `problems` lists each problem; the file is left as the spoke wrote it |
 | `ENVELOPE_MISSING` | There is no envelope file |
 
-A spoke runs `finish` until it returns `FINISHED`. Problems it cannot fix by editing the envelope (a commit by an agent that does not commit, uncommitted changes it cannot commit) are reported in an `ERROR` envelope instead.
+A spoke runs `finish` until it returns `FINISHED`, fixing each problem and running it again: editing the envelope, committing work it meant to commit, or removing files its own test runs left behind. Problems it cannot fix that way (a commit by an agent that does not commit, changes it did not make) are reported in an `ERROR` envelope instead.
 
 ### `scope`
 
@@ -100,7 +100,7 @@ Facts for the verifier's scope judgment, from `scope_manifest.assigned` and git:
  "completed": [...], "remaining": [...]}
 ```
 
-`files` are the paths at `HEAD` matching the pattern, with their gates path class. `commits` are the commits in `plan_base_sha..HEAD` that touched a matching path, oldest first, with `kind` `human` or `forge` and the `Forge-Agent` value. `completed` and `remaining` repeat the current `scope_manifest`. While `plan_base_sha` is `null`, `commits` is empty.
+`files` are the paths at `HEAD` matching the pattern, with their gates path class. `commits` are the first-parent commits in `plan_base_sha..HEAD` that touched a matching path, oldest first, with `kind` `human` or `forge` and the `Forge-Agent` value. `completed` and `remaining` repeat the current `scope_manifest`. While `plan_base_sha` is `null`, `commits` is empty.
 
 ## The `forge-spoke` Skill
 

@@ -19,7 +19,7 @@ prefix: SPOKE-DEV
 
 `stub` and `full` may also return `TEST_CHANGE_REQUESTED` or `CONTRACT_MISMATCH`; every mode may return `HUMAN_CODE_CHANGE_REQUESTED`. A `repair` that finds a test or contract in its way returns `ERROR` describing it.
 
-**Tests in scope** are the test files matching `assigned_scope`.
+**Tests in scope** are the test files matching `assigned_scope` and the tests citing a workstream spec whose behavior the plan places in those patterns.
 
 ### Implementation
 

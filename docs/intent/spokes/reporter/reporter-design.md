@@ -13,7 +13,7 @@ The reporter grounds every claim in committed artifacts and receipts: the commit
 
 ## Inputs
 
-The router puts the envelope file of the most recently applied result into the reporter's `context_refs` (router design): the publisher's `PUBLISHED` envelope, the reviewer's `PR_REVIEW_READY` envelope, or — for `send` and for a revised draft — the reporter's own `REPORT_DRAFTED` envelope.
+The router gives the reporter exactly one `context_refs` entry, `report_input` (router design): the publisher's `PUBLISHED` envelope, the reviewer's `PR_REVIEW_READY` envelope, or — for `send` and for a revised draft — the reporter's own latest `REPORT_DRAFTED` envelope.
 
 ## The `report` field
 
@@ -30,8 +30,8 @@ The router puts the envelope file of the most recently applied result into the r
 ### `draft`
 
 - **Build flow:** checks for an open pull request from `identity.branch` (`gh pr list --head <branch> --state open`). None: drafts `pr_create`, after checking that `identity.base_branch` exists on `origin` (`git ls-remote --heads origin <base>`); when it does not — a stacked workstream whose parent branch is unpushed — it returns `ERROR` asking the user to push the parent first. One exists: drafts `pr_update`. The body says what changed and why, lists the specs or plan items it implements, and states how it was verified.
-- **Forge's part of a body** sits between `<!-- forge:begin -->` and `<!-- forge:end -->`. `pr_update` replaces only that block and keeps everything outside it, which is what the user added.
-- **PR review flow:** turns the reviewer's `review` into `pr_review`, keeping its verdict, body, and comments unchanged; `commit_id` is the pull request head the review was made at (`HEAD` of the detached worktree). When the pull request's author is the authenticated user (from the scout's `pr.md`), GitHub refuses `APPROVE` and `REQUEST_CHANGES`, so `event` is `COMMENT` and the summary says why.
+- **Forge's part of a body** sits between `<!-- forge:begin -->` and `<!-- forge:end -->`. `pr_update` replaces only that block and keeps everything outside it, which is what the user added; an existing body with no markers is kept whole, and the block is appended after it.
+- **PR review flow:** turns the reviewer's `review` into `pr_review`, keeping its body and comment texts unchanged, mapping the verdict to GitHub's event (`approve` to `APPROVE`, `request_changes` to `REQUEST_CHANGES`, `comment` to `COMMENT`) and giving every comment `side: "RIGHT"`; `commit_id` is the pull request head the review was made at (`HEAD` of the detached worktree). When the pull request's author is the authenticated user (from the scout's `pr.md`), GitHub refuses `APPROVE` and `REQUEST_CHANGES`, so `event` is `COMMENT` and the summary says why.
 - With `notes` (after `revise`), it changes the previous draft as the notes say.
 
 Returns `REPORT_DRAFTED`.

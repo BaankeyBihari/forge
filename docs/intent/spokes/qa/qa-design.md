@@ -7,7 +7,7 @@ prefix: SPOKE-QA
 
 ## Context and Design Philosophy
 
-`forge-qa` writes tests and nothing else. It works from the plan — the EARS specs in a LID repository, the test section of `PLAN.md` otherwise — over the invocation's `assigned_scope`, which the verifier has narrowed to what is still missing. Tests written by the user are ground truth: the agent adds around them and never rewrites them without approval.
+`forge-qa` writes tests and nothing else. It works from the plan — the EARS specs in a LID repository, the test section of `PLAN.md` otherwise — over the invocation's `assigned_scope`, which the verifier has narrowed to what is still missing. **In scope** are the workstream specs (added or changed in the workstream, not marked `D`) whose behavior the plan places in those patterns. Tests written by the user are ground truth: the agent adds around them and never rewrites them without approval.
 
 ## Modes
 
@@ -19,7 +19,7 @@ prefix: SPOKE-QA
 
 Any mode may return `HUMAN_CODE_CHANGE_REQUESTED`, or `CONTRACT_MISMATCH` when the specs contradict each other or a spec cannot be tested as written; `escalation.details` names the specs and why. `CONTRACT_MISMATCH` goes to the council.
 
-`SKELETON_COMMITTED` and `TESTS_COMMITTED` are valid with no commit when existing tests already cover everything in scope; the summary says so.
+When existing tests already cover everything in scope, QA returns its mode's status (`SKELETON_COMMITTED` in `skeleton`, `TESTS_COMMITTED` in `full`) with no commit, and the summary says so.
 
 ### Full tests
 
