@@ -68,7 +68,7 @@ Every decision also carries `phase` (the phase after the decision) and `summary`
 | `state_path` | Absolute path of `state.json` (read-only for the spoke) |
 | `base_sha` | `HEAD` at dispatch; the value of the `Forge-Input-SHA` trailer |
 | `assigned_scope` | Repository path patterns, in the gate's glob syntax, the spoke works on: `scope_manifest.remaining` for qa and dev build phases, `scope_manifest.assigned` for the verifier |
-| `context_refs` | Files the spoke must read: specs, scout briefs, council rulings, review findings |
+| `context_refs` | Files the spoke must read: the task description, specs, scout briefs, council rulings, review findings |
 | `notes` | User or council notes carried into this dispatch, if any |
 | `panel` | Council only: the persona names the council convenes for this blocker |
 
@@ -322,6 +322,8 @@ The transition table lists which statuses each phase accepts. Within a phase, th
 
 A dispatch of the same phase caused by a user answer (`revise`, `reject` of a human-code change, approval of a human-code change) keeps every `context_refs` entry of the dispatch it replaces and appends the new ones, so a planner revising stage 2 still has the scout's brief.
 
+When the workstream directory holds `task.md` (the user's task description, written by `new --task-file`), every `forge-planner` dispatch and every `forge-reviewer` dispatch in `REVIEW_INTERNAL` lists it first in `context_refs`, once, so the planner plans and the reviewer reviews against the user's own words.
+
 ## Agent Modes
 
 | Agent | Modes |
@@ -366,6 +368,7 @@ A dispatch of the same phase caused by a user answer (`revise`, `reject` of a hu
 | Drift after publishing | Back to `VERIFY_FINAL` | Back to the interrupted phase | `REPORT` and `CI_WATCH` would describe and watch commits nobody verified, reviewed, or pushed. |
 | Docs-only plans | Empty scope allowed; `POST_PLAN` goes straight to `VERIFY_FINAL` | Require a scope | A plan that changes only docs has no tests or code for QA and dev to write. |
 | Read-only agents and dirty trees | Scout and reporter may run on a dirty tree; every other agent waits | Block all dispatch | Scout and reporter read remote state or committed receipts only; the verifier and reviewer would otherwise certify a HEAD that differs from the files on disk. |
+| Task description in dispatches | `task.md` first in every planner dispatch and every internal review dispatch | Planner only; every dispatch | The planner turns the task into a plan and the reviewer checks the change against it; builders and auditors work from the plan and specs the planner produced. |
 
 ## Open Questions & Future Decisions
 

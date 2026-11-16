@@ -21,7 +21,7 @@ All Forge state lives under `FORGE_HOME`, which defaults to `~/.forge` and is ov
 $FORGE_HOME/
   config.json                         # global defaults
   state/<org>/<repo>/<workstream>/
-    state.json  lock.json
+    state.json  lock.json  task.md
     scout/  council/  envelopes/
     memory/{hub,shared,planner,qa,dev,verifier,reviewer,scout}/
   archive/<org>/<repo>/<workstream>-<UTC timestamp>/
@@ -76,6 +76,7 @@ Every workstream lives in its own git worktree under a **worktree root** the cal
 |---|---|
 | `--issue REF` | Reads `number`, `title`, `labels`, and `url` with `gh issue view --json`. The slug is `<number>-<title slug>`, cut at a `-` to at most 48 characters, or `<number>` alone when the title slugs to nothing. The type is `fix` when any label name contains `bug`, otherwise `feat`. |
 | `--name SLUG` | The slug, validated like an explicit workstream name. Used when there is no issue. |
+| `--task-file FILE` | The user's task description. Its text is copied to `task.md` in the workstream directory, where the router hands it to the planner. A file that cannot be read or is empty is a usage error, and `new` creates nothing. |
 | `--type TYPE` | One of `feat`, `fix`, `chore`, `docs`, `refactor`; overrides the type derived from an issue. Default `feat`. |
 | `--branch NAME` | Adopt an existing local branch instead of creating one; the slug comes from the branch name. |
 | `--pr REF` | Start a `pr_review` workstream (see below). |
@@ -164,7 +165,7 @@ Uncommitted changes are reported separately as `dirty`: the paths from `git stat
 
 ```text
 resolve_state.py wake  [--workstream SLUG] --holder-pid PID --holder-session ID [--steal]
-resolve_state.py new   (--issue REF | --name SLUG | --branch NAME | --pr REF) [--type TYPE]
+resolve_state.py new   (--issue REF | --name SLUG | --branch NAME | --pr REF) [--type TYPE] [--task-file FILE]
                        [--base REF [--base-confirmed]] --worktree-root DIR
                        --holder-pid PID --holder-session ID [--set KEY=VALUE ...]
 resolve_state.py list
@@ -172,7 +173,7 @@ resolve_state.py release --workstream SLUG --holder-pid PID --holder-session ID
 resolve_state.py close   --workstream SLUG --holder-pid PID --holder-session ID [--remove-worktree]
 ```
 
-After creating the worktree, `new` creates the workstream directory, `state.json` (phase `INIT`), the memory partitions, and the lock; `--set` overrides `config` keys for this workstream; each `VALUE` is parsed as JSON (so `collaborative=false` stores a boolean and `test_patterns=["spec/**"]` a list), and a value that is not valid JSON is stored as a string (`plan_mode=auto`). `wake` never creates state: with no state it returns `NO_STATE`, and the Hub decides whether to start a workstream with `new`.
+After creating the worktree, `new` creates the workstream directory, `state.json` (phase `INIT`), the memory partitions, the lock, and `task.md` when `--task-file` is given; `--set` overrides `config` keys for this workstream; each `VALUE` is parsed as JSON (so `collaborative=false` stores a boolean and `test_patterns=["spec/**"]` a list), and a value that is not valid JSON is stored as a string (`plan_mode=auto`). `wake` never creates state: with no state it returns `NO_STATE`, and the Hub decides whether to start a workstream with `new`.
 
 Every command prints one JSON object to stdout and exits `0`, including for every status above. A non-zero exit means a usage error or that the working directory is not a git repository; the message goes to stderr.
 
@@ -196,6 +197,7 @@ Bare repositories and submodule-specific behavior are not supported; the script 
 | Last-update time in `list` | `state.json` modification time | An `updated_at` field | Every write already updates the mtime; a field would need every writer to maintain it. |
 | Repository mode detection | Done here, at creation | Left to the planner | It is a mechanical file check, and the router needs `repo_mode` before the planner runs. |
 | State root override | `FORGE_HOME` environment variable | Fixed `~/.forge` | Tests and the sandbox must run without touching the user's real state. |
+| Task description | Copied to `task.md` beside `state.json` by `new --task-file` | A `state.json` field; carried only in the `start` event | A file is read like the scout's brief and survives resume and re-dispatch; a state field would mix free text into routing state, and an event is gone after the first dispatch. |
 
 ## Open Questions & Future Decisions
 

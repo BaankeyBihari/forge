@@ -62,7 +62,7 @@ The `forge-memory` skill loads and saves each agent's episodic notes (decisions,
 
 `/forge list` shows the repo's open workstreams — phase, last status, last update, lock holder, branch and worktree — so the user can pick one. `/forge <workstream>` resumes it with a five-line resume brief before anything is dispatched. Without an argument, `/forge` resolves the workstream from `$FORGE_WORKSTREAM`, then from the current branch; on `main`/`master` with no state it shows the list. Resuming a workstream from outside its worktree moves the session into that worktree; no checkout changes.
 
-`/forge <issue or task description>` starts a new workstream. Forge names it — from the GitHub issue's number, title, and labels when there is one, otherwise from the task description — creates the worktree and branch, and moves the session there. It stops to ask only when an open workstream already tracks the same issue, when the description gives nothing to name, or when the branch would start from anything other than the default branch.
+`/forge <issue or task description>` starts a new workstream. Forge names it — from the GitHub issue's number, title, and labels when there is one, otherwise from the task description, which it keeps with the workstream for the planner to read — creates the worktree and branch, and moves the session there. It stops to ask only when an open workstream already tracks the same issue, when the description gives nothing to name, or when the branch would start from anything other than the default branch.
 
 ## Target Users
 

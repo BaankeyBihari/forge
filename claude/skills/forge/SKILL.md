@@ -39,10 +39,11 @@ Run `python3 $S/forge_hub.py classify <each word of the argument, quoted>`, then
 ## 2. Start a workstream
 
 ```bash
-python3 $S/resolve_state.py new (--issue REF | --pr REF | --branch NAME | --name SLUG) --worktree-root .claude/worktrees H
+python3 $S/resolve_state.py new (--issue REF | --pr REF | --branch NAME | --name SLUG [--task-file FILE]) --worktree-root .claude/worktrees H
 ```
 
 - For `describe`, derive a slug of two to five words from the text (`rate-limit-login`): lowercase letters, digits, `.`, `_`, `-`; never `list`, `pr`, or `adopt`. When the text gives nothing to name, ask the user for a name.
+- For `describe`, also write the user's **whole text, unchanged**, to `task.txt` in your scratch directory with your file-write tool (never a heredoc), and pass it as `--task-file`. The planner and reviewer read it as `task.md`, so they work from the user's own words.
 - Add `--base <branch>` only when the user named a base branch. Add `--set KEY=VALUE` only for settings the user asked for (`--set plan_mode=auto`).
 
 | `status` | Do |

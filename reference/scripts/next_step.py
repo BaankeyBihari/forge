@@ -195,6 +195,7 @@ def stage_for(ctx, phase):
 # @spec ROUTE-DISP-001, ROUTE-DISP-002, ROUTE-DISP-004, ROUTE-GUARD-001, ROUTE-GUARD-002, ROUTE-DRIFT-005
 # @spec ROUTE-LIMIT-001, ROUTE-LIMIT-002, ROUTE-LIMIT-006, ROUTE-BLK-004, ROUTE-BLK-015
 # @spec ROUTE-DISP-005, ROUTE-DISP-006, ROUTE-DISP-007, ROUTE-DRIFT-008, ROUTE-BUILD-033, ROUTE-BLK-021
+# @spec ROUTE-DISP-009
 def dispatch(ctx, phase, opts):
     head = ctx.head()
     if phase == "REVIEW_INTERNAL" and ctx.anchors.get("verifier_pass_sha") != head:
@@ -237,6 +238,9 @@ def dispatch(ctx, phase, opts):
         notes, refs = item.get("notes"), item_refs + [x for x in refs if x not in item_refs]
     if agent == "forge-reporter":
         refs = [ctx.lc.get("report_input")]
+    task = ctx.sd / "task.md"
+    if (agent == "forge-planner" or phase == "REVIEW_INTERNAL") and task.is_file():
+        refs = [str(task)] + [x for x in refs if x != str(task)]
     invoke = {"dispatch_id": uuid.uuid4().hex, "agent": agent, "mode": mode, "state_path": str(ctx.sp),
               "base_sha": head, "assigned_scope": scope, "context_refs": refs, "notes": notes}
     stage = stage_for(ctx, phase)

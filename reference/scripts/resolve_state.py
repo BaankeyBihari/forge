@@ -5,7 +5,7 @@ Design: docs/intent/workstream-state/workstream-state-design.md.
 Specs: docs/intent/workstream-state/workstream-state-specs.md.
 
     resolve_state.py wake  [--workstream SLUG] --holder-pid PID --holder-session ID [--steal]
-    resolve_state.py new   (--issue REF | --name SLUG | --branch NAME | --pr REF) [--type TYPE]
+    resolve_state.py new   (--issue REF | --name SLUG | --branch NAME | --pr REF) [--type TYPE] [--task-file FILE]
                            [--base REF [--base-confirmed]] --worktree-root DIR
                            --holder-pid PID --holder-session ID [--set KEY=VALUE ...]
     resolve_state.py list
@@ -502,7 +502,7 @@ def initial_state(identity, config, base_sha):
 
 # @spec WS-NEW-001, WS-NEW-002, WS-NEW-003, WS-NEW-004, WS-NEW-005, WS-NEW-006, WS-NEW-008, WS-NEW-009
 # @spec WS-NEW-010, WS-NEW-011, WS-NEW-012, WS-NEW-013, WS-NEW-014, WS-NEW-015, WS-NEW-016, WS-NEW-017
-# @spec WS-NEW-018, WS-NEW-019, WS-NEW-022, WS-NEW-023
+# @spec WS-NEW-018, WS-NEW-019, WS-NEW-022, WS-NEW-023, WS-NEW-024, WS-NEW-025
 def new(cwd, args):
     checkout = Checkout(cwd)
     root = checkout.root
@@ -512,6 +512,14 @@ def new(cwd, args):
 
     if args.name is not None and not valid_slug(args.name):
         raise UsageError(f"invalid --name {args.name!r}: use lowercase letters, digits, '.', '_', '-'")
+    task = None
+    if args.task_file is not None:
+        try:
+            task = Path(args.task_file).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            raise UsageError(f"cannot read --task-file {args.task_file}: {e}")
+        if not task.strip():
+            raise UsageError(f"--task-file {args.task_file} is empty")
 
     if args.issue:
         issue, err = gh_json(root, "issue", "view", args.issue, "--json", "number,title,labels,url")
@@ -598,6 +606,8 @@ def new(cwd, args):
     (sd / "council").mkdir()
     (sd / "envelopes").mkdir()
     write_state(sd / "state.json", initial_state(identity, config, base_sha))
+    if task is not None:
+        (sd / "task.md").write_text(task, encoding="utf-8")
     try_acquire(sd, args.holder_pid, args.holder_session)
     return {"status": "CREATED", "identity": identity, "worktree_path": worktree,
             "state_path": str(sd / "state.json")}
@@ -667,6 +677,7 @@ def main(argv=None):
     p.add_argument("--worktree-root", required=True)
     _holder(p)
     p.add_argument("--set", action="append")
+    p.add_argument("--task-file")
     sub.add_parser("list")
     for name in ("release", "close"):
         p = sub.add_parser(name)

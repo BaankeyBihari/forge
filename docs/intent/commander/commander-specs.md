@@ -62,7 +62,7 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 ## Starting a workstream
 
 - [D] **CMD-START-001**: When `/forge` is classified `issue`, `pr`, or `adopt`, the Commander shall run `resolve_state.py new` with `--issue`, `--pr`, or `--branch` and the classified value, and `--worktree-root .claude/worktrees`.
-- [D] **CMD-START-002**: When `/forge` is classified `describe`, the Commander shall derive a valid slug of two to five words from the text, other than `list`, `pr`, and `adopt`, and run `new --name` with it, or ask the user for a name when the text gives nothing to name.
+- [D] **CMD-START-002**: When `/forge` is classified `describe`, the Commander shall derive a valid slug of two to five words from the text, other than `list`, `pr`, and `adopt`, and run `new --name` with it, or ask the user for a name when the text gives nothing to name; it shall also write the whole text, unchanged, to a file in its scratch directory with its file-write tool and pass that file to `new` as `--task-file`.
 - [D] **CMD-START-003**: The Commander shall pass `--base` only when the user named a base branch, and `--set` only for settings the user asked for.
 - [D] **CMD-START-004**: When `new` returns `CREATED`, the Commander shall move the session into `worktree_path` with `EnterWorktree` and route with a `start` event.
 - [D] **CMD-START-005**: When `new` returns `BASE_CONFIRM_REQUIRED`, the Commander shall ask the user to confirm the base and, on confirmation, run `new` again with `--base-confirmed`.

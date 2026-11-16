@@ -324,6 +324,36 @@ def test_new_usage_errors(repo, forge_home, args):
     assert not (forge_home / "state").exists() or not any((forge_home / "state").rglob("state.json"))
 
 
+# @spec WS-NEW-024
+def test_new_copies_task_file(repo, forge_home, tmp_path):
+    text = "Add top_words(text, n).\n\nTies broken alphabetically; return (word, count) pairs.\n"
+    task = tmp_path / "task.txt"
+    task.write_text(text)
+    res = new(repo, "--name", "top-words", "--task-file", task)
+    assert res.json["status"] == "CREATED"
+    assert (Path(res.json["state_path"]).parent / "task.md").read_text() == text
+
+
+# @spec WS-NEW-019, WS-NEW-024
+def test_new_without_task_file_writes_no_task(workstream):
+    assert not (workstream["state_path"].parent / "task.md").exists()
+
+
+# @spec WS-NEW-025
+@pytest.mark.parametrize("content", [None, "", "  \n\t\n", b"\xff\xfe bad"], ids=["missing", "empty", "blank", "not-utf8"])
+def test_bad_task_file_is_usage_error(repo, forge_home, tmp_path, content):
+    task = tmp_path / "task.txt"
+    if isinstance(content, bytes):
+        task.write_bytes(content)
+    elif content is not None:
+        task.write_text(content)
+    res = new(repo, "--name", "top-words", "--task-file", task)
+    assert res.returncode == 2 and res.stderr
+    assert "feat/top-words" not in git(repo, "branch", "--list")
+    assert not (repo / ".claude/worktrees").exists() or not any((repo / ".claude/worktrees").iterdir())
+    assert not (forge_home / "state").exists() or not any((forge_home / "state").rglob("state.json"))
+
+
 # @spec WS-NEW-007
 def test_default_base_is_fetched_origin_default(cloned_repo, forge_home, tmp_path):
     clone, bare = cloned_repo

@@ -46,6 +46,8 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 - [x] **WS-NEW-021**: When `new` creates a workstream, `resolve_state.py` shall set `config.repo_mode` to `LID` if the new worktree contains `docs/high-level-design.md`, a `docs/intent/` directory, or an `AGENTS.md` or `CLAUDE.md` with a `## LID` heading line, and to `NAIVE` otherwise.
 - [x] **WS-NEW-022**: `resolve_state.py` shall resolve a relative `--worktree-root` against the main worktree's root directory.
 - [x] **WS-NEW-023**: If `new` is given `--branch` for a name that is not a local branch, then `resolve_state.py` shall exit with a usage error and create nothing.
+- [x] **WS-NEW-024**: When `new` is given `--task-file FILE` and creates a workstream, `resolve_state.py` shall copy the file's text unchanged to `task.md` in the workstream's state directory.
+- [x] **WS-NEW-025**: If `new` is given a `--task-file` that cannot be read or holds only whitespace, then `resolve_state.py` shall exit with a usage error and create no worktree, branch, or state.
 
 ## State file
 

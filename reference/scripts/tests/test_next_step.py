@@ -357,6 +357,70 @@ def test_plan_revise_keeps_context_refs(r):
     assert previous and keeps_refs(revised["invoke"]["context_refs"], previous), revised["invoke"]
 
 
+def with_task(r):
+    task = r.sd / "task.md"
+    task.write_text("Add top_words(text, n); ties broken alphabetically.\n")
+    return str(task)
+
+
+# @spec ROUTE-DISP-009
+def test_planner_gets_task_first(r):
+    task = with_task(r)
+    refs = r.start()["invoke"]["context_refs"]
+    assert refs[0] == task and refs.count(task) == 1
+
+
+# @spec ROUTE-DISP-009
+def test_task_before_scout_brief_on_issue(r):
+    task = with_task(r)
+    r.patch(identity={"issue": "https://github.com/acme/widgets/issues/1"})
+    r.start()
+    refs = r.result("OK")["invoke"]["context_refs"]
+    assert refs[0] == task and refs.count(task) == 1 and len(refs) == 2
+
+
+# @spec ROUTE-DISP-009, ROUTE-DISP-008
+def test_task_listed_once_after_revise(r):
+    task = with_task(r)
+    r.start()
+    r.result("READY_FOR_QA", scope={"assigned": ["src/**"]})
+    refs = r.user("revise", notes="split parser")["invoke"]["context_refs"]
+    assert refs[0] == task and refs.count(task) == 1
+
+
+# @spec ROUTE-DISP-009
+def test_planner_repair_gets_task_first(r):
+    task = with_task(r)
+    decision = r.goto("REPAIR", resume_phase="VERIFY_FINAL", repair_queue=[
+        {"agent": "forge-planner", "notes": "fix", "context_refs": ["council/m.md", task]}])
+    assert dispatches(decision, "forge-planner")
+    assert decision["invoke"]["context_refs"] == [task, "council/m.md"]
+
+
+# @spec ROUTE-DISP-009
+def test_internal_reviewer_gets_task_first(r):
+    task = with_task(r)
+    r.patch(anchors={"verifier_pass_sha": head(r.wt)})
+    decision = r.goto("REVIEW_INTERNAL")
+    assert dispatches(decision, "forge-reviewer", "internal")
+    assert decision["invoke"]["context_refs"][0] == task
+
+
+# @spec ROUTE-DISP-009
+@pytest.mark.parametrize("phase, agent", [("DEV_FULL", "forge-dev"), ("QA_FULL", "forge-qa"),
+                                          ("VERIFY_FINAL", "forge-verifier")])
+def test_other_agents_do_not_get_task(r, phase, agent):
+    task = with_task(r)
+    decision = r.goto(phase)
+    assert dispatches(decision, agent) and task not in decision["invoke"]["context_refs"]
+
+
+# @spec ROUTE-DISP-009
+def test_no_task_file_no_task_ref(r):
+    refs = r.start()["invoke"]["context_refs"]
+    assert not any(str(x).endswith("task.md") for x in refs)
+
+
 # @spec ROUTE-DISP-008
 @pytest.mark.parametrize("answer", ["approve", "reject"])
 def test_human_code_redispatch_keeps_context_refs(r, answer):

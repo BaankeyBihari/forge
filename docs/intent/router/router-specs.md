@@ -30,6 +30,7 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 - [x] **ROUTE-DISP-006**: When `next_step.py` dispatches an agent while `anchors.last_known_head_sha` is `null`, it shall set `anchors.last_known_head_sha` to `HEAD`.
 - [x] **ROUTE-DISP-007**: When dispatching `forge-verifier`, `next_step.py` shall set `assigned_scope` to `scope_manifest.assigned`.
 - [x] **ROUTE-DISP-008**: When re-dispatching the same phase while applying a `revise` answer, a `reject` answer, or an `approve` answer to a spoke's `human_code_approval`, `next_step.py` shall set `context_refs` to the replaced dispatch's `lifecycle.invoke.context_refs` followed by any new entries not already in it, except for `forge-reporter`, whose `context_refs` follow ROUTE-BUILD-033.
+- [x] **ROUTE-DISP-009**: While the workstream's state directory holds `task.md`, when `next_step.py` dispatches `forge-planner`, or `forge-reviewer` in `REVIEW_INTERNAL`, it shall put the absolute path of `task.md` first in the invocation envelope's `context_refs` and list it nowhere else in them.
 
 ## Result envelopes
 

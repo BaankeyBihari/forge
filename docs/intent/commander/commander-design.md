@@ -48,7 +48,7 @@ Output is `{"kind": ..., "ref"?: ..., "branch"?: ..., "workstream"?: ..., "text"
 
 ## Starting a Workstream
 
-For `issue`, `pr`, and `adopt`, the Commander runs `new` with the reference. For `describe`, it derives a slug of two to five words from the description (`rate-limit-login`), never `list`, `pr`, or `adopt`, and passes `--name`; when the description gives nothing to name, it asks the user for a name. It passes `--base` only when the user named a base branch, and `--set` only for settings the user asked for (`plan_mode=auto`). The worktree root is `.claude/worktrees`, which `resolve_state.py` resolves against the main worktree's root wherever the session is.
+For `issue`, `pr`, and `adopt`, the Commander runs `new` with the reference. For `describe`, it derives a slug of two to five words from the description (`rate-limit-login`), never `list`, `pr`, or `adopt`, and passes `--name`; when the description gives nothing to name, it asks the user for a name. It also writes the whole description, unchanged, to a file in its scratch directory with its file-write tool and passes that file as `--task-file`, so the planner works from the user's own words. It passes `--base` only when the user named a base branch, and `--set` only for settings the user asked for (`plan_mode=auto`). The worktree root is `.claude/worktrees`, which `resolve_state.py` resolves against the main worktree's root wherever the session is.
 
 Before starting or resuming a different workstream, the Commander releases the lock of the one it was driving in this session (`resolve_state.py release`), so the session never holds two locks.
 
@@ -214,6 +214,7 @@ The Commander writes `hub` and `shared` memory entries at the points the forge-m
 | Kill switch location | Main worktree root or the workstream worktree root | The worktree root only | Users create the file where they work, usually the main checkout; one file there stops every workstream. |
 | Kill switch timing | Checked before every router call | Checked before each dispatch; checkpoint commits skip `.STOP_FORGE` | Stopping before any question means one rule covers every path, including the dirty-tree pause the file itself causes. |
 | Brief's hub context line | Taken from the newest `hub` memory entry by the script | Written by the Commander each time | The brief stays fully mechanical, so it is the same in every session. |
+| Task description handoff | The Commander writes the description to a file and passes `new --task-file` | Keep only the derived slug; pass the text as `start` event notes | The slug loses every decision the user stated; event notes are gone after the first dispatch and on resume. |
 
 ## Open Questions & Future Decisions
 
