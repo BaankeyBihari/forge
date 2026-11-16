@@ -19,6 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import lid_check  # noqa: E402
 import resolve_state  # noqa: E402
 import verify_gate  # noqa: E402
 
@@ -36,11 +37,12 @@ ALLOWED = {
     "POST_PLAN": {"PASS", "AUDIT_FAILED"},
     "PRE_QA": {"PARTIAL_REMAINING", "NOTHING_REMAINING"},
     "PRE_DEV": {"PARTIAL_REMAINING", "NOTHING_REMAINING"},
-    "QA_SKEL": {"SKELETON_COMMITTED"},
-    "DEV_STUB": {"STUBS_COMMITTED", "TEST_CHANGE_REQUESTED", "CONTRACT_MISMATCH"},
-    "QA_FULL": {"TESTS_COMMITTED"},
+    "QA_SKEL": {"SKELETON_COMMITTED", "CONTRACT_MISMATCH", "HUMAN_CODE_CHANGE_REQUESTED"},
+    "DEV_STUB": {"STUBS_COMMITTED", "TEST_CHANGE_REQUESTED", "CONTRACT_MISMATCH", "HUMAN_CODE_CHANGE_REQUESTED"},
+    "QA_FULL": {"TESTS_COMMITTED", "CONTRACT_MISMATCH", "HUMAN_CODE_CHANGE_REQUESTED"},
     "POST_QA": {"PASS", "AUDIT_FAILED"},
-    "DEV_FULL": {"IMPLEMENTATION_COMPLETE", "TEST_CHANGE_REQUESTED", "CONTRACT_MISMATCH"},
+    "DEV_FULL": {"IMPLEMENTATION_COMPLETE", "TEST_CHANGE_REQUESTED", "CONTRACT_MISMATCH",
+                 "HUMAN_CODE_CHANGE_REQUESTED"},
     "VERIFY_FINAL": {"PASS", "AUDIT_FAILED", "TESTS_FAILED"},
     "REVIEW_INTERNAL": {"REVIEW_APPROVED", "CHANGES_REQUESTED"},
     "PUBLISH": {"PUBLISHED", "MERGE_READY", "MERGE_BLOCKED", "PUBLISH_REFUSED"},
@@ -48,12 +50,28 @@ ALLOWED = {
     "REPORT": {"REPORT_DRAFTED", "REPORT_SENT"},
     "RECONCILE": {"PASS"},
     "COUNCIL": {"COUNCIL_RULING"},
-    "REPAIR": {"REPAIR_COMMITTED"},
+    "REPAIR": {"REPAIR_COMMITTED", "CONTRACT_MISMATCH", "HUMAN_CODE_CHANGE_REQUESTED"},
     "PR_FETCH": {"OK"},
     "PR_REVIEW": {"PR_REVIEW_READY"},
 }
 for _stage in PLAN_STAGES:
     ALLOWED[_stage] = {"STAGE_COMPLETE", "READY_FOR_QA", "CONCERNS"}
+
+
+# @spec ROUTE-ENV-012, ROUTE-ENV-014
+def accepted_statuses(phase, agent, mode):
+    """Statuses besides ERROR accepted from a dispatch of agent in mode; forge_spoke.py imports this."""
+    excluded = set()
+    if mode == "strict" and phase in PLAN_STAGES[:3]:
+        excluded.add("READY_FOR_QA")
+    if phase == "PLAN_S4" or mode == "auto":
+        excluded.add("STAGE_COMPLETE")
+    excluded |= {"draft": {"REPORT_SENT"}, "send": {"REPORT_DRAFTED"}}.get(mode, set())
+    if agent == "forge-planner":
+        excluded.add("HUMAN_CODE_CHANGE_REQUESTED")
+    if phase == "REPAIR" and agent != "forge-qa":
+        excluded.add("CONTRACT_MISMATCH")
+    return ALLOWED.get(phase, set()) - excluded
 
 PANELS = {
     "CONCERNS": ["pm", "architect", "critic"],
@@ -176,7 +194,7 @@ def stage_for(ctx, phase):
 
 # @spec ROUTE-DISP-001, ROUTE-DISP-002, ROUTE-DISP-004, ROUTE-GUARD-001, ROUTE-GUARD-002, ROUTE-DRIFT-005
 # @spec ROUTE-LIMIT-001, ROUTE-LIMIT-002, ROUTE-LIMIT-006, ROUTE-BLK-004, ROUTE-BLK-015
-# @spec ROUTE-DISP-005, ROUTE-DISP-006, ROUTE-DISP-007, ROUTE-DRIFT-008
+# @spec ROUTE-DISP-005, ROUTE-DISP-006, ROUTE-DISP-007, ROUTE-DRIFT-008, ROUTE-BUILD-033, ROUTE-BLK-021
 def dispatch(ctx, phase, opts):
     head = ctx.head()
     if phase == "REVIEW_INTERNAL" and ctx.anchors.get("verifier_pass_sha") != head:
@@ -215,7 +233,10 @@ def dispatch(ctx, phase, opts):
         scope = list(ctx.state["scope_manifest"].get("assigned", []))
     if phase == "REPAIR":
         item = ctx.lc["repair_queue"][0]
-        notes, refs = item.get("notes"), list(item.get("context_refs", [])) + refs
+        item_refs = list(item.get("context_refs", []))
+        notes, refs = item.get("notes"), item_refs + [x for x in refs if x not in item_refs]
+    if agent == "forge-reporter":
+        refs = [ctx.lc.get("report_input")]
     invoke = {"dispatch_id": uuid.uuid4().hex, "agent": agent, "mode": mode, "state_path": str(ctx.sp),
               "base_sha": head, "assigned_scope": scope, "context_refs": refs, "notes": notes}
     stage = stage_for(ctx, phase)
@@ -224,7 +245,8 @@ def dispatch(ctx, phase, opts):
     if phase == "COUNCIL":
         blocker = ctx.state["blockers"][-1]
         invoke["panel"] = PANELS[blocker["kind"]]
-        invoke["context_refs"] = [str(ctx.sd / "council" / f"{blocker['id']}.json")] + refs
+        invoke["context_refs"] = [str(ctx.sd / "council" / f"{blocker['id']}.json")] \
+            + blocker.get("context_refs", []) + refs
     ctx.lc["dispatched"] = {"dispatch_id": invoke["dispatch_id"], "agent": agent, "mode": mode, "base_sha": head}
     ctx.lc["invoke"] = invoke
     ctx.lc["current_phase"] = phase
@@ -237,7 +259,7 @@ def dispatch(ctx, phase, opts):
 
 
 # @spec ROUTE-BLK-001, ROUTE-BLK-002, ROUTE-BLK-003, ROUTE-BLK-013, ROUTE-BLK-014, ROUTE-LIMIT-003
-# @spec ROUTE-LIMIT-004
+# @spec ROUTE-LIMIT-004, ROUTE-BLK-025
 def raise_blocker(ctx, kind, agent, phase, details, findings=None, force=False):
     counts = ctx.lc.setdefault("blocker_counts", {})
     if not force and counts.get(kind, 0) >= 3:
@@ -245,11 +267,13 @@ def raise_blocker(ctx, kind, agent, phase, details, findings=None, force=False):
                                                           "details": details, "findings": findings}},
                      question=f"A fourth {kind} blocker was raised. Retry or stop?")
     counts[kind] = counts.get(kind, 0) + 1
+    # context_refs: the raising dispatch's, for the council dispatch and the ruling's repairs.
     blocker = {"id": f"blk-{uuid.uuid4().hex[:8]}", "kind": kind, "agent": agent, "phase": phase,
-               "details": details}
+               "details": details, "context_refs": list(ctx.lc["invoke"]["context_refs"])}
     ctx.state["blockers"].append(blocker)
-    ctx.lc["resume_phase"] = phase if kind in ("CONCERNS", "TEST_CHANGE_REQUESTED", "CONTRACT_MISMATCH",
-                                               "AUDIT_FAILED") else "VERIFY_FINAL"
+    if phase != "REPAIR":
+        ctx.lc["resume_phase"] = phase if kind in ("CONCERNS", "TEST_CHANGE_REQUESTED", "CONTRACT_MISMATCH",
+                                                   "AUDIT_FAILED") else "VERIFY_FINAL"
     if kind == "CHANGES_REQUESTED":
         by_agent = {}
         for f in findings or []:
@@ -276,36 +300,46 @@ def remove_blocker(ctx, blocker_id):
 
 
 # @spec ROUTE-BLK-009, ROUTE-BLK-010, ROUTE-BLK-011, ROUTE-BLK-012, ROUTE-BLK-017, ROUTE-BLK-019, ROUTE-BLK-020
-def apply_ruling(ctx, blocker, ruling, user_caused=False):
+# @spec ROUTE-BLK-023, ROUTE-BLK-025, ROUTE-BLK-026
+def apply_ruling(ctx, blocker, ruling, option, approved_by):
+    """Apply option ({route_to, delta}, labelled option["label"]) of blocker's ruling."""
+    ctx.state["council_decisions"].append({"id": f"cd-{uuid.uuid4().hex[:8]}", "blocker_id": blocker["id"],
+                                           "panel": ruling.get("panel"), "option": option.get("label"),
+                                           "approved_by": approved_by})
+    user_caused = approved_by == "user"
     kind = blocker["kind"]
-    refs = [ruling["matrix_ref"]] if ruling.get("matrix_ref") else []
-    delta = ruling.get("delta")
+    matrix = [ruling["matrix_ref"]] if ruling.get("matrix_ref") else []
+    blocked = blocker.get("context_refs", [])
+    delta, route = option.get("delta"), option.get("route_to") or []
     if kind == "CONCERNS":
         remove_blocker(ctx, blocker["id"])
-        return goto(blocker["phase"], context_refs=refs, user_caused=user_caused)
-    route = ["forge-qa"] if kind in ("TEST_CHANGE_REQUESTED", "CONTRACT_MISMATCH") else ruling.get("route_to", [])
+        return goto(blocker["phase"], context_refs=blocked + matrix, notes=delta, user_caused=user_caused)
     if not route:
         remove_blocker(ctx, blocker["id"])
         if kind == "CI_FAILED":
             return goto("CI_WATCH", mode="CI_RERUN", user_caused=user_caused)
+        if kind in ("TEST_CHANGE_REQUESTED", "CONTRACT_MISMATCH"):
+            if blocker["phase"] == "REPAIR":  # re-run the interrupted item; REPAIR reads the queue head's notes
+                head = ctx.lc["repair_queue"][0]
+                head["notes"] = "\n".join(n for n in (head.get("notes"), delta) if n)
+                return goto("REPAIR", user_caused=user_caused)
+            return goto(blocker["phase"], notes=delta, user_caused=user_caused)
         return goto(ctx.lc["resume_phase"], user_caused=user_caused)
-    ctx.lc["repair_queue"] = [{"agent": a, "notes": delta, "context_refs": list(refs), "blocker_id": blocker["id"]}
-                              for a in route]
+    ctx.lc["repair_queue"] = [{"agent": a, "notes": delta, "context_refs": matrix + blocked,
+                               "blocker_id": blocker["id"]} for a in route] + ctx.lc.get("repair_queue", [])
     return goto("REPAIR", new_repair_item=True, user_caused=user_caused)
 
 
 # ------------------------------------------------------------- result events
 
 
-# @spec ROUTE-ENV-001, ROUTE-ENV-002, ROUTE-ENV-003, ROUTE-ENV-004, ROUTE-ENV-005
+# @spec ROUTE-ENV-001, ROUTE-ENV-002, ROUTE-ENV-003, ROUTE-ENV-004, ROUTE-ENV-005, ROUTE-ENV-012
 def validate_envelope(ctx, env):
     d = ctx.lc.get("dispatched")
     if not d or env.get("dispatch_id") != d["dispatch_id"] or env.get("agent") != d["agent"]:
         return "the envelope does not match the outstanding dispatch"
     phase = ctx.lc["current_phase"]
-    allowed = ALLOWED.get(phase, set()) | {"ERROR"}
-    if phase in MUTATING and d["agent"] in BUILDERS:
-        allowed |= {"HUMAN_CODE_CHANGE_REQUESTED"}
+    allowed = accepted_statuses(phase, d["agent"], d.get("mode")) | {"ERROR"}
     if env.get("status") not in allowed:
         return f"status {env.get('status')} is not allowed for {d['agent']} in {phase}"
     head_sha = env.get("head_sha") or ""
@@ -315,8 +349,9 @@ def validate_envelope(ctx, env):
     if d["agent"] in NON_COMMITTING and head_sha != d["base_sha"]:
         return f"{d['agent']} does not commit, but head_sha differs from the dispatch's base_sha"
     if d["agent"] == "forge-council" and env.get("status") == "COUNCIL_RULING":
-        route = (env.get("ruling") or {}).get("route_to", [])
-        if any(a not in BUILDERS for a in route):
+        ruling = env.get("ruling") or {}
+        routes = [ruling.get("route_to") or []] + [o.get("route_to") or [] for o in ruling.get("options") or []]
+        if any(a not in BUILDERS for route in routes for a in route):
             return f"ruling routes to an agent outside {BUILDERS}"
     return None
 
@@ -346,7 +381,7 @@ def record_scope(ctx, env):
 # @spec ROUTE-BUILD-017, ROUTE-BUILD-018, ROUTE-BUILD-019, ROUTE-BUILD-020, ROUTE-BUILD-021, ROUTE-BUILD-023
 # @spec ROUTE-BUILD-024, ROUTE-BUILD-026, ROUTE-BUILD-027, ROUTE-BUILD-029, ROUTE-BUILD-030, ROUTE-BUILD-031
 # @spec ROUTE-BUILD-032, ROUTE-PR-002, ROUTE-PR-003, ROUTE-BLK-005, ROUTE-BLK-006, ROUTE-BLK-016, ROUTE-HC-001
-# @spec ROUTE-BLK-018
+# @spec ROUTE-BLK-018, ROUTE-BLK-024, ROUTE-BUILD-034, ROUTE-BUILD-035, ROUTE-ENV-013
 def apply_result(ctx, env):
     problem = validate_envelope(ctx, env)
     if problem:
@@ -360,6 +395,8 @@ def apply_result(ctx, env):
         return stop("AGENT_ERROR", escalation.get("details", ""))
     record_commits(ctx, env)
     ctx.lc["dispatched"] = None
+    if status in ("PUBLISHED", "PR_REVIEW_READY", "REPORT_DRAFTED"):
+        ctx.lc["report_input"] = str(ctx.sd / "envelopes" / f"{d['dispatch_id']}.json")
     if agent in BUILDERS:
         ctx.anchors["last_known_head_sha"] = env["head_sha"]
     collaborative = ctx.config("collaborative", True)
@@ -384,6 +421,8 @@ def apply_result(ctx, env):
         ctx.state["scope_manifest"]["assigned"] = (env.get("scope") or {}).get("assigned", [])
         return pause("plan_approval", phase, {"next": "POST_PLAN", "set_plan_base": True})
     if phase == "POST_PLAN":
+        if not ctx.state["scope_manifest"].get("assigned"):
+            return goto("VERIFY_FINAL")
         if collaborative:
             ctx.lc["pass"] = 1
             return goto("PRE_QA")
@@ -415,13 +454,12 @@ def apply_result(ctx, env):
         base = ctx.anchors.get("workstream_base_sha")
         gate = verify_gate.check_commits(f"{base}..HEAD" if base else "HEAD", ctx.state, ctx.root)
         if not gate["ok"]:
-            errors = [f for f in gate["findings"] if f["severity"] == "error"]
-            return raise_blocker(ctx, "AUDIT_FAILED", "commit-gate", phase, {"findings": errors})
+            return gate_failed(ctx, phase, [f for f in gate["findings"] if f["severity"] == "error"])
         ctx.anchors["verifier_pass_sha"] = ctx.head()
         return goto("REVIEW_INTERNAL")
     if status == "REVIEW_APPROVED":
         ctx.anchors["reviewer_pass_sha"] = ctx.head()
-        return pause("publish_approval", phase)
+        return publish_approval(ctx, phase)
     if status == "PUBLISHED":
         return goto("REPORT", mode="draft")
     if status == "MERGE_READY":
@@ -433,29 +471,59 @@ def apply_result(ctx, env):
     if status == "CI_NONE":
         return pause("ci_none", phase)
     if status == "REPORT_DRAFTED":
-        return pause("report_approval", phase)
+        return pause("report_approval", phase, context_refs=[ctx.lc["report_input"]])
     if status == "REPORT_SENT":
         return report_done(ctx)
     if phase == "RECONCILE":
         record_scope(ctx, env)
-        return goto(ctx.lc.get("resume_phase") or "VERIFY_FINAL")
+        target, ctx.lc["after_reconcile"] = ctx.lc.get("after_reconcile") or "VERIFY_FINAL", None
+        return goto(target)
     if status == "COUNCIL_RULING":
         blocker = ctx.state["blockers"][-1]
         blocker["ruling"] = env.get("ruling") or {}
-        auto = ctx.config("council_auto_resolve", False) and not blocker["ruling"].get("requires_user", True)
+        ruling = blocker["ruling"]
+        auto = ctx.config("council_auto_resolve", False) and not ruling.get("requires_user", True)
         if blocker["kind"] == "CONCERNS" or not auto:
             return pause("council_signoff", phase, {"blocker_id": blocker["id"]},
-                         context_refs=[blocker["ruling"]["matrix_ref"]] if blocker["ruling"].get("matrix_ref") else [])
-        return apply_ruling(ctx, blocker, blocker["ruling"])
+                         context_refs=[ruling["matrix_ref"]] if ruling.get("matrix_ref") else [])
+        option = {"label": ruling.get("recommended"), "route_to": ruling.get("route_to"), "delta": ruling.get("delta")}
+        return apply_ruling(ctx, blocker, ruling, option, "auto")
     if status == "REPAIR_COMMITTED":
+        sm = ctx.state["scope_manifest"]
+        if agent == "forge-planner" and "assigned" in (env.get("scope") or {}):
+            sm["assigned"] = env["scope"]["assigned"]
+            sm["completed"] = [p for p in sm["completed"] if p in sm["assigned"]]
+            sm["remaining"] = [p for p in sm["assigned"] if p not in sm["completed"]]
+            ctx.lc["resume_phase"] = "POST_PLAN"
         item = ctx.lc["repair_queue"].pop(0)
+        if not any(i.get("blocker_id") == item.get("blocker_id") for i in ctx.lc["repair_queue"]):
+            remove_blocker(ctx, item.get("blocker_id"))
         if ctx.lc["repair_queue"]:
             return goto("REPAIR", new_repair_item=True)
-        remove_blocker(ctx, item.get("blocker_id"))
         return goto(ctx.lc.get("resume_phase") or "VERIFY_FINAL")
     if status == "PR_REVIEW_READY":
         return goto("REPORT", mode="draft")
     raise ValueError(f"no transition for {status} in {phase}")
+
+
+# @spec ROUTE-BUILD-020, ROUTE-BUILD-038
+def gate_failed(ctx, phase, errors):
+    if any(f["kind"] != "HUMAN_CODE_MODIFIED" for f in errors):
+        return stop("GATE_UNREPAIRABLE", json.dumps(errors))
+    shown = "; ".join(f"commit {f['commit']} {f['path']} lines {json.dumps(f.get('lines', []))}" for f in errors)
+    return pause("human_code_approval", phase, {"gate_findings": errors},
+                 question=f"Committed changes modify human-authored lines without approval: {shown}. "
+                 "Approve them, or reject to stop?")
+
+
+# @spec ROUTE-BUILD-039, ROUTE-BUILD-040
+def publish_approval(ctx, phase):
+    merged = lid_check.check(ctx.state).get("merged_specs") if ctx.lid else None
+    if not merged:
+        return pause("publish_approval", phase)
+    return pause("publish_approval", phase, {"merged_specs": merged},
+                 question=PAUSES["publish_approval"][1] + "\nMerged specs nobody in this workstream implements: "
+                 + ", ".join(merged))
 
 
 # @spec ROUTE-BUILD-028, ROUTE-PR-004
@@ -469,7 +537,8 @@ def report_done(ctx):
 
 
 # @spec ROUTE-PAUSE-002, ROUTE-BUILD-006, ROUTE-BUILD-022, ROUTE-BUILD-025, ROUTE-BLK-007, ROUTE-BLK-008
-# @spec ROUTE-HC-002, ROUTE-HC-003, ROUTE-DRIFT-006, ROUTE-LIMIT-005
+# @spec ROUTE-HC-002, ROUTE-HC-003, ROUTE-DRIFT-006, ROUTE-LIMIT-005, ROUTE-DISP-008, ROUTE-BUILD-005
+# @spec ROUTE-BUILD-036, ROUTE-BUILD-037, ROUTE-BLK-022
 def apply_user(ctx, event):
     awaiting = ctx.lc.get("awaiting")
     if not awaiting or event.get("awaiting") != awaiting["kind"]:
@@ -481,14 +550,25 @@ def apply_user(ctx, event):
     if kind == "publish_approval" and decision == "approve" and option not in ("push", "merge"):
         return stop("EVENT_INVALID", "approve needs option push or merge", write=False)
     phase = ctx.lc["current_phase"]
+    if kind == "council_signoff" and decision == "approve":
+        blocker = next(b for b in ctx.state["blockers"] if b["id"] == payload["blocker_id"])
+        ruling = blocker.get("ruling") or {}
+        chosen = next((o for o in ruling.get("options") or [] if o.get("label") == option), None)
+        if chosen is None:
+            return stop("EVENT_INVALID", f"{option} is not an option of the ruling", write=False)
+        ctx.lc["awaiting"] = None
+        return apply_ruling(ctx, blocker, ruling, chosen, "user")
     ctx.lc["awaiting"] = None
     user = {"user_caused": True}
+    prior_refs = list((ctx.lc.get("invoke") or {}).get("context_refs", []))
 
     if kind == "plan_approval":
         if decision == "revise":
-            return goto(phase, notes=notes, **user)
+            return goto(phase, notes=notes, context_refs=prior_refs, **user)
         if payload.get("set_plan_base"):
             ctx.anchors["plan_base_sha"] = ctx.head()
+            sm = ctx.state["scope_manifest"]
+            sm["remaining"], sm["completed"] = list(sm["assigned"]), []
         return goto(payload["next"], **user)
     if kind == "edit_window":
         if payload.get("set_pass"):
@@ -496,7 +576,8 @@ def apply_user(ctx, event):
         return goto(payload["next"], **user)
     if kind == "publish_approval":
         if decision == "hold":
-            return pause("publish_approval", phase)
+            return pause("publish_approval", phase, {k: v for k, v in payload.items() if not k.startswith("_")},
+                         question=payload.get("_question"))
         return goto("PUBLISH", mode=option, **user)
     if kind == "manual_merge":
         base = ctx.state["identity"].get("base_branch")
@@ -512,23 +593,32 @@ def apply_user(ctx, event):
         return goto("REPORT", mode="send" if decision == "approve" else "draft", notes=notes, **user)
     if kind == "ci_none":
         return close() if decision == "approve" else goto("CI_WATCH", mode="CI_WATCH", **user)
-    if kind == "council_signoff":
-        blocker = next(b for b in ctx.state["blockers"] if b["id"] == payload["blocker_id"])
-        if decision == "reject":
-            return goto("COUNCIL", notes=notes, **user)
-        ctx.state["council_decisions"].append({"id": f"cd-{uuid.uuid4().hex[:8]}", "blocker_id": blocker["id"],
-                                               "panel": PANELS[blocker["kind"]], "option": option,
-                                               "approved_by": "user"})
-        return apply_ruling(ctx, blocker, blocker.get("ruling") or {}, user_caused=True)
+    if kind == "council_signoff":  # reject; approve is applied above
+        return goto("COUNCIL", notes=notes, **user)
     if kind == "findings_signoff":
         return goto("REPAIR", new_repair_item=True, **user)
+    if kind == "human_code_approval" and "gate_findings" in payload:
+        if decision == "reject":
+            return stop("GATE_REJECTED", notes or "the user rejected the committed human-code changes")
+        for f in payload["gate_findings"]:
+            agent = ctx.git("show", "-s", "--format=%(trailers:key=Forge-Agent,valueonly)", f["commit"]).stdout
+            ctx.state["approvals"].append({
+                "id": f"apr-{uuid.uuid4().hex[:8]}", "agent": agent.strip(), "paths": [f["path"]],
+                "ranges": {f["path"]: f.get("lines", [])},
+                "base_sha": ctx.git("rev-parse", f"{f['commit']}^").stdout.strip(), "approved_by": "user"})
+        return goto("VERIFY_FINAL", **user)
     if kind == "human_code_approval":
         if decision == "reject":
-            return goto(payload["phase"], notes=notes, **user)
-        approval = {"id": f"apr-{uuid.uuid4().hex[:8]}", "agent": payload["agent"], "paths": payload["paths"],
-                    "ranges": payload["ranges"], "base_sha": payload["base_sha"], "approved_by": "user"}
-        ctx.state["approvals"].append(approval)
-        return goto(payload["phase"], notes=f"Approved human-code change {approval['id']}", **user)
+            added = notes
+        else:
+            approval = {"id": f"apr-{uuid.uuid4().hex[:8]}", "agent": payload["agent"], "paths": payload["paths"],
+                        "ranges": payload["ranges"], "base_sha": payload["base_sha"], "approved_by": "user"}
+            ctx.state["approvals"].append(approval)
+            added = f"Approved human-code change {approval['id']}"
+        new_notes = "\n".join(n for n in ((ctx.lc.get("invoke") or {}).get("notes"), added) if n)
+        if payload["phase"] == "REPAIR":
+            ctx.lc["repair_queue"][0]["notes"] = new_notes  # the REPAIR dispatch reads the queue head's notes
+        return goto(payload["phase"], notes=new_notes, context_refs=prior_refs, **user)
     if kind == "dirty_tree":
         pending = payload["pending"]
         return goto(pending["phase"], **{**pending["opts"], **user})
@@ -594,19 +684,21 @@ def pause_from_awaiting(ctx, aw):
             "question": payload.get("_question"), "context_refs": payload.get("_context_refs", [])}
 
 
-# @spec ROUTE-DRIFT-001, ROUTE-DRIFT-002, ROUTE-DRIFT-004, ROUTE-DRIFT-007
+# @spec ROUTE-DRIFT-001, ROUTE-DRIFT-002, ROUTE-DRIFT-004, ROUTE-DRIFT-007, ROUTE-DRIFT-009, ROUTE-DRIFT-010
 def handle_drift(ctx, outcome):
     if outcome["kind"] not in ("dispatch", "close"):
         return outcome
     if not unaccounted_drift(ctx):
         return outcome
+    if ctx.state["identity"].get("flow") == "pr_review":
+        return stop("REVIEW_WORKTREE_MOVED", "commits appeared in the pull request review worktree", write=False)
     ctx.anchors["verifier_pass_sha"] = None
     ctx.anchors["reviewer_pass_sha"] = None
     ctx.anchors["last_known_head_sha"] = ctx.head()
     target = outcome.get("phase", "VERIFY_FINAL")
     if outcome["kind"] == "dispatch" and target in VERIFIER_PHASES:
         return outcome
-    ctx.lc["resume_phase"] = target if outcome["kind"] == "dispatch" else "VERIFY_FINAL"
+    ctx.lc["after_reconcile"] = "VERIFY_FINAL" if target in ("REPORT", "CI_WATCH") else target
     return goto("RECONCILE")
 
 

@@ -41,7 +41,7 @@ Design: `gates-design.md`. Implementation: `reference/scripts/verify_gate.py`.
 - [x] **GATE-HUM-007**: When a Forge commit modifies or deletes a binary file whose last change before that commit came from a commit without a `Forge-Agent` trailer, `check-commits` shall apply the protection rules to the file as a whole, as one human-authored change.
 - [x] **GATE-HUM-008**: When a Forge commit has no parent, `check-commits` shall skip the human-authored line checks for it.
 - [x] **GATE-HUM-009**: When `anchors.plan_base_sha` is set and a Forge commit is that commit or one of its ancestors, `check-commits` shall skip the human-authored line checks for it while still applying the trailer and boundary checks.
-- [ ] **GATE-HUM-010**: When a Forge commit's `Forge-Agent` is `forge-planner`, `check-commits` shall skip the human-authored line checks for it while still applying the trailer and boundary checks.
+- [x] **GATE-HUM-010**: When a Forge commit's `Forge-Agent` is `forge-planner`, `check-commits` shall skip the human-authored line checks for it while still applying the trailer and boundary checks.
 
 ## Approvals
 
@@ -59,9 +59,9 @@ Design: `gates-design.md`. Implementation: `reference/scripts/verify_gate.py`.
 
 ## Human-line query
 
-- [ ] **GATE-QRY-001**: When `human-lines --path P --agent AGENT` runs, `verify_gate.py` shall return the line ranges of `P` at `HEAD` that are protected human-authored lines under GATE-HUM-002 through GATE-HUM-004 and not covered, per GATE-APR-002, by an approval whose `agent` is `AGENT`.
-- [ ] **GATE-QRY-002**: When `human-lines` runs with `--agent forge-planner`, `verify_gate.py` shall return no ranges.
-- [ ] **GATE-QRY-003**: If `human-lines` runs without `--agent`, then `verify_gate.py` shall exit `2` with a message on stderr.
+- [x] **GATE-QRY-001**: When `human-lines --path P --agent AGENT` runs, `verify_gate.py` shall return the line ranges of `P` at `HEAD` that are protected human-authored lines under GATE-HUM-002 through GATE-HUM-004 and not covered, per GATE-APR-002, by an approval whose `agent` is `AGENT`.
+- [x] **GATE-QRY-002**: When `human-lines` runs with `--agent forge-planner`, `verify_gate.py` shall return no ranges.
+- [x] **GATE-QRY-003**: If `human-lines` runs without `--agent`, then `verify_gate.py` shall exit `2` with a message on stderr.
 
 ## Command interface
 

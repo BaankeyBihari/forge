@@ -178,7 +178,7 @@ A row applies when the current phase and the accepted envelope status match. Pau
 | `DEV_FULL` | `IMPLEMENTATION_COMPLETE` | `VERIFY_FINAL` |
 | `VERIFY_FINAL` | `PASS` | Run the commit gate (below); on success set `verifier_pass_sha = HEAD`, go to `REVIEW_INTERNAL`; on failure see *Commit gate* |
 | `VERIFY_FINAL` | `AUDIT_FAILED` or `TESTS_FAILED` | Blocker of that kind |
-| `REVIEW_INTERNAL` | `REVIEW_APPROVED` | Set `reviewer_pass_sha = HEAD`; pause `publish_approval` → `approve` with `option` `push` or `merge`: `PUBLISH`; `hold`: stay paused |
+| `REVIEW_INTERNAL` | `REVIEW_APPROVED` | Set `reviewer_pass_sha = HEAD`; pause `publish_approval`, naming any merged specs (*Merged specs*, below) → `approve` with `option` `push` or `merge`: `PUBLISH`; `hold`: stay paused |
 | `REVIEW_INTERNAL` | `CHANGES_REQUESTED` | Blocker `CHANGES_REQUESTED` |
 | `PUBLISH` | `PUBLISHED` | `REPORT` (push target only) |
 | `PUBLISH` | `MERGE_READY` | Pause `manual_merge`: the user merges the branch into `identity.base_branch` themselves → `done`: `close` when `HEAD` is an ancestor of the base branch, otherwise pause again with that finding |
@@ -217,6 +217,10 @@ A gate error names a commit already in the branch, and agents cannot rewrite his
 - When every error finding is `HUMAN_CODE_MODIFIED`, the router pauses `human_code_approval` presenting each finding's commit, path, and lines. `approve` appends one approval per finding — `{id, agent: the commit's Forge-Agent, paths: [path], ranges: {path: lines}, base_sha: the commit's parent, approved_by: "user"}` — and re-dispatches `VERIFY_FINAL`; `reject` stops with `GATE_REJECTED`.
 - Otherwise the router stops with `GATE_UNREPAIRABLE` and the error findings. The user rewrites the branch themselves; the next call sees that as drift and verifies again.
 
+### Merged specs
+
+A merge from another branch can bring in specs nobody has implemented yet; they are not the workstream's (verifier design, *Merged specs*), but the user decides whether to take them up. In a LID repository, before pausing `publish_approval`, the router calls `lid_check.py`'s importable check on the workstream's state and, when its `merged_specs` is not empty, records the IDs in the pause's `merged_specs` and adds a line naming them to the question. Publishing is the last step the user approves before the branch leaves the worktree, so every workstream that publishes shows the list exactly once, computed by a script.
+
 ## Transition Table — PR Review Flow
 
 | Phase | Status | Next |
@@ -229,12 +233,12 @@ A gate error names a commit already in the branch, and agents cannot rewrite his
 
 ## Blockers and Council
 
-A blocker status appends `{id, kind, agent, phase, details}` to `blockers`, sets `resume_phase`, and routes by kind. A blocker raised while in `REPAIR` keeps the existing `resume_phase`, and the repairs its ruling queues go to the front of `repair_queue`, so the interrupted repair runs after them and the detour still returns where it began.
+A blocker status appends `{id, kind, agent, phase, details, context_refs}` to `blockers`, sets `resume_phase`, and routes by kind. The blocker's `context_refs` are those of the dispatch that raised it, so the council and the repairs its ruling queues read what the blocked spoke read. A blocker raised while in `REPAIR` keeps the existing `resume_phase`, and the repairs its ruling queues go to the front of `repair_queue`, so the interrupted repair runs after them and the detour still returns where it began.
 
 | Kind | Raised by | Council panel | User sign-off | After approval |
 |---|---|---|---|---|
 | `CONCERNS` | planner | `pm`, `architect`, `critic` | Always | Re-dispatch the blocked planning phase with the ruling's matrix in `context_refs` and the chosen option's `delta` in `notes` |
-| `TEST_CHANGE_REQUESTED`, `CONTRACT_MISMATCH` | dev, or qa for `CONTRACT_MISMATCH` | `senior-dev`, `architect` | Unless auto-resolve applies | Queue the ruling's `route_to` agents with its delta; resume the blocked phase. An empty `route_to` resolves the blocker and runs the blocked phase again with the delta in `notes` |
+| `TEST_CHANGE_REQUESTED`, `CONTRACT_MISMATCH` | dev, or qa for `CONTRACT_MISMATCH` | `senior-dev`, `architect` | Unless auto-resolve applies | Queue the ruling's `route_to` agents with its delta; resume the blocked phase. An empty `route_to` resolves the blocker and runs the blocked phase again (in `REPAIR`, the interrupted item, with the delta added to its notes) with the delta in `notes` |
 | `AUDIT_FAILED` | verifier | `architect`, `senior-dev` | Unless auto-resolve applies | Queue the ruling's `route_to` agents with its delta; resume the failed verifier phase |
 | `TESTS_FAILED` | verifier, in `VERIFY_FINAL` only | `debugger`, `senior-dev` | Unless auto-resolve applies | Queue the ruling's `route_to` agents with its delta; resume `VERIFY_FINAL` |
 | `CI_FAILED` | scout | `debugger`, `senior-dev` | Unless auto-resolve applies | Queue the ruling's `route_to` agents with its delta; resume `VERIFY_FINAL`. An empty `route_to` (a flaky failure) resolves the blocker and goes to `CI_WATCH` with mode `CI_RERUN`, which re-runs the failed jobs and watches again |
@@ -343,6 +347,8 @@ A dispatch of the same phase caused by a user answer (`revise`, `reject` of a hu
 | Publish approval | Always paused for the user, who chooses `push` or `merge` | Publish automatically after review | Pushing and merging are outward-facing and hard to undo. |
 | Local merge | Forge checks the merge is possible; the user performs it | Forge merges into `main` | Changing `main` is the user's call; Forge stops at proving it would succeed. |
 | Commit gate at `VERIFY_FINAL` | The router runs the computable checks before recording `verifier_pass_sha` | Trust the verifier's `PASS` | *Scripts over prompts*: a model's claim does not stand in for a check a script can make. |
+| Where merged specs reach the user | Named in the `publish_approval` question, computed by the router | The Commander relays each spoke's summary; a separate pause | The router already runs scripted checks and the user already answers this pause; a summary relay would have a model copy IDs, and a pause of its own would interrupt every workstream a merge touched. |
+| Empty-route ruling on a blocker raised in `REPAIR` | Re-run the interrupted repair item with the delta added to its notes | Jump to `resume_phase` | Jumping skips the interrupted item, which then stays in the queue unrun; re-running it keeps every queued repair. |
 | Commit gate range | `workstream_base_sha..HEAD`, with planning commits exempt from the human-code check | `plan_base_sha..HEAD`; a separate gate run at plan approval | Starting at `plan_base_sha` leaves the planner's commits unchecked for trailers and boundaries. One range at one call site covers every Forge commit; the exemption reflects that the user approved the planning commits with the plan. |
 | Envelope `head_sha` | `HEAD` or an ancestor of it; later commits are drift | Must equal `HEAD` | A user who commits while a spoke runs would otherwise make every envelope invalid; treating the extra commits as drift sends them through reconciliation instead. |
 | Approval `base_sha` | The escalating envelope's `head_sha` | The dispatch's `base_sha` | The spoke may commit before escalating; the line ranges it reports refer to its own `head_sha`. |

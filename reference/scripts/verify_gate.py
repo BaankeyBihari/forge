@@ -5,7 +5,7 @@ Design: docs/intent/gates/gates-design.md. Specs: docs/intent/gates/gates-specs.
 
     verify_gate.py check-commits --range A..B --state STATE_JSON
     verify_gate.py check-publish --target push|merge --state STATE_JSON
-    verify_gate.py human-lines --path PATH --state STATE_JSON
+    verify_gate.py human-lines --path PATH --agent AGENT --state STATE_JSON
 
 Never modifies the repository or the state file.
 """
@@ -259,7 +259,8 @@ def _check_trailers(repo, commit, trailers):
 
 
 # @spec GATE-COMMIT-001, GATE-COMMIT-002, GATE-COMMIT-003, GATE-TRL-001, GATE-TRL-006, GATE-BND-001, GATE-BND-002
-# @spec GATE-HUM-001, GATE-HUM-005, GATE-HUM-008, GATE-HUM-009, GATE-APR-001, GATE-APR-002, GATE-CLI-005
+# @spec GATE-HUM-001, GATE-HUM-005, GATE-HUM-008, GATE-HUM-009, GATE-HUM-010, GATE-APR-001, GATE-APR-002
+# @spec GATE-CLI-005
 def check_commits(rev_range, state, cwd="."):
     """Check every Forge commit on the first-parent chain of rev_range ("A..B" or a single revision)."""
     repo = Repo(cwd)
@@ -289,8 +290,8 @@ def check_commits(rev_range, state, cwd="."):
                 if classify_path(path, patterns) != BOUNDARY[boundary_agent]:
                     findings.append(_finding("BOUNDARY_VIOLATION", commit=commit, path=path,
                                              detail=f"{boundary_agent} may change {BOUNDARY[boundary_agent]} paths only"))
-        if not parents:
-            continue
+        if not parents or boundary_agent == "forge-planner":
+            continue  # planner commits get no human-line checks
         if rules.plan and repo.is_ancestor(commit, rules.plan):
             continue  # planning commit approved with the plan
         for path in paths:
@@ -336,20 +337,23 @@ def check_publish(target, state, cwd="."):
 # ------------------------------------------------------------- human-line query
 
 
-# @spec GATE-QRY-001, GATE-HUM-002, GATE-HUM-003, GATE-HUM-004
-def human_lines(path, state, cwd="."):
+# @spec GATE-QRY-001, GATE-QRY-002, GATE-HUM-002, GATE-HUM-003, GATE-HUM-004
+def human_lines(path, state, agent, cwd="."):
+    if agent == "forge-planner":
+        return {"ranges": []}
     repo = Repo(cwd)
     rules = Protection(repo, state)
     count = len(repo.out("show", f"HEAD:{path}").splitlines())
-    lines = [final for origin, _, final in repo.blame("HEAD", path, 1, count) if rules.protected(origin, path)] \
-        if count else []
+    blame = repo.blame("HEAD", path, 1, count) if count else []
+    lines = [final for origin, orig_line, final in blame
+             if rules.protected(origin, path) and not rules.covered(agent, path, (origin, orig_line))]
     return {"ranges": _ranges(lines)}
 
 
 # --------------------------------------------------------------------------- CLI
 
 
-# @spec GATE-CLI-001, GATE-CLI-002, GATE-CLI-003, GATE-CLI-004, GATE-CLI-006, GATE-CLI-007
+# @spec GATE-CLI-001, GATE-CLI-002, GATE-CLI-003, GATE-CLI-004, GATE-CLI-006, GATE-CLI-007, GATE-QRY-003
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="verify_gate.py")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -361,6 +365,7 @@ def main(argv=None):
     p.add_argument("--state", required=True)
     p = sub.add_parser("human-lines")
     p.add_argument("--path", required=True)
+    p.add_argument("--agent", required=True)
     p.add_argument("--state", required=True)
     args = parser.parse_args(argv)  # exits 2 on usage errors
     try:
@@ -371,7 +376,7 @@ def main(argv=None):
         elif args.command == "check-publish":
             result = check_publish(args.target, state)
         else:
-            print(json.dumps(human_lines(args.path, state)))
+            print(json.dumps(human_lines(args.path, state, args.agent)))
             return 0
     except (GitError, OSError, ValueError) as e:
         print(f"verify_gate.py: {e}", file=sys.stderr)

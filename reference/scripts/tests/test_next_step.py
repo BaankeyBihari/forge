@@ -336,6 +336,38 @@ def test_verifier_scope_is_assigned(r, phase):
     assert r.goto(phase, **{"pass": 1})["invoke"]["assigned_scope"] == ["src/**", "lib/**"]
 
 
+def keeps_refs(refs, previous):
+    return refs[:len(previous)] == previous and len(set(refs)) == len(refs)
+
+
+def with_context_refs(r, refs):
+    """Give the outstanding dispatch's stored invocation these context_refs."""
+    state = r.state()
+    state["lifecycle"]["invoke"]["context_refs"] = refs
+    write_state(r.sp, state)
+
+
+# @spec ROUTE-DISP-008
+def test_plan_revise_keeps_context_refs(r):
+    r.patch(identity={"issue": "https://github.com/acme/widgets/issues/1"})
+    r.start()
+    previous = r.result("OK")["invoke"]["context_refs"]
+    r.result("READY_FOR_QA", scope={"assigned": ["src/**"]})
+    revised = r.user("revise", notes="split the parser")
+    assert previous and keeps_refs(revised["invoke"]["context_refs"], previous), revised["invoke"]
+
+
+# @spec ROUTE-DISP-008
+@pytest.mark.parametrize("answer", ["approve", "reject"])
+def test_human_code_redispatch_keeps_context_refs(r, answer):
+    r.goto("DEV_FULL")
+    with_context_refs(r, ["specs/dev.md"])
+    r.result("HUMAN_CODE_CHANGE_REQUESTED", escalation=ESCALATION)
+    decision = r.user(answer, notes="go ahead")
+    assert dispatches(decision, "forge-dev", "full")
+    assert keeps_refs(decision["invoke"]["context_refs"], ["specs/dev.md"]), decision["invoke"]
+
+
 # ------------------------------------------------------------- result envelopes
 
 
@@ -361,6 +393,70 @@ def test_status_not_allowed_in_phase(r):
     unchanged_stop(r, lambda: r.result("TESTS_COMMITTED"))
 
 
+ESCALATION = {"details": "escalated", "paths": ["src/legacy.py"], "ranges": {"src/legacy.py": [[10, 14]]}}
+
+
+def place(r, phase, queue_agent=None):
+    """Dispatch phase; in REPAIR, with one queue item for queue_agent."""
+    if phase == "REPAIR":
+        return r.goto("REPAIR", repair_queue=[{"agent": queue_agent, "notes": "fix", "context_refs": []}],
+                      resume_phase="VERIFY_FINAL")
+    return r.goto(phase, **({"pass": 1} if phase in {"QA_SKEL", "DEV_STUB"} else {}))
+
+
+# @spec ROUTE-ENV-014
+@pytest.mark.parametrize("phase, queue_agent, status", [
+    ("QA_SKEL", None, "CONTRACT_MISMATCH"), ("QA_FULL", None, "CONTRACT_MISMATCH"),
+    ("QA_SKEL", None, "HUMAN_CODE_CHANGE_REQUESTED"), ("QA_FULL", None, "HUMAN_CODE_CHANGE_REQUESTED"),
+    ("DEV_STUB", None, "HUMAN_CODE_CHANGE_REQUESTED"), ("DEV_FULL", None, "HUMAN_CODE_CHANGE_REQUESTED"),
+    ("REPAIR", "forge-qa", "CONTRACT_MISMATCH"), ("REPAIR", "forge-qa", "HUMAN_CODE_CHANGE_REQUESTED"),
+    ("REPAIR", "forge-dev", "HUMAN_CODE_CHANGE_REQUESTED"),
+])
+def test_status_accepted_in_phase(r, phase, queue_agent, status):
+    place(r, phase, queue_agent)
+    decision = r.result(status, escalation=ESCALATION)
+    assert decision.get("status") != "ENVELOPE_INVALID", decision
+    assert r.state()["lifecycle"]["last_status"] == status
+
+
+# @spec ROUTE-ENV-002, ROUTE-ENV-014
+@pytest.mark.parametrize("phase, queue_agent, status", [
+    ("QA_SKEL", None, "TEST_CHANGE_REQUESTED"), ("QA_FULL", None, "TEST_CHANGE_REQUESTED"),
+    ("POST_PLAN", None, "TESTS_FAILED"), ("RECONCILE", None, "AUDIT_FAILED"), ("PLAN", None, "STAGE_COMPLETE"),
+    ("REPAIR", "forge-dev", "IMPLEMENTATION_COMPLETE"),
+])
+def test_status_outside_phase_table_rejected(r, phase, queue_agent, status):
+    place(r, phase, queue_agent)
+    unchanged_stop(r, lambda: r.result(status, escalation=ESCALATION))
+
+
+# @spec ROUTE-ENV-002, ROUTE-ENV-012
+@pytest.mark.parametrize("case, status", [
+    ("strict-PLAN_S1", "READY_FOR_QA"), ("strict-PLAN_S3", "READY_FOR_QA"), ("strict-PLAN_S4", "STAGE_COMPLETE"),
+    ("auto-PLAN_S1", "STAGE_COMPLETE"), ("draft", "REPORT_SENT"), ("send", "REPORT_DRAFTED"),
+    ("planner", "HUMAN_CODE_CHANGE_REQUESTED"), ("planner-repair", "HUMAN_CODE_CHANGE_REQUESTED"),
+    ("dev-repair", "CONTRACT_MISMATCH"),
+])
+def test_status_excluded_by_agent_or_mode(r, case, status):
+    if case.startswith("strict-"):
+        set_mode(r, repo_mode="LID")
+        r.goto(case.split("-")[1])
+    elif case == "auto-PLAN_S1":
+        set_mode(r, repo_mode="LID", plan_mode="auto")
+        r.goto("PLAN_S1")
+    elif case == "draft":
+        at_report(r)
+    elif case == "send":
+        at_report(r)
+        r.result("REPORT_DRAFTED")
+        r.user("approve")
+    elif case == "planner":
+        r.start()
+    else:
+        place(r, "REPAIR", "forge-planner" if case == "planner-repair" else "forge-dev")
+    unchanged_stop(r, lambda: r.result(status, escalation=ESCALATION))
+
+
 # @spec ROUTE-ENV-003
 def test_head_not_ancestor(r):
     r.goto("DEV_FULL")
@@ -384,6 +480,13 @@ def test_council_route_outside_builders(r):
     r.result("TESTS_FAILED", escalation={"details": "red"})
     ruling = {"matrix_ref": "m.md", "requires_user": False, "route_to": ["forge-reviewer"], "delta": "d"}
     unchanged_stop(r, lambda: r.result("COUNCIL_RULING", ruling=ruling))
+
+
+# @spec ROUTE-ENV-005
+def test_council_option_route_outside_builders(r):
+    r.goto("VERIFY_FINAL")
+    r.result("TESTS_FAILED", escalation={"details": "red"})
+    unchanged_stop(r, lambda: r.result("COUNCIL_RULING", ruling=ruling(["forge-dev"], alt_route=["forge-reviewer"])))
 
 
 # @spec ROUTE-ENV-006
@@ -455,6 +558,30 @@ def test_head_sha_ancestor_of_head_is_accepted(r):
     assert state["anchors"]["last_known_head_sha"] == head(r.wt)
 
 
+def envelope_file(r, dispatch_id):
+    return str(r.sd / "envelopes" / f"{dispatch_id}.json")
+
+
+def dispatched_id(r):
+    return r.state()["lifecycle"]["dispatched"]["dispatch_id"]
+
+
+# @spec ROUTE-ENV-013
+@pytest.mark.parametrize("status", ["PUBLISHED", "PR_REVIEW_READY", "REPORT_DRAFTED"])
+def test_report_input_set_from_envelope(r, status):
+    if status == "PUBLISHED":
+        at_publish(r, "push")
+    elif status == "PR_REVIEW_READY":
+        r.patch(identity={"flow": "pr_review", "pr": "https://github.com/acme/widgets/pull/7"})
+        r.start()
+        r.result("OK")
+    else:
+        at_report(r)
+    did = dispatched_id(r)
+    r.result(status, **({"publish_target": "push"} if status == "PUBLISHED" else {}))
+    assert r.state()["lifecycle"].get("report_input") == envelope_file(r, did)
+
+
 # --------------------------------------------------------------------- build flow
 
 
@@ -502,12 +629,24 @@ def test_strict_stage_complete(r):
 
 # @spec ROUTE-BUILD-005
 def test_ready_for_qa(r):
+    r.patch(scope_manifest={"assigned": [], "completed": ["old/**"], "remaining": ["old/**"]})
     r.start()
-    assert pauses(r.result("READY_FOR_QA", scope={"assigned": ["src/**"]}), "plan_approval")
-    assert r.state()["scope_manifest"]["assigned"] == ["src/**"]
+    assert pauses(r.result("READY_FOR_QA", scope={"assigned": ["src/**", "lib/**"]}), "plan_approval")
+    assert r.state()["scope_manifest"]["assigned"] == ["src/**", "lib/**"]
     decision = r.user("approve")
     assert dispatches(decision, "forge-verifier", "POST_PLAN")
-    assert r.state()["anchors"]["plan_base_sha"] == head(r.wt)
+    state = r.state()
+    assert state["anchors"]["plan_base_sha"] == head(r.wt)
+    assert state["scope_manifest"] == {"assigned": ["src/**", "lib/**"], "completed": [],
+                                       "remaining": ["src/**", "lib/**"]}
+
+
+# @spec ROUTE-BUILD-005
+def test_ready_for_qa_with_empty_scope(r):
+    r.start()
+    assert pauses(r.result("READY_FOR_QA", scope={"assigned": []}), "plan_approval")
+    assert r.state()["scope_manifest"]["assigned"] == []
+    assert dispatches(r.user("approve"), "forge-verifier", "POST_PLAN")
 
 
 # @spec ROUTE-BUILD-006
@@ -524,11 +663,20 @@ def test_plan_revise(r):
                                                          (False, "QA_FULL", "forge-qa")])
 def test_post_plan_pass(r, collaborative, phase, agent):
     set_mode(r, collaborative=collaborative)
+    r.patch(scope_manifest={"assigned": ["src/**"], "completed": [], "remaining": ["src/**"]})
     r.goto("POST_PLAN")
     decision = r.result("PASS")
     assert dispatches(decision, agent) and decision["phase"] == phase
     if collaborative:
         assert r.state()["lifecycle"]["pass"] == 1
+
+
+# @spec ROUTE-BUILD-035
+@pytest.mark.parametrize("collaborative", [True, False])
+def test_post_plan_pass_with_empty_scope_goes_to_verify_final(r, collaborative):
+    set_mode(r, collaborative=collaborative)
+    r.goto("POST_PLAN")
+    assert dispatches(r.result("PASS"), "forge-verifier", "VERIFY_FINAL")
 
 
 # @spec ROUTE-BUILD-008
@@ -617,7 +765,7 @@ def test_verify_final_gate_passes(r):
     assert r.state()["anchors"]["verifier_pass_sha"] == head(r.wt)
 
 
-# @spec ROUTE-BUILD-018, ROUTE-BUILD-020
+# @spec ROUTE-BUILD-018, ROUTE-BUILD-038
 def test_verify_final_gate_covers_planner_commits(r):
     r.start()
     r.spoke_commit({"src/stray.py": "planner wrote production code\n"})
@@ -627,10 +775,60 @@ def test_verify_final_gate_covers_planner_commits(r):
     decision = r.result("PASS")
     state = r.state()
     assert state["anchors"]["verifier_pass_sha"] is None
-    [blocker] = state["blockers"]
-    assert blocker["kind"] == "AUDIT_FAILED" and "BOUNDARY_VIOLATION" in json.dumps(blocker["details"])
-    assert blocker["agent"] == "commit-gate"
-    assert dispatches(decision, "forge-council", "AUDIT_FAILED")
+    assert stops(decision, "GATE_UNREPAIRABLE") and "BOUNDARY_VIOLATION" in json.dumps(decision)
+    assert state["blockers"] == []
+
+
+def gate_finds_human_code(r, extra=None):
+    """Two dev commits that each modify a protected human line; extra adds a third dev commit."""
+    r.human_commit({"src/h.py": "h1\nh2\n"})  # before the first dispatch: workstream human code, not drift
+    r.goto("DEV_FULL")
+    dev1 = r.spoke_commit({"README.md": "changed\n"})  # baseline line 1
+    dev2 = r.spoke_commit({"src/h.py": "h1\nX\n"})  # workstream line 2
+    if extra:
+        r.spoke_commit(extra)
+    r.result("IMPLEMENTATION_COMPLETE")
+    return r.result("PASS"), dev1, dev2
+
+
+# @spec ROUTE-BUILD-020
+def test_gate_human_code_findings_pause_for_approval(r):
+    decision, dev1, dev2 = gate_finds_human_code(r)
+    assert pauses(decision, "human_code_approval")
+    shown = json.dumps(decision)
+    for text in (dev1, "README.md", dev2, "src/h.py"):
+        assert text in shown, text
+    assert r.state()["anchors"]["verifier_pass_sha"] is None
+
+
+# @spec ROUTE-BUILD-036
+def test_gate_human_code_approve_records_approvals_and_reverifies(r):
+    paused, dev1, dev2 = gate_finds_human_code(r)
+    assert pauses(paused, "human_code_approval")
+    decision = r.user("approve")
+    approvals = sorted(r.state()["approvals"], key=lambda a: a["paths"])
+    assert all(a.get("id") for a in approvals)
+    assert [{k: v for k, v in a.items() if k != "id"} for a in approvals] == [
+        {"agent": "forge-dev", "paths": ["README.md"], "ranges": {"README.md": [[1, 1]]},
+         "base_sha": git(r.wt, "rev-parse", f"{dev1}^"), "approved_by": "user"},
+        {"agent": "forge-dev", "paths": ["src/h.py"], "ranges": {"src/h.py": [[2, 2]]},
+         "base_sha": dev1, "approved_by": "user"},
+    ]
+    assert dispatches(decision, "forge-verifier", "VERIFY_FINAL")
+
+
+# @spec ROUTE-BUILD-037
+def test_gate_human_code_reject_stops(r):
+    assert pauses(gate_finds_human_code(r)[0], "human_code_approval")
+    assert stops(r.user("reject", notes="no"), "GATE_REJECTED")
+
+
+# @spec ROUTE-BUILD-038
+def test_gate_mixed_findings_stop_unrepairable(r):
+    decision, _, _ = gate_finds_human_code(r, extra={"tests/test_x.py": "dev wrote a test\n"})
+    assert stops(decision, "GATE_UNREPAIRABLE")
+    assert "BOUNDARY_VIOLATION" in json.dumps(decision) and "HUMAN_CODE_MODIFIED" in json.dumps(decision)
+    assert r.state()["anchors"]["verifier_pass_sha"] is None
 
 
 # @spec ROUTE-BUILD-021
@@ -640,6 +838,43 @@ def test_review_approved(r):
     decision = r.result("REVIEW_APPROVED")
     assert pauses(decision, "publish_approval") and set(decision["options"]) == {"approve", "hold"}
     assert r.state()["anchors"]["reviewer_pass_sha"] == head(r.wt)
+
+
+DEFAULT_PUBLISH_QUESTION = "Publish? Approve with option push or merge, or hold."
+
+
+def review_after_merge_from_main(r, main_specs):
+    """Merge main into the workstream branch (main gaining main_specs), then approve the review."""
+    if main_specs is not None:
+        commit(r.ws["repo"], {"docs/intent/b/b-specs.md": "# Specs\n\n" + "\n".join(main_specs) + "\n"}, "main spec")
+    git(r.wt, "merge", "-q", "--no-ff", "main", "-m", "merge main")
+    sha = head(r.wt)
+    r.patch(anchors={"verifier_pass_sha": sha, "last_known_head_sha": sha})
+    r.goto("REVIEW_INTERNAL")
+    return r.result("REVIEW_APPROVED")
+
+
+# @spec ROUTE-BUILD-039
+def test_publish_approval_names_merged_specs(r):
+    set_mode(r, repo_mode="LID")
+    decision = review_after_merge_from_main(r, ["- [ ] **B-001**: from main.", "- [ ] **B-002**: also."])
+    assert pauses(decision, "publish_approval")
+    assert r.state()["lifecycle"]["awaiting"]["payload"]["merged_specs"] == ["B-001", "B-002"]
+    assert decision["question"].startswith(DEFAULT_PUBLISH_QUESTION)
+    assert "B-001" in decision["question"] and "B-002" in decision["question"]
+
+
+# @spec ROUTE-BUILD-040
+@pytest.mark.parametrize("repo_mode, main_specs", [
+    ("naive", ["- [ ] **B-001**: from main."]),
+    ("LID", None),
+], ids=["naive-repo", "nothing-merged"])
+def test_publish_approval_unchanged_without_merged_specs(r, repo_mode, main_specs):
+    set_mode(r, repo_mode=repo_mode)
+    decision = review_after_merge_from_main(r, main_specs)
+    assert pauses(decision, "publish_approval")
+    assert decision["question"] == DEFAULT_PUBLISH_QUESTION
+    assert "merged_specs" not in (r.state()["lifecycle"]["awaiting"].get("payload") or {})
 
 
 def at_publish_approval(r):
@@ -700,16 +935,60 @@ def at_report(r):
 # @spec ROUTE-BUILD-027
 def test_report_draft_approve_and_revise(r):
     at_report(r)
-    assert pauses(r.result("REPORT_DRAFTED"), "report_approval")
+    draft = dispatched_id(r)
+    paused = r.result("REPORT_DRAFTED")
+    assert pauses(paused, "report_approval")
+    assert paused["context_refs"] == [envelope_file(r, draft)]
     revised = r.user("revise", notes="shorter")
     assert dispatches(revised, "forge-reporter", "draft") and "shorter" in json.dumps(revised["invoke"]["notes"])
     r.result("REPORT_DRAFTED")
     assert dispatches(r.user("approve"), "forge-reporter", "send")
 
 
+# @spec ROUTE-BUILD-033
+def test_report_draft_reads_published_envelope(r):
+    at_publish(r, "push")
+    publisher = dispatched_id(r)
+    decision = r.result("PUBLISHED", publish_target="push")
+    assert dispatches(decision, "forge-reporter", "draft")
+    assert decision["invoke"]["context_refs"] == [envelope_file(r, publisher)]
+
+
+# @spec ROUTE-BUILD-033
+def test_pr_report_draft_reads_review_envelope(pr):
+    pr.start()
+    pr.result("OK")
+    reviewer = dispatched_id(pr)
+    decision = pr.result("PR_REVIEW_READY")
+    assert decision["invoke"]["context_refs"] == [envelope_file(pr, reviewer)]
+
+
+# @spec ROUTE-BUILD-033, ROUTE-DISP-008
+@pytest.mark.parametrize("answer, mode", [("approve", "send"), ("revise", "draft")])
+def test_report_redispatch_reads_latest_draft(r, answer, mode):
+    at_report(r)
+    draft = dispatched_id(r)
+    r.result("REPORT_DRAFTED")
+    decision = r.user(answer, **({"notes": "shorter"} if answer == "revise" else {}))
+    assert dispatches(decision, "forge-reporter", mode)
+    assert decision["invoke"]["context_refs"] == [envelope_file(r, draft)]
+
+
+# @spec ROUTE-BUILD-034
+@pytest.mark.parametrize("phase", ["QA_SKEL", "QA_FULL", "REPAIR"])
+def test_qa_contract_mismatch_raises_blocker(r, phase):
+    place(r, phase, "forge-qa")
+    decision = r.result("CONTRACT_MISMATCH", escalation={"details": "spec says int, stub returns str"})
+    [blocker] = r.state()["blockers"]
+    assert (blocker["kind"], blocker["agent"], blocker["phase"]) == ("CONTRACT_MISMATCH", "forge-qa", phase)
+    assert dispatches(decision, "forge-council", "CONTRACT_MISMATCH")
+
+
 # @spec ROUTE-BUILD-028
 def test_report_sent_goes_to_ci_watch(r):
     at_report(r)
+    r.result("REPORT_DRAFTED")
+    r.user("approve")
     assert dispatches(r.result("REPORT_SENT"), "forge-scout", "CI_WATCH")
 
 
@@ -737,10 +1016,12 @@ def test_ci_none(r):
 
 # @spec ROUTE-BUILD-031
 def test_reconcile_pass_resumes(r):
-    r.goto("RECONCILE", resume_phase="QA_FULL")
+    r.goto("RECONCILE", after_reconcile="QA_FULL", resume_phase="VERIFY_FINAL")
     decision = r.result("PASS", scope={"completed": ["a/**"], "remaining": ["src/**"]})
     assert dispatches(decision, "forge-qa", "full")
-    assert r.state()["scope_manifest"]["remaining"] == ["src/**"]
+    state = r.state()
+    assert (state["scope_manifest"]["completed"], state["scope_manifest"]["remaining"]) == (["a/**"], ["src/**"])
+    assert state["lifecycle"]["after_reconcile"] is None
 
 
 # --------------------------------------------------------------- pull request flow
@@ -814,6 +1095,8 @@ BLOCKERS = [
     ("CONCERNS", "PLAN", "forge-planner", "PLAN", ["pm", "architect", "critic"]),
     ("TEST_CHANGE_REQUESTED", "DEV_FULL", "forge-dev", "DEV_FULL", ["senior-dev", "architect"]),
     ("CONTRACT_MISMATCH", "DEV_FULL", "forge-dev", "DEV_FULL", ["senior-dev", "architect"]),
+    ("CONTRACT_MISMATCH", "QA_FULL", "forge-qa", "QA_FULL", ["senior-dev", "architect"]),
+    ("AUDIT_FAILED", "POST_PLAN", "forge-verifier", "POST_PLAN", ["architect", "senior-dev"]),
     ("AUDIT_FAILED", "POST_QA", "forge-verifier", "POST_QA", ["architect", "senior-dev"]),
     ("TESTS_FAILED", "VERIFY_FINAL", "forge-verifier", "VERIFY_FINAL", ["debugger", "senior-dev"]),
     ("CI_FAILED", "CI_WATCH", "forge-scout", "VERIFY_FINAL", ["debugger", "senior-dev"]),
@@ -850,9 +1133,27 @@ def test_blocker_goes_to_council(r, kind, phase, agent, resume, panel):
     assert json.loads(blocker_file.read_text())["id"] == blocker["id"]
 
 
-def ruling(route_to=(), requires_user=False):
-    return {"matrix_ref": "council/matrix.md", "requires_user": requires_user, "route_to": list(route_to),
-            "delta": "change the assertion in test_a"}
+# @spec ROUTE-BLK-021
+def test_council_context_follows_blocked_dispatch(r):
+    r.patch(identity={"issue": "https://github.com/acme/widgets/issues/1"})
+    r.start()
+    blocked = r.result("OK")["invoke"]["context_refs"]
+    decision = r.result("CONCERNS", escalation={"details": "the issue is ambiguous"})
+    blocker_file = str(r.sd / "council" / f"{r.state()['blockers'][0]['id']}.json")
+    assert dispatches(decision, "forge-council", "CONCERNS")
+    assert decision["invoke"]["context_refs"] == [blocker_file, *blocked]
+
+
+DELTA_A = "change the assertion in test_a"
+DELTA_B = "change the code in a.py"
+
+
+def ruling(route_to=(), requires_user=False, panel=("debugger", "senior-dev"), alt_route=("forge-dev",)):
+    """A ruling whose recommended option A routes to route_to; option B routes to alt_route."""
+    options = [{"label": "A", "summary": "recommended", "route_to": list(route_to), "delta": DELTA_A},
+               {"label": "B", "summary": "alternative", "route_to": list(alt_route), "delta": DELTA_B}]
+    return {"matrix_ref": "council/matrix.md", "requires_user": requires_user, "panel": list(panel),
+            "options": options, "recommended": "A", "route_to": list(route_to), "delta": DELTA_A}
 
 
 # @spec ROUTE-BLK-005
@@ -875,17 +1176,39 @@ def test_auto_resolve(r, auto, requires_user, paused):
         assert dispatches(decision, "forge-dev", "repair")
 
 
+# @spec ROUTE-BLK-006
+def test_auto_resolve_records_decision(r):
+    set_mode(r, council_auto_resolve=True)
+    raise_blocker(r, "TESTS_FAILED", "VERIFY_FINAL")
+    blocker_id = r.state()["blockers"][0]["id"]
+    r.result("COUNCIL_RULING", ruling=ruling(["forge-dev"]))
+    [entry] = r.state()["council_decisions"]
+    assert entry.get("id")
+    assert {k: v for k, v in entry.items() if k != "id"} == {
+        "blocker_id": blocker_id, "panel": ["debugger", "senior-dev"], "option": "A", "approved_by": "auto"}
+
+
 # @spec ROUTE-BLK-007, ROUTE-BLK-018
 def test_council_signoff_approve(r):
     raise_blocker(r, "TESTS_FAILED", "VERIFY_FINAL")
-    r.result("COUNCIL_RULING", ruling=ruling(["forge-dev"]))
+    shown = ruling(["forge-qa"], panel=["debugger"], alt_route=["forge-dev"])
+    r.result("COUNCIL_RULING", ruling=shown)
     blocker_id = r.state()["blockers"][0]["id"]
-    assert r.state()["blockers"][0]["ruling"] == ruling(["forge-dev"])
+    assert r.state()["blockers"][0]["ruling"] == shown
     decision = r.user("approve", option="B")
     [entry] = r.state()["council_decisions"]
     assert (entry["blocker_id"], entry["option"], entry["approved_by"]) == (blocker_id, "B", "user")
-    assert entry["panel"] == ["debugger", "senior-dev"] and "id" in entry
-    assert dispatches(decision, "forge-dev", "repair")
+    assert entry["panel"] == ["debugger"] and "id" in entry  # the ruling's panel, the personas convened
+    assert dispatches(decision, "forge-dev", "repair")  # option B's route_to, not the recommended one
+    assert decision["invoke"]["notes"] == DELTA_B
+    assert [i["agent"] for i in r.state()["lifecycle"]["repair_queue"]] == ["forge-dev"]
+
+
+# @spec ROUTE-BLK-022
+def test_council_signoff_unknown_option(r):
+    raise_blocker(r, "TESTS_FAILED", "VERIFY_FINAL")
+    r.result("COUNCIL_RULING", ruling=ruling(["forge-dev"]))
+    unchanged_stop(r, lambda: r.user("approve", option="Z"), "EVENT_INVALID")
 
 
 # @spec ROUTE-BLK-008
@@ -897,24 +1220,72 @@ def test_council_signoff_reject(r):
     assert "consider flaky fixture" in json.dumps(decision["invoke"]["notes"])
 
 
-# @spec ROUTE-BLK-009, ROUTE-BLK-017
+# @spec ROUTE-BLK-009
 def test_concerns_ruling_redispatches_planning(r):
+    r.patch(identity={"issue": "https://github.com/acme/widgets/issues/1"})
+    r.start()
+    blocked = r.result("OK")["invoke"]["context_refs"]
+    r.result("CONCERNS", escalation={"details": "CONCERNS details"})
+    r.result("COUNCIL_RULING", ruling=ruling())
+    decision = r.user("approve", option="B")
+    assert dispatches(decision, "forge-planner", "naive") and decision["phase"] == "PLAN"
+    assert decision["invoke"]["context_refs"] == [*blocked, "council/matrix.md"]
+    assert DELTA_B in json.dumps(decision["invoke"]["notes"])
+
+
+# @spec ROUTE-BLK-017
+def test_concerns_ruling_removes_blocker(r):
     raise_blocker(r, "CONCERNS", "PLAN")
     r.result("COUNCIL_RULING", ruling=ruling())
-    decision = r.user("approve", option="A")
-    assert dispatches(decision, "forge-planner", "naive") and decision["phase"] == "PLAN"
-    assert "council/matrix.md" in json.dumps(decision["invoke"]["context_refs"])
+    r.user("approve", option="A")
     assert r.state()["blockers"] == []
 
 
 # @spec ROUTE-BLK-010
 @pytest.mark.parametrize("kind", ["TEST_CHANGE_REQUESTED", "CONTRACT_MISMATCH"])
-def test_dev_blocker_ruling_queues_qa_repair(r, kind):
+def test_dev_blocker_ruling_queues_route_to(r, kind):
     set_mode(r, council_auto_resolve=True)
     raise_blocker(r, kind, "DEV_FULL")
-    decision = r.result("COUNCIL_RULING", ruling=ruling(["forge-qa"]))
+    decision = r.result("COUNCIL_RULING", ruling=ruling(["forge-dev", "forge-qa"]))
+    assert dispatches(decision, "forge-dev", "repair") and decision["phase"] == "REPAIR"
+    assert [item["agent"] for item in r.state()["lifecycle"]["repair_queue"]] == ["forge-dev", "forge-qa"]
+
+
+# @spec ROUTE-BLK-023
+@pytest.mark.parametrize("kind", ["TEST_CHANGE_REQUESTED", "CONTRACT_MISMATCH"])
+def test_dev_blocker_empty_route_reruns_blocked_phase(r, kind):
+    set_mode(r, council_auto_resolve=True)
+    raise_blocker(r, kind, "DEV_FULL")
+    decision = r.result("COUNCIL_RULING", ruling=ruling([]))
+    assert dispatches(decision, "forge-dev", "full") and decision["phase"] == "DEV_FULL"
+    assert DELTA_A in json.dumps(decision["invoke"]["notes"])
+    assert r.state()["blockers"] == []
+
+
+# @spec ROUTE-BLK-023
+def test_repair_blocker_empty_route_reruns_interrupted_item(r):
+    set_mode(r, council_auto_resolve=True)
+    place(r, "REPAIR", "forge-qa")
+    r.result("CONTRACT_MISMATCH", escalation={"details": "contract details"})
+    decision = r.result("COUNCIL_RULING", ruling=ruling([]))
     assert dispatches(decision, "forge-qa", "repair") and decision["phase"] == "REPAIR"
-    assert "change the assertion in test_a" in json.dumps(decision["invoke"])
+    notes = json.dumps(decision["invoke"]["notes"])
+    assert "fix" in notes and DELTA_A in notes
+    assert r.state()["lifecycle"]["repair_queue"][0]["agent"] == "forge-qa"
+    assert len(r.state()["lifecycle"]["repair_queue"]) == 1
+    assert r.state()["blockers"] == []
+
+
+# @spec ROUTE-BLK-026
+def test_queued_repair_carries_delta_and_blocked_context(r):
+    set_mode(r, council_auto_resolve=True)
+    r.goto("DEV_FULL")
+    with_context_refs(r, ["specs/dev.md"])
+    r.result("TEST_CHANGE_REQUESTED", escalation={"details": "test_a asserts the wrong value"})
+    r.result("COUNCIL_RULING", ruling=ruling(["forge-qa"]))
+    [item] = r.state()["lifecycle"]["repair_queue"]
+    assert item["notes"] == DELTA_A
+    assert item["context_refs"] == ["council/matrix.md", "specs/dev.md"]
 
 
 # @spec ROUTE-BLK-011
@@ -953,6 +1324,7 @@ def test_flaky_ci_reruns(r):
     raise_blocker(r, "CI_FAILED", "CI_WATCH")
     decision = r.result("COUNCIL_RULING", ruling=ruling([]))
     assert dispatches(decision, "forge-scout", "CI_RERUN") and decision["phase"] == "CI_WATCH"
+    assert r.state()["blockers"] == []
 
 
 def review_findings(r, routes):
@@ -981,7 +1353,7 @@ def test_planner_findings_need_signoff(r):
     assert [i["agent"] for i in r.state()["lifecycle"]["repair_queue"]] == ["forge-planner", "forge-dev"]
 
 
-# @spec ROUTE-BLK-016, ROUTE-BLK-017
+# @spec ROUTE-BLK-016, ROUTE-BLK-020
 def test_repair_queue_drains_then_resumes(r):
     set_mode(r, council_auto_resolve=True)
     raise_blocker(r, "TESTS_FAILED", "VERIFY_FINAL")
@@ -994,6 +1366,57 @@ def test_repair_queue_drains_then_resumes(r):
     resumed = r.result("REPAIR_COMMITTED")
     assert dispatches(resumed, "forge-verifier", "VERIFY_FINAL")
     assert r.state()["blockers"] == [] and r.state()["lifecycle"]["repair_queue"] == []
+
+
+def blocker(blocker_id, kind, agent, phase):
+    return {"id": blocker_id, "kind": kind, "agent": agent, "phase": phase, "details": f"{kind} details"}
+
+
+def item(agent, notes, blocker_id, context_refs=()):
+    return {"agent": agent, "notes": notes, "context_refs": list(context_refs), "blocker_id": blocker_id}
+
+
+# @spec ROUTE-BLK-020
+def test_completed_repair_removes_only_its_own_blocker(r):
+    r.patch(blockers=[blocker("blk-outer", "TESTS_FAILED", "forge-verifier", "VERIFY_FINAL"),
+                      blocker("blk-inner", "CONTRACT_MISMATCH", "forge-qa", "REPAIR")])
+    r.goto("REPAIR", repair_queue=[item("forge-dev", "inner fix", "blk-inner"),
+                                   item("forge-qa", "outer fix", "blk-outer")], resume_phase="VERIFY_FINAL")
+    r.spoke_commit({"src/a.py": "fixed\n"})
+    assert dispatches(r.result("REPAIR_COMMITTED"), "forge-qa", "repair")
+    assert [b["id"] for b in r.state()["blockers"]] == ["blk-outer"]
+
+
+# @spec ROUTE-BLK-025
+def test_blocker_in_repair_queues_its_repairs_first(r):
+    set_mode(r, council_auto_resolve=True)
+    r.patch(blockers=[blocker("blk-outer", "TESTS_FAILED", "forge-verifier", "VERIFY_FINAL")])
+    r.goto("REPAIR", repair_queue=[item("forge-qa", "outer qa", "blk-outer"),
+                                   item("forge-dev", "outer dev", "blk-outer")], resume_phase="VERIFY_FINAL")
+    raised = r.result("CONTRACT_MISMATCH", escalation={"details": "the spec and the stub disagree"})
+    assert dispatches(raised, "forge-council", "CONTRACT_MISMATCH")
+    lc = r.state()["lifecycle"]
+    assert lc["resume_phase"] == "VERIFY_FINAL"
+    assert [i["notes"] for i in lc["repair_queue"]] == ["outer qa", "outer dev"]
+    decision = r.result("COUNCIL_RULING", ruling=ruling(["forge-dev"]))
+    assert dispatches(decision, "forge-dev", "repair")
+    assert [i["notes"] for i in r.state()["lifecycle"]["repair_queue"]] == [DELTA_A, "outer qa", "outer dev"]
+    assert r.state()["lifecycle"]["resume_phase"] == "VERIFY_FINAL"
+
+
+# @spec ROUTE-BLK-024
+@pytest.mark.parametrize("assigned, completed, remaining", [(["a/**", "c/**"], ["a/**"], ["c/**"]),
+                                                            ([], [], [])])
+def test_planner_repair_replaces_scope(r, assigned, completed, remaining):
+    r.patch(scope_manifest={"assigned": ["a/**", "b/**"], "completed": ["a/**", "b/**"], "remaining": []},
+            blockers=[blocker("blk-1", "CHANGES_REQUESTED", "forge-reviewer", "REVIEW_INTERNAL")])
+    r.goto("REPAIR", repair_queue=[item("forge-planner", "rework the plan", "blk-1"),
+                                   item("forge-dev", "fix the code", "blk-1")], resume_phase="VERIFY_FINAL")
+    r.spoke_commit({"docs/plan.md": "revised plan\n"})
+    assert dispatches(r.result("REPAIR_COMMITTED", scope={"assigned": assigned}), "forge-dev", "repair")
+    state = r.state()
+    assert state["scope_manifest"] == {"assigned": assigned, "completed": completed, "remaining": remaining}
+    assert state["lifecycle"]["resume_phase"] == "POST_PLAN"
 
 
 # @spec ROUTE-LIMIT-001
@@ -1025,6 +1448,44 @@ def test_human_code_request_pauses(r):
     decision, _ = escalate_human_code(r)
     assert pauses(decision, "human_code_approval")
     assert "src/legacy.py" in json.dumps(decision) and "14" in json.dumps(decision)
+
+
+# @spec ROUTE-HC-001
+@pytest.mark.parametrize("phase, queue_agent", [("QA_SKEL", None), ("QA_FULL", None), ("DEV_STUB", None),
+                                                ("REPAIR", "forge-qa"), ("REPAIR", "forge-dev")])
+def test_human_code_request_pauses_in_every_builder_phase(r, phase, queue_agent):
+    place(r, phase, queue_agent)
+    decision = r.result("HUMAN_CODE_CHANGE_REQUESTED", escalation=ESCALATION)
+    assert pauses(decision, "human_code_approval")
+    assert "src/legacy.py" in json.dumps(decision) and "14" in json.dumps(decision)
+
+
+def in_order(notes, *parts):
+    text = json.dumps(notes)
+    positions = [text.find(p) for p in parts]
+    return -1 not in positions and positions == sorted(positions)
+
+
+def escalate_in_repair(r):
+    r.goto("REPAIR", repair_queue=[item("forge-dev", "fix the parser", None, ["x.md"])], resume_phase="VERIFY_FINAL")
+    r.result("HUMAN_CODE_CHANGE_REQUESTED", escalation=ESCALATION)
+
+
+# @spec ROUTE-HC-002
+def test_human_code_approve_keeps_replaced_notes(r):
+    escalate_in_repair(r)
+    decision = r.user("approve")
+    [approval] = r.state()["approvals"]
+    assert dispatches(decision, "forge-dev", "repair")
+    assert in_order(decision["invoke"]["notes"], "fix the parser", approval["id"]), decision["invoke"]["notes"]
+
+
+# @spec ROUTE-HC-003
+def test_human_code_reject_keeps_replaced_notes(r):
+    escalate_in_repair(r)
+    decision = r.user("reject", notes="work around it")
+    assert dispatches(decision, "forge-dev", "repair")
+    assert in_order(decision["invoke"]["notes"], "fix the parser", "work around it"), decision["invoke"]["notes"]
 
 
 # @spec ROUTE-HC-002
@@ -1060,7 +1521,7 @@ def test_human_commit_during_dispatch_reconciles(r):
     decision = r.run()
     assert dispatches(decision, "forge-verifier", "RECONCILE")
     state = r.state()
-    assert state["lifecycle"]["resume_phase"] == "DEV_FULL"
+    assert state["lifecycle"].get("after_reconcile") == "DEV_FULL"
     assert state["lifecycle"]["dispatched"]["agent"] == "forge-verifier"  # the old dev dispatch was cleared
     assert state["anchors"]["verifier_pass_sha"] is None and state["anchors"]["reviewer_pass_sha"] is None
     assert state["anchors"]["last_known_head_sha"] == head(r.wt)
@@ -1095,13 +1556,38 @@ def test_drift_before_verifier_phase_continues(r):
     assert dispatches(r.run(), "forge-verifier", "VERIFY_FINAL")
 
 
+# @spec ROUTE-DRIFT-002
+@pytest.mark.parametrize("phase", ["REPORT", "CI_WATCH"])
+def test_drift_after_publishing_reconciles_to_verify_final(r, phase):
+    r.patch(anchors={"last_known_head_sha": head(r.wt)}, lifecycle={"current_phase": phase})
+    r.human_commit({"src/late.py": "late\n"})
+    assert dispatches(r.run(), "forge-verifier", "RECONCILE")
+    assert r.state()["lifecycle"].get("after_reconcile") == "VERIFY_FINAL"
+
+
+# @spec ROUTE-DRIFT-009
+def test_pr_review_drift_stops(pr):
+    pr.start()
+    pr.result("OK")
+    pr.human_commit({"src/h.py": "h\n"})
+    assert stops(pr.run(), "REVIEW_WORKTREE_MOVED")
+
+
+# @spec ROUTE-DRIFT-010
+def test_drift_leaves_resume_phase(r):
+    r.goto("REPAIR", repair_queue=[item("forge-dev", "fix", None)], resume_phase="VERIFY_FINAL")
+    r.human_commit({"src/h.py": "h\n"})
+    assert dispatches(r.run(), "forge-verifier", "RECONCILE")
+    assert r.state()["lifecycle"]["resume_phase"] == "VERIFY_FINAL"
+
+
 # @spec ROUTE-DRIFT-007
 def test_drift_at_close_reconciles(r):
     r.goto("CI_WATCH")
     r.human_commit({"src/late.py": "late\n"})
     decision = r.result("CI_GREEN", head_sha=r.state()["lifecycle"]["dispatched"]["base_sha"])
     assert dispatches(decision, "forge-verifier", "RECONCILE")
-    assert r.state()["lifecycle"]["resume_phase"] == "VERIFY_FINAL"
+    assert r.state()["lifecycle"].get("after_reconcile") == "VERIFY_FINAL"
 
 
 # @spec ROUTE-DRIFT-004
@@ -1171,6 +1657,7 @@ def test_attempts_count_and_reset(r):
     r.patch(lifecycle={"dispatched": None, "attempts": {"PLAN": 2}})
     r.run()
     assert r.state()["lifecycle"]["attempts"]["PLAN"] == 3
+    r.patch(scope_manifest={"assigned": ["src/**"], "completed": [], "remaining": ["src/**"]})
     r.goto("POST_PLAN", attempts={"POST_PLAN": 1, "PRE_QA": 2})
     r.result("PASS")  # POST_PLAN -> PRE_QA: entering from another phase restarts at 1
     assert r.state()["lifecycle"]["attempts"]["PRE_QA"] == 1

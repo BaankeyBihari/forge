@@ -45,9 +45,9 @@ Commits what the spoke has staged, with the Forge trailers appended to the messa
 | `NOT_A_BUILDER` | `invoke.agent` is not `forge-planner`, `forge-qa`, or `forge-dev`; nothing is committed |
 | `NOTHING_STAGED` | The index matches `HEAD` |
 | `BOUNDARY_VIOLATION` | A staged path is outside the agent's write boundary (gates design, *Write boundaries*); `paths` lists them and nothing is committed |
-| `STAGE_INVALID` | `--stage` was given by an agent other than the planner in `auto` mode, or names a stage other than `LID-S1`–`LID-S4` |
+| `STAGE_INVALID` | `--stage` was given by an agent other than the planner in `auto` mode or in a `strict` revision, or names a stage other than `LID-S1`–`LID-S4` |
 
-`--stage` exists for the planner in `auto` mode, which completes several LID stages in one dispatch and labels each stage's commit with that stage. The boundary check uses the same path classes as the gate, so a commit `commit` accepts is one the gate's boundary check accepts.
+`--stage` exists for the planner in `auto` mode, which completes several LID stages in one dispatch and labels each stage's commit with that stage, and for a `strict` revision (a planner dispatch whose `invoke.notes` is not `null`), whose changes may belong to stages before the current one. The boundary check uses the same path classes as the gate, so a commit `commit` accepts is one the gate's boundary check accepts.
 
 ### `finish`
 
@@ -72,7 +72,7 @@ It then checks the envelope, collecting every problem:
 | `HUMAN_CODE_CHANGE_REQUESTED` | Also `escalation.paths` (list of strings) and `escalation.ranges` (object mapping each path to a list of `[start, end]` line pairs) |
 | `CHANGES_REQUESTED` | Also `escalation.findings`, a non-empty list of `{route_to, detail}` with `route_to` one of `forge-planner`, `forge-qa`, `forge-dev` |
 | `READY_FOR_QA` | `scope.assigned`, a list of path patterns, empty only for a plan that changes plan paths alone |
-| `REPAIR_COMMITTED` from `forge-planner` | `scope.assigned`, when present, a non-empty list of path patterns |
+| `REPAIR_COMMITTED` from `forge-planner` | `scope.assigned`, when present, a list of path patterns, empty only for a plan that changes plan paths alone |
 | `PARTIAL_REMAINING`, `NOTHING_REMAINING`, and `PASS` in `RECONCILE` | `scope.completed` and `scope.remaining`, lists of path patterns that together equal `scope_manifest.assigned` |
 | `COUNCIL_RULING` | `ruling` with `matrix_ref` (an absolute path to an existing file under the workstream's `council/`), `requires_user` (boolean), `panel` (non-empty list of persona names), `options` (non-empty list of `{label, summary, route_to, delta}` with distinct labels), `recommended` (one of the labels), and `route_to` and `delta` equal to the recommended option's; every `route_to` a list of `forge-planner`, `forge-qa`, `forge-dev` and every `delta` a string |
 | `PUBLISHED`, `MERGE_READY`, `MERGE_BLOCKED`, `PUBLISH_REFUSED` | `publish_target` equal to `invoke.mode` |
@@ -121,6 +121,7 @@ Preloaded into every spoke, it carries the procedure of the spokes design's *A D
 | Early checks | `finish` reuses the router's status tables and adds field-shape checks | No early check; a separate copy of the rules | A spoke that learns of a problem before returning fixes it in the same dispatch; importing the router's tables keeps one source of truth. |
 | Stale dispatches | Every dispatch-scoped command refuses a dispatch ID that is not outstanding | Let the router reject the envelope later | A replaced spoke would otherwise commit work the new dispatch duplicates. |
 | Scope facts | `scope` reports files and commits per pattern; the verifier judges | The script decides completeness | Whether a human commit finished a pattern or only started it is judgment; which commits touched it is a fact. |
+| Stage labels in a `strict` revision | `--stage` allowed when the planner dispatch carries `notes` | Every commit takes the phase's stage | A revision can change work from an earlier stage; labelling it with the current stage mislabels that commit's stage. |
 
 ## References
 

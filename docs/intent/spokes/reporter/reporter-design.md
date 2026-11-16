@@ -9,7 +9,7 @@ prefix: SPOKE-REP
 
 `forge-reporter` writes the text Forge shows the outside world — a pull request's title and body, or a review submission — and sends it after the user approves it. It works in two dispatches: `draft` composes and returns the text without calling GitHub to change anything; `send` submits exactly the approved draft. What the user approved and what GitHub receives are the same bytes, because `send` reads the draft from the envelope file the user was shown rather than writing it again.
 
-The reporter grounds every claim in committed artifacts and receipts: the commits, the specs or `PLAN.md`, and the envelope that led to the report. It does not describe work no commit shows.
+The reporter grounds every claim in committed artifacts and receipts: the commits, the specs or `PLAN.md`, and the envelope that led to the report. It does not describe work no commit shows. It adds no signature, footer, or AI attribution (no `Co-Authored-By` line naming an AI, no "Generated with" line) to anything it drafts: the text reads as the user's own.
 
 ## Inputs
 

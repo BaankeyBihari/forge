@@ -108,7 +108,7 @@ On success it returns `CREATED` with the identity and `worktree_path`.
 |---|---|---|
 | `schema_version` | Integer, currently `1` | `resolve_state.py` at creation |
 | `identity` | See *Identity record* and *Workstream Creation* | `resolve_state.py` at creation |
-| `config` | `repo_mode`, `plan_mode`, `collaborative`, `council_auto_resolve`, `retention`, and optional `test_patterns` (see the gates design) | `resolve_state.py` at creation |
+| `config` | `repo_mode`, `plan_mode`, `collaborative`, `council_auto_resolve`, `retention`, and optional `test_patterns` (see the gates design) and `test_command` (the command spokes run tests with; see the spokes design) | `resolve_state.py` at creation |
 | `anchors` | `workstream_base_sha`, `plan_base_sha`, `last_known_head_sha`, `verifier_pass_sha`, `reviewer_pass_sha`, `stale_shas` | `next_step.py`, except `workstream_base_sha` (set by `resolve_state.py` at creation to `HEAD`, or `null` in a repository with no commits) and `stale_shas`, which `resolve_state.py` appends to |
 | `lifecycle` | Phase, flow, dispatch, pause, and repair bookkeeping; fields listed in the router design | `next_step.py` |
 | `scope_manifest`, `blockers`, `council_decisions`, `approvals` | Routing and gate data | `next_step.py` |

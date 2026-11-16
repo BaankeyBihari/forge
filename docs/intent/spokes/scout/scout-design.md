@@ -33,10 +33,10 @@ Reads `identity.pr`: `gh pr view` (title, body, author, base, head, head commit,
 Watches the CI runs for `HEAD`:
 
 1. List runs for the commit (`gh run list --commit <HEAD>`). When none exists, list again every 30 seconds for up to 5 minutes, since runs register shortly after a push. Still none: `CI_NONE`.
-2. Wait for every run to finish (`gh run watch <id> --exit-status`).
+2. Wait for every run to finish by polling `gh run list --commit <HEAD>` every 30 seconds.
 3. All passed: `CI_GREEN`. Any failed: for each failed run, `gh run view <id> --log-failed`, and write `ci-<run id>.md` with the run, the failed jobs and steps, and the shortest log excerpt that shows each failure. Return `CI_FAILED` with `escalation.details` naming those files and a one-line cause per run.
 
-Each wait is one shell command that loops internally, stays within the shell call's time limit, exits early when `.STOP_FORGE` exists at the main worktree's root or the workstream worktree's root, and carries its round number, so no two wait calls are identical and the guard's duplicate-call breaker never trips. The scout keeps issuing rounds for up to 60 minutes in total; runs still unfinished then are returned as `ERROR` saying they are in progress, and resuming the workstream watches again. A run's conclusion `success`, `skipped`, or `neutral` passes; `failure`, `timed_out`, `startup_failure`, or `cancelled` fails; a run waiting for approval or `action_required` is returned as `ERROR` naming the run, because only the user can release it.
+Each wait is one shell command that polls for up to 9 minutes, stays within the shell call's 10-minute time limit, exits early when `.STOP_FORGE` exists at the main worktree's root or the workstream worktree's root, and carries its round number, so no two wait calls are identical and the guard's duplicate-call breaker never trips. The scout keeps issuing rounds for up to 60 minutes in total; runs still unfinished then are returned as `ERROR` saying they are in progress, and resuming the workstream watches again. A run's conclusion `success`, `skipped`, or `neutral` passes; `failure`, `timed_out`, `startup_failure`, or `cancelled` fails; a run waiting for approval or `action_required` is returned as `ERROR` naming the run, because only the user can release it.
 
 ### `CI_RERUN`
 
@@ -48,6 +48,7 @@ Re-runs the failed jobs of every run for `HEAD` whose latest attempt failed (`gh
 |---|---|---|---|
 | Output location | Files in `scout/`, passed on in `context_refs` | Contents in the envelope | Issue bodies, diffs, and logs are large; files keep them out of the Hub's context and the router's state. |
 | Thread reads | REST reads only | GraphQL review threads | `gh api graphql` sends a POST, which the guard reserves for the reporter. |
+| Waiting for runs to finish | Poll `gh run list` in rounds of up to 9 minutes | `gh run watch --exit-status` | `gh run watch` blocks until the run ends, so it cannot stay within the shell call's time limit or stop when `.STOP_FORGE` appears. |
 | Waiting for runs to appear | 5 minutes, then `CI_NONE` | Wait indefinitely; check once | Runs take seconds to register after a push; repositories without CI should reach the user's `ci_none` choice quickly. |
 | Failure extract | Shortest decisive excerpt per failed step | The full log | The council's debugger panel needs the failure, not the noise around it. |
 

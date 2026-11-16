@@ -6,24 +6,26 @@ Specs under *Modes* describe what the `forge-verifier` skill tells the verifier 
 
 ## `lid_check.py` invocation
 
-- [ ] **SPOKE-VER-LID-CLI-001**: `lid_check.py --state PATH` shall print exactly one JSON object with a `status` to stdout and exit `0`, and exit `2` with a message on stderr on a usage error.
-- [ ] **SPOKE-VER-LID-CLI-002**: If `config.repo_mode` is not `LID`, then `lid_check.py` shall return `status` `NOT_LID`.
-- [ ] **SPOKE-VER-LID-CLI-003**: If the `--state` file is missing or does not parse as a JSON object, then `lid_check.py` shall return `status` `STATE_INVALID` with a `detail` saying which.
-- [ ] **SPOKE-VER-LID-CLI-004**: `lid_check.py` shall run in `identity.worktree_path`, use only the Python standard library and external `git` commands, and not create, change, or delete any file.
+- [x] **SPOKE-VER-LID-CLI-001**: `lid_check.py --state PATH` shall print exactly one JSON object with a `status` to stdout and exit `0`, and exit `2` with a message on stderr on a usage error.
+- [x] **SPOKE-VER-LID-CLI-002**: If `config.repo_mode` is not `LID`, then `lid_check.py` shall return `status` `NOT_LID`.
+- [x] **SPOKE-VER-LID-CLI-003**: If the `--state` file is missing or does not parse as a JSON object, then `lid_check.py` shall return `status` `STATE_INVALID` with a `detail` saying which.
+- [x] **SPOKE-VER-LID-CLI-004**: `lid_check.py` shall run in `identity.worktree_path`, use only the Python standard library and external `git` commands, and not create, change, or delete any file.
+- [x] **SPOKE-VER-LID-CLI-005**: `lid_check.py` shall expose a function `check(state)` that takes the parsed `state.json` object and returns the same result object the command prints for it, so the router computes `merged_specs` identically.
 
 ## Specs and annotations
 
-- [ ] **SPOKE-VER-LID-001**: `lid_check.py` shall treat as a spec every line of a `docs/intent/**/*-specs.md` file matching `- [<marker>] **<ID>**:`, where the marker is a space, `x`, or `D`, and the ID is upper-case letters and digits in hyphen-separated segments ending in a three-digit number.
-- [ ] **SPOKE-VER-LID-002**: `lid_check.py` shall treat a spec as a workstream spec when its line was added or changed by a first-parent commit in `anchors.workstream_base_sha..HEAD`, or by any first-parent commit reachable from `HEAD` while `anchors.workstream_base_sha` is `null`, and return their IDs in `workstream_specs`.
-- [ ] **SPOKE-VER-LID-003**: `lid_check.py` shall read an `@spec` annotation as the text `@spec` followed by one or more comma-separated tokens on the same line that each match the spec ID syntax of SPOKE-VER-LID-001, ignoring `@spec` followed by anything else, and count one in a file of the test path class as a test citation and one in a file of the production path class as a code tag.
+- [x] **SPOKE-VER-LID-001**: `lid_check.py` shall treat as a spec every line of a `docs/intent/**/*-specs.md` file matching `- [<marker>] **<ID>**:`, where the marker is a space, `x`, or `D`, and the ID is upper-case letters and digits in hyphen-separated segments ending in a three-digit number.
+- [x] **SPOKE-VER-LID-002**: `lid_check.py` shall treat a spec as a workstream spec when its line was added or changed by a non-merge first-parent commit in `anchors.workstream_base_sha..HEAD`, or by any non-merge first-parent commit reachable from `HEAD` while `anchors.workstream_base_sha` is `null`, and return their IDs in `workstream_specs`.
+- [x] **SPOKE-VER-LID-003**: `lid_check.py` shall read an `@spec` annotation as the text `@spec` followed by one or more comma-separated tokens on the same line that each match the spec ID syntax of SPOKE-VER-LID-001, ignoring `@spec` followed by anything else, and count one in a file of the test path class as a test citation and one in a file of the production path class as a code tag.
+- [x] **SPOKE-VER-LID-009**: `lid_check.py` shall list in `merged_specs` the ID of every spec not marked `D` that is not a workstream spec, whose line was added or changed by a merge commit on the first-parent chain of the SPOKE-VER-LID-002 range, and that has no test citation, and shall report no finding for it.
 
 ## Findings
 
-- [ ] **SPOKE-VER-LID-004**: When another spec line anywhere in the repository defines a workstream spec's ID, `lid_check.py` shall report `DUPLICATE_ID` for it, not counting a mention of the ID in a spec's text.
-- [ ] **SPOKE-VER-LID-005**: When an `@spec` annotation in a file changed in the workstream's range names an ID that no spec line has, `lid_check.py` shall report `UNKNOWN_ID` with its `path` and `line`.
-- [ ] **SPOKE-VER-LID-006**: When a workstream spec not marked `D` has no test citation, `lid_check.py` shall report `UNTESTED` for it.
-- [ ] **SPOKE-VER-LID-007**: When a workstream spec not marked `D` has no code tag, `lid_check.py` shall report `UNTAGGED` for it.
-- [ ] **SPOKE-VER-LID-008**: `lid_check.py` shall return `status` `OK` with `workstream_specs` and `findings`, each finding carrying `kind`, `id`, `detail`, and, where it applies, `path` and `line`.
+- [x] **SPOKE-VER-LID-004**: When another spec line anywhere in the repository defines a workstream spec's ID, `lid_check.py` shall report `DUPLICATE_ID` for it, not counting a mention of the ID in a spec's text.
+- [x] **SPOKE-VER-LID-005**: When an `@spec` annotation in a file changed in the workstream's range names an ID that no spec line has, `lid_check.py` shall report `UNKNOWN_ID` with its `path` and `line`.
+- [x] **SPOKE-VER-LID-006**: When a workstream spec not marked `D` has no test citation, `lid_check.py` shall report `UNTESTED` for it.
+- [x] **SPOKE-VER-LID-007**: When a workstream spec not marked `D` has no code tag, `lid_check.py` shall report `UNTAGGED` for it.
+- [x] **SPOKE-VER-LID-008**: `lid_check.py` shall return `status` `OK` with `workstream_specs`, `merged_specs`, and `findings`, each finding carrying `kind`, `id`, `detail`, and, where it applies, `path` and `line`.
 
 ## Modes
 

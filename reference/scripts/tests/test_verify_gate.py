@@ -413,13 +413,19 @@ def test_planning_commits_skip_human_checks_but_not_boundaries(repo, tmp_path):
     assert b["commit"] == stray
 
 
-# @spec GATE-HUM-009
-def test_planner_repair_after_plan_approval_is_checked(repo, tmp_path):
+# @spec GATE-HUM-010
+@pytest.mark.parametrize("plan_approved", [True, False])
+def test_planner_commits_skip_human_checks_but_not_trailers_or_boundaries(repo, tmp_path, plan_approved):
     base = commit(repo, {"docs/design.md": "human intent\n"}, "human docs")
     plan = head(repo)
     forge(repo, "forge-planner", {"docs/design.md": "repair rewrite\n"}, stage="REPAIR", mode="repair")
-    state = make_state(tmp_path / "s.json", anchors={"workstream_base_sha": base, "plan_base_sha": plan})
-    assert findings_of(check_commits(repo, f"{base}..HEAD", state), "HUMAN_CODE_MODIFIED")
+    stray = forge(repo, "forge-planner", {"src/stray.py": "x\n"}, stage="REPAIR", mode="repair")
+    bad_stage = forge(repo, "forge-planner", {"docs/more.md": "x\n"}, stage="LID-S6", mode="repair")
+    anchors = {"workstream_base_sha": base, "plan_base_sha": plan if plan_approved else None}
+    res = check_commits(repo, f"{base}..HEAD", make_state(tmp_path / "s.json", anchors=anchors))
+    assert findings_of(res, "HUMAN_CODE_MODIFIED") == []
+    assert [f["commit"] for f in findings_of(res, "BOUNDARY_VIOLATION")] == [stray]
+    assert [f["commit"] for f in findings_of(res, "TRAILER_INVALID")] == [bad_stage]
 
 
 # -------------------------------------------------------------------- approvals
@@ -574,12 +580,16 @@ def test_publish_changes_nothing(repo, tmp_path):
 # ASSUMPTION: `ranges` is a list of 1-based inclusive [start, end] pairs.
 
 
+def human_lines(cwd, path, state, *agent):
+    return run_script("verify_gate.py", "human-lines", "--path", path, *agent, "--state", state, cwd=cwd)
+
+
 # @spec GATE-QRY-001
 def test_human_lines_query(repo, tmp_path):
     base = commit(repo, {"src/q.py": "h1\nh2\nh3\n"}, "human")
     forge(repo, "forge-dev", {"src/q.py": "h1\nh2\nforge\nh3\n"})
     state = make_state(tmp_path / "s.json", anchors={"workstream_base_sha": base})
-    res = run_script("verify_gate.py", "human-lines", "--path", "src/q.py", "--state", state, cwd=repo)
+    res = human_lines(repo, "src/q.py", state, "--agent", "forge-dev")
     assert res.json == {"ranges": [[1, 2], [4, 4]]}
 
 
@@ -592,8 +602,34 @@ def test_human_lines_query_applies_baseline_rule(repo, tmp_path):
         anchors={"workstream_base_sha": base, "plan_base_sha": plan},
         scope={"assigned": ["src/**"]},
     )
-    res = run_script("verify_gate.py", "human-lines", "--path", "src/q.py", "--state", state, cwd=repo)
-    assert res.json == {"ranges": []}
+    assert human_lines(repo, "src/q.py", state, "--agent", "forge-dev").json == {"ranges": []}
+
+
+# @spec GATE-QRY-001
+def test_human_lines_query_leaves_out_lines_approved_for_the_agent(repo, tmp_path):
+    base = commit(repo, {"src/q.py": "h1\nh2\nh3\n"}, "human")
+    state = make_state(
+        tmp_path / "s.json",
+        anchors={"workstream_base_sha": base},
+        approvals=[approval("forge-dev", base, {"src/q.py": [[2, 2]]})],
+    )
+    assert human_lines(repo, "src/q.py", state, "--agent", "forge-dev").json == {"ranges": [[1, 1], [3, 3]]}
+    assert human_lines(repo, "src/q.py", state, "--agent", "forge-qa").json == {"ranges": [[1, 3]]}
+
+
+# @spec GATE-QRY-002
+def test_human_lines_query_for_planner_is_empty(repo, tmp_path):
+    base = commit(repo, {"docs/q.md": "h1\nh2\n"}, "human")
+    state = make_state(tmp_path / "s.json", anchors={"workstream_base_sha": base})
+    assert human_lines(repo, "docs/q.md", state, "--agent", "forge-planner").json == {"ranges": []}
+
+
+# @spec GATE-QRY-003
+def test_human_lines_query_requires_agent(repo, tmp_path):
+    base = commit(repo, {"src/q.py": "h1\n"}, "human")
+    state = make_state(tmp_path / "s.json", anchors={"workstream_base_sha": base})
+    res = human_lines(repo, "src/q.py", state)
+    assert res.returncode == 2 and res.stderr.strip()
 
 
 # ------------------------------------------------------------ command interface
@@ -644,7 +680,7 @@ def test_check_commits_changes_nothing(repo, base, tmp_path):
     state = make_state(tmp_path / "s.json", anchors={"workstream_base_sha": base})
     before = (state.read_bytes(), git(repo, "for-each-ref"), git(repo, "status", "--porcelain"))
     check_commits(repo, f"{base}..HEAD", state)
-    run_script("verify_gate.py", "human-lines", "--path", "src/a.py", "--state", state, cwd=repo)
+    human_lines(repo, "src/a.py", state, "--agent", "forge-dev")
     assert (state.read_bytes(), git(repo, "for-each-ref"), git(repo, "status", "--porcelain")) == before
 
 
