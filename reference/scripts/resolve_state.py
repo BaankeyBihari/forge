@@ -32,8 +32,8 @@ from urllib.parse import urlparse
 SCHEMA_VERSION = 1
 PARTITIONS = ["hub", "shared", "planner", "qa", "dev", "verifier", "reviewer", "scout"]
 TYPES = ["feat", "fix", "chore", "docs", "refactor"]
-CONFIG_DEFAULTS = {"plan_mode": "strict", "collaborative": True, "council_auto_resolve": False,
-                   "retention": "archive"}
+MODES = ["delivery", "collab-plan", "collab-qa", "collab-dev", "collab-code", "collab"]
+CONFIG_DEFAULTS = {"mode": "collab", "retention": "archive"}
 
 
 class UsageError(Exception):
@@ -464,7 +464,7 @@ def detect_repo_mode(path):
     return "NAIVE"
 
 
-# @spec WS-STORE-002, WS-NEW-020
+# @spec WS-STORE-002, WS-STORE-003, WS-NEW-020
 def build_config(sets):
     config = dict(CONFIG_DEFAULTS)
     try:
@@ -480,6 +480,8 @@ def build_config(sets):
             config[key] = json.loads(value)
         except ValueError:
             config[key] = value
+    if config["mode"] not in MODES:
+        raise UsageError(f"mode {config['mode']!r} is not one of {', '.join(MODES)}")
     return config
 
 
@@ -625,8 +627,17 @@ def release(cwd, args):
     return {"status": "RELEASED"}
 
 
-# @spec WS-CLOSE-001, WS-CLOSE-002, WS-CLOSE-003, WS-CLOSE-004, WS-CLOSE-005
+# @spec WS-CLOSE-001, WS-CLOSE-002, WS-CLOSE-003, WS-CLOSE-004, WS-CLOSE-005, WS-CLOSE-006, WS-CLOSE-007
+# @spec WS-CLOSE-008
 def close(cwd, args):
+    reason = None
+    if args.reason_file is not None:
+        try:
+            reason = Path(args.reason_file).read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError) as e:
+            raise UsageError(f"cannot read --reason-file {args.reason_file}: {e}")
+        if not reason:
+            raise UsageError(f"--reason-file {args.reason_file} is empty")
     checkout = Checkout(cwd)
     sd = checkout.repo_dir() / args.workstream
     if not is_holder(read_lock(sd), args.holder_pid, args.holder_session):
@@ -639,7 +650,10 @@ def close(cwd, args):
         proc = git(checkout.main_root(), "worktree", "remove", worktree, check=False)
         if proc.returncode != 0:
             return {"status": "WORKTREE_DIRTY", "detail": proc.stderr.strip()}
-    if (state.get("config") or {}).get("retention", "archive") == "delete":
+    if reason is not None:  # a drop always archives, whatever the retention
+        state["dropped"] = {"reason": reason, "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+        write_json_atomic(sd / "state.json", state)
+    elif (state.get("config") or {}).get("retention", "archive") == "delete":
         shutil.rmtree(sd)
         return {"status": "CLOSED", "retention": "delete"}
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -685,6 +699,7 @@ def main(argv=None):
         _holder(p)
         if name == "close":
             p.add_argument("--remove-worktree", action="store_true")
+            p.add_argument("--reason-file")
     args = parser.parse_args(argv)
     cwd = os.getcwd()
     try:
