@@ -1,7 +1,7 @@
 ---
 name: forge
 description: Forge Commander (Hub). Start, list, resume, and drive Forge workstreams that take a GitHub issue, a pull request, an existing branch, or a described task through planning, tests, code, review, and publishing with Forge subagents. Use when the user runs /forge.
-argument-hint: "[list | <issue> | pr <ref> | adopt <branch> | <workstream> | <task description>]"
+argument-hint: "[list | <issue> | pr <ref> | adopt <branch> | <workstream> | <task description> | --mode <mode> <...> | mode <mode> | stop | resume | drop <workstream> <reason>]"
 ---
 
 # Forge Commander
@@ -22,10 +22,14 @@ Before starting or resuming a workstream other than the one you hold in this ses
 
 Run `python3 $S/forge_hub.py classify <each word of the argument, quoted>`, then by `kind`:
 
-<!-- @spec CMD-START-008, CMD-START-009 -->
+<!-- @spec CMD-START-008, CMD-START-009, CMD-STOP-001, CMD-STOP-002 -->
 | `kind` | Do |
 |---|---|
 | `current` | Resume (section 3) without `--workstream` |
+| `stop` | Run `python3 $S/forge_hub.py stop` and tell the user the `path` it created. Do nothing else |
+| `continue` | Run `python3 $S/forge_hub.py resume`, then resume as for `current` |
+| `mode` | Switch the mode (section 9) |
+| `drop` | Drop the workstream (section 10) |
 | `resume` | Resume (section 3) with `--workstream <workstream>` |
 | `list` | Show the list (section 3, *List*) |
 | `issue` | Start (section 2) with `--issue <ref>` |
@@ -35,6 +39,8 @@ Run `python3 $S/forge_hub.py classify <each word of the argument, quoted>`, then
 | `unknown` | Ask with `AskUserQuestion`: start a new workstream named `<workstream>`, or show the list |
 | `invalid` | Show `detail`. Do nothing else |
 
+A start kind (`issue`, `pr`, `adopt`, `describe`, `unknown`) may also carry `mode`: the user typed `/forge --mode <mode> ...`.
+
 <!-- @spec CMD-START-001, CMD-START-002, CMD-START-003, CMD-START-004, CMD-START-005, CMD-START-006, CMD-START-007 -->
 ## 2. Start a workstream
 
@@ -42,15 +48,15 @@ Run `python3 $S/forge_hub.py classify <each word of the argument, quoted>`, then
 python3 $S/resolve_state.py new (--issue REF | --pr REF | --branch NAME | --name SLUG [--task-file FILE]) --worktree-root .claude/worktrees H
 ```
 
-- For `describe`, derive a slug of two to five words from the text (`rate-limit-login`): lowercase letters, digits, `.`, `_`, `-`; never `list`, `pr`, or `adopt`. When the text gives nothing to name, ask the user for a name.
+- For `describe`, derive a slug of two to five words from the text (`rate-limit-login`): lowercase letters, digits, `.`, `_`, `-`; never `list`, `pr`, `adopt`, `stop`, `resume`, `mode`, or `drop`. When the text gives nothing to name, ask the user for a name.
 - For `describe`, also write the user's **whole text, unchanged**, to `task.txt` in your scratch directory with your file-write tool (never a heredoc), and pass it as `--task-file`. The planner and reviewer read it as `task.md`, so they work from the user's own words.
-- Add `--base <branch>` only when the user named a base branch. Add `--set KEY=VALUE` only for settings the user asked for (`--set plan_mode=auto`).
+- Add `--base <branch>` only when the user named a base branch. Add `--set mode=<mode>` when the classification carries `mode`. Add any other `--set KEY=VALUE` only for settings the user asked for.
 
 | `status` | Do |
 |---|---|
 | `CREATED` | `EnterWorktree` with `worktree_path`, then route with a `start` event (section 4) |
 | `BASE_CONFIRM_REQUIRED` | Ask the user to confirm stacking on `base`; on yes, run `new` again with `--base-confirmed` |
-| `DUPLICATE`, `STATE_EXISTS` | Offer to resume the named workstream |
+| `DUPLICATE`, `STATE_EXISTS` | Offer to resume the named workstream. If the classification carried `mode`, say it was not applied and that `/forge mode <mode>` switches it |
 | `BRANCH_CHECKED_OUT` | Say the branch is checked out at `worktree_path` and must be switched away there first. Start nothing |
 | `BRANCH_EXISTS`, `GH_FAILED` | Report the status and detail. Start nothing |
 
@@ -79,10 +85,8 @@ Run `python3 $S/forge_hub.py brief H [--workstream SLUG]`. It wakes the workstre
 
 When the user declines, write a `hub` memory entry recording where the workstream stands (section 8), then run `resolve_state.py release --workstream <slug> H`.
 
-<!-- @spec CMD-LOOP-001, CMD-LOOP-002, CMD-LOOP-007, CMD-LOOP-008 -->
+<!-- @spec CMD-LOOP-001, CMD-LOOP-002, CMD-LOOP-007, CMD-LOOP-008, CMD-LOOP-010 -->
 ## 4. The routing loop
-
-**Kill switch, before every router call.** Check for `.STOP_FORGE` at the main worktree's root (the first path of `git worktree list`) and at the workstream worktree's root. If either exists, end the loop and tell the user which file to remove. Ask nothing and commit nothing first.
 
 Route with at most one event:
 
@@ -98,7 +102,8 @@ Then act on `action`, and repeat until one ends the loop:
 |---|---|
 | `dispatch` | Dispatch (below) |
 | `pause` | Present the pause (section 5) |
-| `stop` | Report `status` and `detail`. For `ENVELOPE_INVALID`, offer a retry (section 6). End the loop |
+| `stop` | Report `status` and `detail`. For `KILL_SWITCH`, name the files in `detail` and say `/forge resume` clears them. For `ENVELOPE_INVALID`, offer a retry (section 6). End the loop |
+| `mode_set` | Section 9 |
 | `close`, `done` | Close the workstream (section 7) |
 
 <!-- @spec CMD-LOOP-003 -->
@@ -167,6 +172,30 @@ Write entries with your file-write tool in the format of the `forge-memory` skil
 - **`hub`**, after routing a user answer that carried notes, rejected a ruling, or held a publish: record the reasoning, with `sha_anchor` from `git rev-parse HEAD` after the answer was applied and `stage` set to the `phase` the router returned.
 - **`hub`**, when the user tells you to stop mid-workstream or declines to continue: record where the workstream stands.
 - **`shared`**, after the user approves a council ruling, or states an invariant every agent must respect: record it.
+
+<!-- @spec CMD-SW-001, CMD-SW-002, CMD-SW-003, CMD-SW-004, CMD-LOOP-010 -->
+## 9. Switch the mode
+
+Modes: `delivery`, `collab-plan`, `collab-qa`, `collab-dev`, `collab-code`, `collab`.
+
+1. If you drive no workstream in this session, run `brief` as for `current` (section 3). It takes the lock. If it does not return `OK`, act on its status as in section 3 and switch nothing.
+2. Run `python3 $S/forge_hub.py mode --state <state_path> --mode <mode>`, then route with its `event_path`.
+3. On `mode_set`:
+   - If you ran `brief` in step 1, say the new mode, show the five `lines`, and ask whether to continue (*Continue*, section 3).
+   - Otherwise say the new mode. If a subagent you started has not returned yet, wait for it and pick up its envelope (section 4, *After a dispatch*). Otherwise route with a `start` event when the phase is `INIT`, and with no event in any other phase.
+4. On `stop` with `KILL_SWITCH`: say the mode was not switched, and to run `/forge resume` first.
+
+<!-- @spec CMD-DROP-001, CMD-DROP-002, CMD-DROP-003, CMD-DROP-004, CMD-DROP-005, CMD-DROP-006 -->
+## 10. Drop a workstream
+
+1. Show the workstream's phase from `python3 $S/resolve_state.py list` and the `reason`. Ask with `AskUserQuestion` whether to drop it. On no, do nothing else.
+2. Release any other workstream you hold (*Identity and scripts*). Run `python3 $S/resolve_state.py wake --workstream <workstream> H`:
+   - `ELSEWHERE`: `EnterWorktree` with the reported worktree, then wake again.
+   - `LOCKED`: show the holder. Only if the user confirms, run `wake --steal --workstream <workstream> H`.
+   - `STATE_INVALID`: report the workstream's state directory for the user to move by hand. Close nothing.
+   - Any other status that is not `OK`, or a `LOCKED` the user does not steal: report it and drop nothing.
+3. Write the reason to `reason.txt` in your scratch directory with your file-write tool. Close as in section 7, adding `--reason-file <that file>`.
+4. On `WORKTREE_DIRTY`: report git's message, and tell the user to clean the worktree and run `/forge drop` again.
 
 <!-- @spec CMD-LOOP-009 -->
 ## Never

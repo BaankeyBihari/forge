@@ -5,8 +5,8 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 ## Storage
 
 - [x] **WS-STORE-001**: `resolve_state.py` shall keep all Forge state under the directory named by the `FORGE_HOME` environment variable, or under `~/.forge` when `FORGE_HOME` is unset.
-- [ ] **WS-STORE-002**: When creating a workstream, `resolve_state.py` shall copy `mode` and `retention` from `$FORGE_HOME/config.json` into the workstream's `config`, using `collab` and `archive` respectively for any key the file lacks or when the file does not exist.
-- [ ] **WS-STORE-003**: If the `mode` a new workstream would get, from `$FORGE_HOME/config.json` or from `--set mode=` (which overrides the file), is not `delivery`, `collab-plan`, `collab-qa`, `collab-dev`, `collab-code`, or `collab`, then `new` shall exit with a usage error and create nothing.
+- [x] **WS-STORE-002**: When creating a workstream, `resolve_state.py` shall copy `mode` and `retention` from `$FORGE_HOME/config.json` into the workstream's `config`, using `collab` and `archive` respectively for any key the file lacks or when the file does not exist.
+- [x] **WS-STORE-003**: If the `mode` a new workstream would get, from `$FORGE_HOME/config.json` or from `--set mode=` (which overrides the file), is not `delivery`, `collab-plan`, `collab-qa`, `collab-dev`, `collab-code`, or `collab`, then `new` shall exit with a usage error and create nothing.
 
 ## Identity
 
@@ -98,9 +98,9 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 - [x] **WS-CLOSE-003**: When `close` is given `--remove-worktree`, `resolve_state.py` shall run `git worktree remove` on the workstream's worktree before archiving or deleting the workstream directory.
 - [x] **WS-CLOSE-005**: If `git worktree remove` refuses during `close`, then `resolve_state.py` shall return `WORKTREE_DIRTY` with git's message and leave the workstream directory and lock unchanged.
 - [x] **WS-CLOSE-004**: `resolve_state.py` shall never delete a branch.
-- [ ] **WS-CLOSE-006**: When `close` is given `--reason-file FILE`, `resolve_state.py` shall, after any worktree removal succeeds, write `dropped` `{reason, at}` into `state.json`, with `reason` the file's text with surrounding whitespace removed and `at` the current UTC time in ISO 8601, and then archive the workstream directory per WS-CLOSE-001 whatever `config.retention` says.
-- [ ] **WS-CLOSE-007**: If `close` is given a `--reason-file` that cannot be read or whose text is empty after removing surrounding whitespace, then `resolve_state.py` shall exit with a usage error and change nothing.
-- [ ] **WS-CLOSE-008**: When `close` runs without `--reason-file`, `resolve_state.py` shall write no `dropped` field.
+- [x] **WS-CLOSE-006**: When `close` is given `--reason-file FILE`, `resolve_state.py` shall, after any worktree removal succeeds, write `dropped` `{reason, at}` into `state.json`, with `reason` the file's text with surrounding whitespace removed and `at` the current UTC time in ISO 8601, and then archive the workstream directory per WS-CLOSE-001 whatever `config.retention` says.
+- [x] **WS-CLOSE-007**: If `close` is given a `--reason-file` that cannot be read or whose text is empty after removing surrounding whitespace, then `resolve_state.py` shall exit with a usage error and change nothing.
+- [x] **WS-CLOSE-008**: When `close` runs without `--reason-file`, `resolve_state.py` shall write no `dropped` field.
 
 ## Command interface
 
