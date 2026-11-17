@@ -6,7 +6,7 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 
 ## forge_hub.py invocation
 
-- [x] **CMD-CLI-001**: `forge_hub.py` shall provide the subcommands `classify`, `brief`, `envelope`, and `answer`, print exactly one JSON object to stdout, and exit `0` for every status.
+- [ ] **CMD-CLI-001**: `forge_hub.py` shall provide the subcommands `classify`, `brief`, `envelope`, `answer`, `mode`, `stop`, and `unstop`, print exactly one JSON object to stdout, and exit `0` for every status.
 - [x] **CMD-CLI-002**: If `forge_hub.py` is called with an unknown subcommand or missing or invalid arguments, then it shall exit `2` with a message on stderr.
 - [x] **CMD-CLI-003**: If `forge_hub.py classify` or `brief` runs in a directory that is not inside a git repository, then it shall exit `1` with a message on stderr.
 
@@ -14,6 +14,12 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 
 - [x] **CMD-ARG-001**: When `classify` is given no words, `forge_hub.py` shall return kind `current`.
 - [x] **CMD-ARG-002**: When `classify` is given the single word `list`, `forge_hub.py` shall return kind `list`.
+- [ ] **CMD-ARG-011**: When `classify` is given the single word `stop`, `forge_hub.py` shall return kind `stop`.
+- [ ] **CMD-ARG-012**: When `classify` is given the single word `resume`, `forge_hub.py` shall return kind `continue`.
+- [ ] **CMD-ARG-013**: When `classify` is given exactly `mode` followed by one of `delivery`, `collab-plan`, `collab-qa`, `collab-dev`, `collab-code`, or `collab`, `forge_hub.py` shall return kind `mode` with `mode` set to that name.
+- [ ] **CMD-ARG-014**: When `classify` is given `drop`, then a word naming a workstream directory of the current repository's state directory, then at least one more word, `forge_hub.py` shall return kind `drop` with `workstream` set to that word and `reason` set to the remaining words joined by single spaces.
+- [ ] **CMD-ARG-015**: When `classify` is given `--mode` followed by one of `delivery`, `collab-plan`, `collab-qa`, `collab-dev`, `collab-code`, or `collab` and further words that by themselves classify as `issue`, `pr`, `adopt`, `unknown`, or `describe`, `forge_hub.py` shall return that classification with `mode` set to the name.
+- [ ] **CMD-ARG-016**: If `classify` is given `--mode` as the first word and CMD-ARG-015 does not apply, then `forge_hub.py` shall return kind `invalid` with a `detail` giving the expected form.
 - [x] **CMD-ARG-003**: When `classify` is given `pr` followed by one word, or a single GitHub pull request URL (`https://github.com/<owner>/<repo>/pull/<n>`), `forge_hub.py` shall return kind `pr` with `ref` set to that word or URL.
 - [x] **CMD-ARG-004**: When `classify` is given `adopt` followed by one word, `forge_hub.py` shall return kind `adopt` with `branch` set to that word.
 - [x] **CMD-ARG-005**: If `classify` is given `pr` or `adopt` as the first word followed by other than exactly one word, then `forge_hub.py` shall return kind `invalid` with a `detail` giving the expected form.
@@ -21,13 +27,13 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 - [x] **CMD-ARG-007**: When `classify` is given a single word that is a valid workstream slug and names a workstream directory of the current repository's state directory, `forge_hub.py` shall return kind `resume` with `workstream` set to that word.
 - [x] **CMD-ARG-008**: When `classify` is given a single word that is a valid workstream slug but names no workstream of the current repository, `forge_hub.py` shall return kind `unknown` with `workstream` set to that word.
 - [x] **CMD-ARG-009**: When no other rule matches, `forge_hub.py classify` shall return kind `describe` with `text` set to the words joined by single spaces.
-- [x] **CMD-ARG-010**: `forge_hub.py classify` shall apply CMD-ARG-001 through CMD-ARG-009 in order and return the first kind that matches.
+- [ ] **CMD-ARG-010**: `forge_hub.py classify` shall apply CMD-ARG-001, CMD-ARG-002, CMD-ARG-011 through CMD-ARG-016, and then CMD-ARG-003 through CMD-ARG-009, in that order, and return the first kind that matches.
 
 ## Resume brief
 
 - [x] **CMD-BRIEF-001**: When `brief` runs, `forge_hub.py` shall run the workstream-state wake with the given `--workstream`, `--holder-pid`, and `--holder-session`, and when the wake status is not `OK`, return the wake report unchanged.
 - [x] **CMD-BRIEF-002**: When the wake status is `OK`, `forge_hub.py brief` shall return `status` `OK`, `lines` holding exactly five strings, and `pending_envelope`.
-- [x] **CMD-BRIEF-003**: `forge_hub.py brief` shall make line 1 `Workstream: <org>/<repo>/<workstream> (<repo_mode>, <collaborative or sequential>, plan <plan_mode>)` from `identity` and `config`.
+- [ ] **CMD-BRIEF-003**: `forge_hub.py brief` shall make line 1 `Workstream: <org>/<repo>/<workstream> (<repo_mode>, mode <mode>)` from `identity` and `config`, using `collab` when `config` has no `mode`.
 - [x] **CMD-BRIEF-004**: `forge_hub.py brief` shall make line 2 `Phase: <current_phase> (<last_agent> → <last_status>)`, or `Phase: <current_phase> (nothing run yet)` while `lifecycle.last_agent` is `null`.
 - [x] **CMD-BRIEF-005**: `forge_hub.py brief` shall make line 3 `Progress: <completed count> of <assigned count> scope patterns complete; remaining: <remaining patterns joined by ", ", or none>`, or `Progress: no plan yet` while `scope_manifest.assigned` is empty, followed by `; open blockers: <n>` when `blockers` is not empty.
 - [x] **CMD-BRIEF-006**: `forge_hub.py brief` shall make line 4 `Hub context: ` followed by the first decision of the newest non-historical `hub` memory entry that has a decision, or `none recorded` when there is none.
@@ -44,7 +50,7 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 - [x] **CMD-ENV-003**: If `envelope` runs while `envelopes/<dispatch_id>.json` does not exist, then `forge_hub.py` shall return `status` `ENVELOPE_MISSING` with the expected path.
 - [x] **CMD-ENV-004**: If `envelopes/<dispatch_id>.json` does not parse as a JSON object, then `forge_hub.py envelope` shall return `status` `ENVELOPE_UNREADABLE` with the parse error in `detail` and write no event.
 - [x] **CMD-ENV-005**: When `envelope` is given `--discard` and `envelopes/<dispatch_id>.json` exists, `forge_hub.py` shall rename it to `<dispatch_id>.rejected-<YYYYMMDDTHHMMSSZ>.json` in the same directory and return `status` `DISCARDED` with the new path.
-- [x] **CMD-ENV-006**: If the `--state` file of `envelope` or `answer` is missing or does not parse as a JSON object, then `forge_hub.py` shall return `status` `STATE_INVALID` with a `detail` saying which.
+- [ ] **CMD-ENV-006**: If the `--state` file of `envelope`, `answer`, or `mode` is missing or does not parse as a JSON object, then `forge_hub.py` shall return `status` `STATE_INVALID` with a `detail` saying which.
 - [x] **CMD-ENV-007**: `forge_hub.py envelope` shall read the envelope from, and write the event to, the `envelopes/` directory beside the `--state` file, creating that directory when it is missing.
 
 ## Answer events
@@ -52,6 +58,15 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 - [x] **CMD-ANS-001**: When `answer` runs while `lifecycle.awaiting` is set, `forge_hub.py` shall write `{"type": "user", "awaiting": <lifecycle.awaiting.kind>, "decision": <--decision>}`, plus `option` when `--option` is given and `notes` (the file's text) when `--notes-file` is given, to `envelopes/answer-<YYYYMMDDTHHMMSSZ>.event.json`, and return `status` `OK` with its absolute path in `event_path`.
 - [x] **CMD-ANS-002**: If `answer` runs while `lifecycle.awaiting` is `null`, then `forge_hub.py` shall return `status` `NOT_PAUSED` and write nothing.
 - [x] **CMD-ANS-003**: If `answer`'s `--notes-file` cannot be read, then `forge_hub.py` shall exit `2` with a message on stderr and write nothing.
+
+## Mode events
+
+- [ ] **CMD-MODE-001**: When `mode` runs with `--state PATH --mode MODE`, `forge_hub.py` shall write `{"type": "mode", "mode": MODE}` to `envelopes/mode-<YYYYMMDDTHHMMSSZ>.event.json` beside the `--state` file and return `status` `OK` with its absolute path in `event_path`, leaving the check of the name to the router.
+
+## Kill switch
+
+- [ ] **CMD-KILL-001**: When `stop` runs, `forge_hub.py` shall create `.STOP_FORGE` at the root of the main worktree of the repository it runs in, found from git, and return `status` `STOPPED` with its absolute path in `path`.
+- [ ] **CMD-KILL-002**: When `unstop` runs, `forge_hub.py` shall delete `.STOP_FORGE` at the root of every worktree of the repository it runs in and return `status` `CLEARED` with the absolute paths it deleted in `removed`, an empty list when there were none.
 
 ## Identity
 
@@ -62,8 +77,8 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 ## Starting a workstream
 
 - [D] **CMD-START-001**: When `/forge` is classified `issue`, `pr`, or `adopt`, the Commander shall run `resolve_state.py new` with `--issue`, `--pr`, or `--branch` and the classified value, and `--worktree-root .claude/worktrees`.
-- [D] **CMD-START-002**: When `/forge` is classified `describe`, the Commander shall derive a valid slug of two to five words from the text, other than `list`, `pr`, and `adopt`, and run `new --name` with it, or ask the user for a name when the text gives nothing to name; it shall also write the whole text, unchanged, to a file in its scratch directory with its file-write tool and pass that file to `new` as `--task-file`.
-- [D] **CMD-START-003**: The Commander shall pass `--base` only when the user named a base branch, and `--set` only for settings the user asked for.
+- [D] **CMD-START-002**: When `/forge` is classified `describe`, the Commander shall derive a valid slug of two to five words from the text, other than `list`, `pr`, `adopt`, `stop`, `resume`, `mode`, and `drop`, and run `new --name` with it, or ask the user for a name when the text gives nothing to name; it shall also write the whole text, unchanged, to a file in its scratch directory with its file-write tool and pass that file to `new` as `--task-file`.
+- [D] **CMD-START-003**: The Commander shall pass `--base` only when the user named a base branch, `--set mode=<mode>` when the classification carries a `mode`, and other `--set` values only for settings the user asked for.
 - [D] **CMD-START-004**: When `new` returns `CREATED`, the Commander shall move the session into `worktree_path` with `EnterWorktree` and route with a `start` event.
 - [D] **CMD-START-005**: When `new` returns `BASE_CONFIRM_REQUIRED`, the Commander shall ask the user to confirm the base and, on confirmation, run `new` again with `--base-confirmed`.
 - [D] **CMD-START-006**: When `new` returns `DUPLICATE` or `STATE_EXISTS`, the Commander shall offer to resume the named workstream.
@@ -85,14 +100,32 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 ## Routing loop
 
 - [D] **CMD-LOOP-001**: While routing, the Commander shall call `next_step.py` with at most one event and act on each decision until a decision ends the loop.
-- [D] **CMD-LOOP-002**: Before every `next_step.py` call, if `.STOP_FORGE` exists at the root of the main worktree or of the workstream's worktree, then the Commander shall end the loop and tell the user which file to remove.
+- [D] **CMD-LOOP-002**: When the router stops with `KILL_SWITCH`, the Commander shall name the files in its `detail`, say that `/forge resume` clears them, and end the loop.
 - [D] **CMD-LOOP-003**: When the router returns `dispatch`, the Commander shall start the subagent named by `invoke.agent` with a prompt giving only the `dispatch_id`, the `state_path`, and the envelope path `<state dir>/envelopes/<dispatch_id>.json`.
 - [D] **CMD-LOOP-004**: When a dispatched subagent returns, the Commander shall run `forge_hub.py envelope` and route with `--event <event_path>` on `OK`, or with no event on `NO_DISPATCH`.
 - [D] **CMD-LOOP-005**: When `envelope` returns `ENVELOPE_MISSING`, the Commander shall tell the user and, on retry, route with no event.
 - [D] **CMD-LOOP-006**: When `envelope` returns `ENVELOPE_UNREADABLE` or the router stops with `ENVELOPE_INVALID`, the Commander shall show the reason and, on retry, run `forge_hub.py envelope --discard` and route with no event.
 - [D] **CMD-LOOP-007**: When the router returns `stop`, the Commander shall report the status and detail and end the loop.
 - [D] **CMD-LOOP-008**: When the router returns `close` or `done`, the Commander shall close the workstream per CMD-CLOSE-001.
+- [D] **CMD-LOOP-010**: When the router returns `mode_set`, the Commander shall report the new mode and then, when a subagent it started has not returned, wait for it and pick up its envelope per CMD-LOOP-004, and otherwise route with no event.
 - [D] **CMD-LOOP-009**: The Commander shall not write `state.json`, push, or commit other than the `dirty_tree` checkpoint.
+
+## Stop, resume, and mode
+
+- [D] **CMD-STOP-001**: When `/forge` is classified `stop`, the Commander shall run `forge_hub.py stop` and tell the user the path of the file it created.
+- [D] **CMD-STOP-002**: When `/forge` is classified `continue`, the Commander shall run `forge_hub.py unstop` and then resume as for `current`.
+- [D] **CMD-SW-001**: When `/forge` is classified `mode` while the Commander drives no workstream in this session, it shall first run `forge_hub.py brief` as for `current`, and when `brief` does not return `OK` act on its status per CMD-RESUME-005 through CMD-RESUME-008 and switch nothing.
+- [D] **CMD-SW-002**: When `/forge` is classified `mode` and the Commander holds the workstream's lock, it shall run `forge_hub.py mode` with the classified mode and route with the returned event.
+- [D] **CMD-SW-003**: When the Commander ran `brief` per CMD-SW-001 and the router returns `mode_set`, it shall show the five lines and ask whether to continue, per CMD-RESUME-003 and CMD-RESUME-004.
+- [D] **CMD-SW-004**: When routing a `mode` event returns `stop` with `KILL_SWITCH`, the Commander shall tell the user the mode was not switched and to run `/forge resume` first.
+
+## Dropping a workstream
+
+- [D] **CMD-DROP-001**: When `/forge` is classified `drop`, the Commander shall ask the user to confirm dropping that workstream, showing its phase and the reason, and do nothing else on no.
+- [D] **CMD-DROP-002**: When the user confirms a drop, the Commander shall release any other workstream it holds per CMD-ID-003 and run `resolve_state.py wake --workstream <slug>`, moving into the reported worktree and waking again on `ELSEWHERE`, and running `wake --steal` on `LOCKED` only on the user's confirmation.
+- [D] **CMD-DROP-003**: When the Commander holds the lock of the workstream being dropped, it shall write the reason to a file in its scratch directory with its file-write tool and close per CMD-CLOSE-001 with `--reason-file` and that file added.
+- [D] **CMD-DROP-004**: When `close` returns `WORKTREE_DIRTY` during a drop, the Commander shall report git's message and tell the user to clean the worktree and run `/forge drop` again.
+- [D] **CMD-DROP-005**: When the wake for a drop returns `STATE_INVALID`, the Commander shall report the workstream's state directory for the user to move by hand and close nothing.
 
 ## Pauses
 

@@ -28,7 +28,8 @@ Design: `gates-design.md`. Implementation: `reference/scripts/verify_gate.py`.
 ## Boundaries
 
 - [x] **GATE-BND-001**: For each Forge commit, `check-commits` shall take the changed paths from `git diff --no-renames --name-only <commit>^ <commit>`, so a rename contributes both its old and new path.
-- [x] **GATE-BND-002**: If a `forge-planner` commit changes a path that is not a plan path, a `forge-qa` commit changes a path that is not a test path, or a `forge-dev` commit changes a path that is not a production path, then `check-commits` shall report `BOUNDARY_VIOLATION` for each such path.
+- [ ] **GATE-BND-002**: If a `forge-planner` commit changes a path that is not a plan path, a `forge-qa` commit changes a path that is not a test path, or a `forge-dev` commit changes a path that is not a production path, other than a change GATE-BND-003 allows, then `check-commits` shall report `BOUNDARY_VIOLATION` for each such path.
+- [ ] **GATE-BND-003**: When a `forge-qa` or `forge-dev` commit whose `Forge-Mode` is `full` or `repair` changes a plan path matching `docs/intent/**/*-specs.md`, with `**` matching zero or more directories, `check-commits` shall allow that change only when, pairing the `-U0` diff's removed and added lines in order within each hunk, every hunk removes and adds the same number of lines and each added line equals its removed counterpart except that a `[ ]` marker becomes `[x]` or an `[x]` marker becomes `[ ]`.
 
 ## Human-authored lines
 
@@ -42,6 +43,7 @@ Design: `gates-design.md`. Implementation: `reference/scripts/verify_gate.py`.
 - [x] **GATE-HUM-008**: When a Forge commit has no parent, `check-commits` shall skip the human-authored line checks for it.
 - [x] **GATE-HUM-009**: When `anchors.plan_base_sha` is set and a Forge commit is that commit or one of its ancestors, `check-commits` shall skip the human-authored line checks for it while still applying the trailer and boundary checks.
 - [x] **GATE-HUM-010**: When a Forge commit's `Forge-Agent` is `forge-planner`, `check-commits` shall skip the human-authored line checks for it while still applying the trailer and boundary checks.
+- [ ] **GATE-HUM-011**: `check-commits` shall skip the human-authored line checks for the spec-file lines that a change allowed by GATE-BND-003 modifies.
 
 ## Approvals
 

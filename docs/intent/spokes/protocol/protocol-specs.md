@@ -26,7 +26,16 @@ Specs under *Skill instructions* describe what the `forge-spoke` skill tells eve
 - [x] **SPOKE-PROTO-COMMIT-004**: If any staged path, counting both sides of a rename, is outside the agent's write boundary under the gates path classes and the workstream's `config.test_patterns`, then `forge_spoke.py commit` shall return `status` `BOUNDARY_VIOLATION` listing those paths in `paths` and commit nothing.
 - [x] **SPOKE-PROTO-COMMIT-005**: If `commit` is given `--stage` for a dispatch other than `forge-planner` in mode `auto` or in mode `strict` with a non-null `invoke.notes`, or with a value other than `LID-S1`, `LID-S2`, `LID-S3`, or `LID-S4`, then `forge_spoke.py` shall return `status` `STAGE_INVALID` and commit nothing.
 - [x] **SPOKE-PROTO-COMMIT-006**: If `commit`'s `--message-file` cannot be read or is empty, then `forge_spoke.py` shall exit `2` with a message on stderr and commit nothing.
-- [x] **SPOKE-PROTO-COMMIT-007**: `forge_spoke.py commit` shall commit only what is already staged, without staging or unstaging any path.
+- [ ] **SPOKE-PROTO-COMMIT-007**: `forge_spoke.py commit` shall commit only what is already staged, without staging or unstaging any path other than the spec files it changes per SPOKE-PROTO-MARK-001 and SPOKE-PROTO-MARK-002.
+
+## Spec markers
+
+- [ ] **SPOKE-PROTO-MARK-001**: When `commit` runs for a `forge-qa` or `forge-dev` dispatch whose `invoke.mode` is `full` or `repair` in a workstream whose `config.repo_mode` is `LID`, and the checks of SPOKE-PROTO-COMMIT-003 and SPOKE-PROTO-COMMIT-004 pass, `forge_spoke.py` shall change to `[x]` the marker of each workstream spec whose line is `[ ]`, that has no `DUPLICATE_ID` finding, and that has both a test citation and a code tag, and stage the changed spec files into the same commit.
+- [ ] **SPOKE-PROTO-MARK-002**: In the same case as SPOKE-PROTO-MARK-001, `forge_spoke.py commit` shall change to `[ ]` the marker of each workstream spec whose line is `[x]`, that has no `DUPLICATE_ID` finding, and that lacks a test citation or a code tag, and stage the changed spec files into the same commit.
+- [ ] **SPOKE-PROTO-MARK-003**: `forge_spoke.py commit` shall decide workstream specs, `DUPLICATE_ID` findings, test citations, and code tags for SPOKE-PROTO-MARK-001 and SPOKE-PROTO-MARK-002 by the rules of SPOKE-VER-LID-001 through SPOKE-VER-LID-004, reading file contents from `HEAD` with the staged changes applied and never from unstaged edits.
+- [ ] **SPOKE-PROTO-MARK-004**: When `commit` returns `COMMITTED` in the case of SPOKE-PROTO-MARK-001, `forge_spoke.py` shall include `marked` and `unmarked`, the IDs it changed to `[x]` and to `[ ]`, each an empty list when it changed none.
+- [ ] **SPOKE-PROTO-MARK-005**: If committing fails after `commit` changed markers, then `forge_spoke.py` shall restore each changed spec file in the index and the worktree to its state before `commit` ran.
+- [ ] **SPOKE-PROTO-MARK-006**: `forge_spoke.py commit` shall change no spec marker for a `forge-planner` dispatch, a `skeleton` or `stub` dispatch, or a workstream whose `config.repo_mode` is not `LID`.
 
 ## `finish`
 

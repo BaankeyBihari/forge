@@ -25,7 +25,8 @@ Specs under *Modes* describe what the `forge-verifier` skill tells the verifier 
 - [x] **SPOKE-VER-LID-005**: When an `@spec` annotation in a file changed in the workstream's range names an ID that no spec line has, `lid_check.py` shall report `UNKNOWN_ID` with its `path` and `line`.
 - [x] **SPOKE-VER-LID-006**: When a workstream spec not marked `D` has no test citation, `lid_check.py` shall report `UNTESTED` for it.
 - [x] **SPOKE-VER-LID-007**: When a workstream spec not marked `D` has no code tag, `lid_check.py` shall report `UNTAGGED` for it.
-- [x] **SPOKE-VER-LID-008**: `lid_check.py` shall return `status` `OK` with `workstream_specs`, `merged_specs`, and `findings`, each finding carrying `kind`, `id`, `detail`, and, where it applies, `path` and `line`.
+- [ ] **SPOKE-VER-LID-008**: `lid_check.py` shall return `status` `OK` with `workstream_specs`, `merged_specs`, `unmarked_specs`, and `findings`, each finding carrying `kind`, `id`, `detail`, and, where it applies, `path` and `line`.
+- [ ] **SPOKE-VER-LID-010**: `lid_check.py` shall list in `unmarked_specs` the ID of every workstream spec whose line is `[ ]`, that has no `DUPLICATE_ID` finding, and that has both a test citation and a code tag, and shall report no finding for it.
 
 ## Modes
 
