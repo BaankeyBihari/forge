@@ -62,11 +62,13 @@ The `forge-memory` skill loads and saves each agent's episodic notes (decisions,
 
 `/forge list` shows the repo's open workstreams — phase, last status, last update, lock holder, branch and worktree — so the user can pick one. `/forge <workstream>` resumes it with a five-line resume brief before anything is dispatched. Without an argument, `/forge` resolves the workstream from `$FORGE_WORKSTREAM`, then from the current branch; on `main`/`master` with no state it shows the list. Resuming a workstream from outside its worktree moves the session into that worktree; no checkout changes.
 
+`/forge stop` sets the kill switch and `/forge resume` clears it and continues. `/forge mode <mode>` switches the current workstream's mode. `/forge drop <workstream> <reason>` abandons a workstream before it finishes: its state is archived with the reason, and its branch is kept.
+
 `/forge <issue or task description>` starts a new workstream. Forge names it — from the GitHub issue's number, title, and labels when there is one, otherwise from the task description, which it keeps with the workstream for the planner to read — creates the worktree and branch, and moves the session there. It stops to ask only when an open workstream already tracks the same issue, when the description gives nothing to name, or when the branch would start from anything other than the default branch.
 
 ## Target Users
 
-- **A developer driving one change end to end** in a repository they own, who wants agents to do the bulk of planning, testing, and implementation while they keep approval over plans, spec changes, and anything that touches their own code.
+- **A developer driving one change end to end** in a repository they own, who wants agents to do the bulk of planning, testing, and implementation while they keep approval over plans, spec changes, and anything that touches their own code — or hand a change over entirely and approve only its publishing.
 - **A developer working collaboratively with the agents** — writing some code or tests by hand between agent passes — who needs the agents to pick up their commits as ground truth rather than fight them.
 - **A developer running several changes in parallel** across branches or worktrees, who needs each change's state isolated and resumable.
 
@@ -145,7 +147,22 @@ flowchart TB
 
 ### Phase flow
 
-Planning runs LID stages 1–4 (or naive planning) in `strict` cadence (pause after each stage) or `auto` cadence (chain until done or blocked). Build runs `sequential` (QA full → Dev full) or `collaborative` (QA skeletons → Dev stubs → QA full → Dev full, with the verifier recomputing remaining scope after every pass so human commits shrink it). Then final verification, internal review, publish, CI watch, and report. The complete phase set and transition table live in the router design and are implemented only by `next_step.py`.
+Planning runs LID stages 1–4 (or naive planning), either stopping for approval after each stage or chaining until done or blocked. Build runs QA full → Dev full, or a two-pass flow (QA skeletons → Dev stubs → QA full → Dev full, with the verifier recomputing remaining scope after every pass so human commits shrink it). Then final verification, internal review, publish, CI watch, and report. The complete phase set and transition table live in the router design and are implemented only by `next_step.py`.
+
+### Modes
+
+Each workstream runs in one named **mode** that decides where it stops for the user:
+
+| Mode | Planning | Code |
+|---|---|---|
+| `delivery` | Chains to the finished plan with no approval | No pauses; council rulings that do not ask for the user are applied |
+| `collab-plan` | Stops after every LID stage | No pauses |
+| `collab-qa` | One approval of the finished plan | Pause to edit after the tests are written |
+| `collab-dev` | One approval of the finished plan | Pause to edit after the code is written |
+| `collab-code` | One approval of the finished plan | Two-pass flow, pausing after skeletons, stubs, and full tests |
+| `collab` | Stops after every LID stage | Two-pass flow, pausing after skeletons, stubs, and full tests |
+
+Every mode still stops for publishing, for changes to human-authored code, for uncommitted changes, for attempt limits, for council rulings that need the user, and on any error or the kill switch. New workstreams take the default mode from `~/.forge/config.json` (`collab` when unset), or the one named at start; the user switches mode at any time, and the new mode governs every step not yet started.
 
 ### Installation
 
@@ -168,6 +185,7 @@ Planning runs LID stages 1–4 (or naive planning) in `strict` cadence (pause af
 | One worktree per workstream, created by Forge | The user creates branches; work in the main checkout | A worktree isolates each change, lets several run in parallel, and lets Forge move the session between workstreams without touching any checkout. |
 | Install by symlink with a settings backup | Claude Code plugin | Plugin component paths must stay inside the plugin directory, which conflicts with linking shared content from `reference/`. Symlinks also keep the `/forge` name unprefixed. |
 | Skills, agents, and personas are all named `forge-*`; the Hub is `/forge` | Unprefixed role names | Role names like `dev` and `qa` collide with other installed skills and agents. |
+| Pacing is one named mode per workstream, switchable at any time | Separate settings for planning cadence, build flow, and council auto-apply; modes combined per workstream | One name per workstream is easier to choose and to read in the resume brief than a combination; the router derives every pause from it, so there is no second setting to drift. |
 | Model choice uses Claude Code aliases (`opus`, `sonnet`, `haiku`) in agent profiles | Pinned model IDs | Aliases track current models without editing every agent profile. |
 
 ## Success Metrics
