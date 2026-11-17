@@ -9,7 +9,7 @@ Specs: docs/intent/commander/commander-specs.md.
     forge_hub.py envelope --state PATH [--discard]
     forge_hub.py answer   --state PATH --decision DECISION [--option OPTION] [--notes-file FILE]
     forge_hub.py mode     --state PATH --mode MODE
-    forge_hub.py stop | unstop
+    forge_hub.py stop | resume
 
 Every status prints one JSON object and exits 0. Usage errors exit 2; classify or
 brief outside a git repository exits 1; each with a message on stderr.
@@ -220,7 +220,7 @@ def answer(state_path, decision, option=None, notes=None):
     return {"status": "OK", "event_path": str(event_path)}
 
 
-# ---------------------------------------------------------- mode, stop, unstop
+# ---------------------------------------------------------- mode, stop, resume
 
 
 # @spec CMD-MODE-001, CMD-ENV-006
@@ -249,7 +249,7 @@ def stop(cwd):
 
 
 # @spec CMD-KILL-002, CMD-KILL-004
-def unstop(cwd):
+def resume(cwd):
     removed = []
     for root in worktree_roots(cwd):
         path = Path(root) / ".STOP_FORGE"
@@ -284,7 +284,7 @@ def main(argv=None):
     p.add_argument("--state", required=True)
     p.add_argument("--mode", required=True)
     sub.add_parser("stop")
-    sub.add_parser("unstop")
+    sub.add_parser("resume")
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["classify"]:  # words may look like options (--mode)
         args = argparse.Namespace(command="classify", words=argv[1:])
@@ -298,8 +298,8 @@ def main(argv=None):
             result = mode_event(args.state, args.mode)
         elif args.command == "stop":
             result = stop(cwd)
-        elif args.command == "unstop":
-            result = unstop(cwd)
+        elif args.command == "resume":
+            result = resume(cwd)
         elif args.command == "brief":
             result = brief(cwd, args.workstream, args.holder_pid, args.holder_session)
         elif args.command == "envelope":

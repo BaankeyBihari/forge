@@ -144,12 +144,12 @@ The router checks for `.STOP_FORGE` at the main worktree's root and at the works
 
 ```text
 forge_hub.py stop
-forge_hub.py unstop
+forge_hub.py resume
 ```
 
-`stop` creates `.STOP_FORGE` at the main worktree's root and returns `{"status": "STOPPED", "path": ...}`. `unstop` deletes `.STOP_FORGE` at the root of every worktree of the repository, and returns `{"status": "CLEARED", "removed": [...]}`, listing the paths it deleted (none when there was no file). The scripts find both roots from git, so the Commander runs no git command of its own for them.
+`stop` creates `.STOP_FORGE` at the main worktree's root and returns `{"status": "STOPPED", "path": ...}`. `resume` deletes `.STOP_FORGE` at the root of every worktree of the repository, and returns `{"status": "CLEARED", "removed": [...]}`, listing the paths it deleted (none when there was no file). The scripts find both roots from git, so the Commander runs no git command of its own for them.
 
-`/forge stop` runs `stop` and tells the user where the file is. A subagent already running is blocked by the guard at its next tool call and returns without finishing; the next `/forge` sees its dispatch outstanding as usual. `/forge resume` runs `unstop` and then resumes as `/forge` does.
+`/forge stop` runs `stop` and tells the user where the file is. A subagent already running is blocked by the guard at its next tool call and returns without finishing; the next `/forge` sees its dispatch outstanding as usual. `/forge resume` runs `resume` and then resumes as `/forge` does.
 
 ### Switching mode
 
@@ -243,7 +243,7 @@ The Commander writes `hub` and `shared` memory entries at the points the forge-m
 | Pauses that wait on outside work | End the turn; the next message answers | Keep the session blocked in a question until the user is done | The user edits code or merges a branch outside the conversation; a blocked question invites answering before the work is done, and a "not yet" answer would otherwise be asked again at once. |
 | Kill switch location | Main worktree root or the workstream worktree root | The worktree root only | Users create the file where they work, usually the main checkout; one file there stops every workstream. |
 | Kill switch timing | Checked by the router first on every call | Checked by the Commander before each router call; checked before each dispatch | Stopping before any question means one rule covers every path, including the dirty-tree pause the file itself causes; in a script it needs no shell command the harness may refuse in a worktree session. |
-| Typed stop and resume | `forge_hub.py stop` and `unstop` manage the kill-switch file | The user creates and deletes the file by hand | The user does not need to know the path, and the scripts find the main worktree's root without a shell command the harness may refuse. |
+| Typed stop and resume | `forge_hub.py stop` and `resume` manage the kill-switch file | The user creates and deletes the file by hand | The user does not need to know the path, and the scripts find the main worktree's root without a shell command the harness may refuse. |
 | Drop classification | `drop` only when the next word names an existing workstream, and always confirmed | Any `drop <slug> <words>`; no confirmation | A task description that begins with "drop" must not archive a workstream that happens to share a word with it. |
 | Mode switch result | The router returns `mode_set` and dispatches nothing | Continue as a no-event call | A switch made while a subagent runs would otherwise return that same dispatch, and the Commander would start it a second time. |
 | Brief's hub context line | Taken from the newest `hub` memory entry by the script | Written by the Commander each time | The brief stays fully mechanical, so it is the same in every session. |

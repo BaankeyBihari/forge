@@ -65,7 +65,7 @@ def test_every_subcommand_prints_one_object(workstream):
     sp = str(workstream["state_path"])
     for args in [["classify", "list"], ["brief", "--workstream", "feat-demo", *holder_args()],
                  ["envelope", "--state", sp], ["answer", "--state", sp, "--decision", "approve"],
-                 ["mode", "--state", sp, "--mode", "delivery"], ["stop"], ["unstop"]]:
+                 ["mode", "--state", sp, "--mode", "delivery"], ["stop"], ["resume"]]:
         res = hub(*args, cwd=workstream["worktree"])
         assert res.returncode == 0, (args, res.stderr)
         assert isinstance(json.loads(res.stdout), dict)
@@ -592,25 +592,25 @@ def test_stop_keeps_existing_file(workstream):
 
 
 # @spec CMD-KILL-002
-def test_unstop_clears_every_worktree(workstream):
+def test_resume_clears_every_worktree(workstream):
     stop_file(workstream["repo"]).write_text("")
     stop_file(workstream["worktree"]).write_text("")
-    out = ok(hub("unstop", cwd=workstream["worktree"]), "CLEARED")
+    out = ok(hub("resume", cwd=workstream["worktree"]), "CLEARED")
     assert sorted(out["removed"]) == sorted([str(stop_file(workstream["repo"])),
                                              str(stop_file(workstream["worktree"]))])
     assert not stop_file(workstream["repo"]).exists() and not stop_file(workstream["worktree"]).exists()
-    assert ok(hub("unstop", cwd=workstream["repo"]), "CLEARED")["removed"] == []
+    assert ok(hub("resume", cwd=workstream["repo"]), "CLEARED")["removed"] == []
 
 
 # @spec CMD-KILL-002
-def test_unstop_only_worktree_file(workstream):
+def test_resume_only_worktree_file(workstream):
     stop_file(workstream["worktree"]).write_text("")
-    out = ok(hub("unstop", cwd=workstream["repo"]), "CLEARED")
+    out = ok(hub("resume", cwd=workstream["repo"]), "CLEARED")
     assert out["removed"] == [str(stop_file(workstream["worktree"]))]
 
 
 # @spec CMD-KILL-004
-@pytest.mark.parametrize("sub", ["stop", "unstop"])
+@pytest.mark.parametrize("sub", ["stop", "resume"])
 def test_kill_switch_outside_git_exits_1(tmp_path, sub):
     outside = tmp_path / "plain"
     outside.mkdir()

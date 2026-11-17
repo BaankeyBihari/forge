@@ -6,7 +6,7 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 
 ## forge_hub.py invocation
 
-- [ ] **CMD-CLI-001**: `forge_hub.py` shall provide the subcommands `classify`, `brief`, `envelope`, `answer`, `mode`, `stop`, and `unstop`, print exactly one JSON object to stdout, and exit `0` for every status.
+- [ ] **CMD-CLI-001**: `forge_hub.py` shall provide the subcommands `classify`, `brief`, `envelope`, `answer`, `mode`, `stop`, and `resume`, print exactly one JSON object to stdout, and exit `0` for every status.
 - [x] **CMD-CLI-002**: If `forge_hub.py` is called with an unknown subcommand or missing or invalid arguments, then it shall exit `2` with a message on stderr.
 - [x] **CMD-CLI-003**: If `forge_hub.py classify` or `brief` runs in a directory that is not inside a git repository, then it shall exit `1` with a message on stderr.
 
@@ -67,9 +67,9 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 ## Kill switch
 
 - [ ] **CMD-KILL-001**: When `stop` runs, `forge_hub.py` shall create `.STOP_FORGE` at the root of the main worktree of the repository it runs in, found from git, and return `status` `STOPPED` with its absolute path in `path`.
-- [ ] **CMD-KILL-002**: When `unstop` runs, `forge_hub.py` shall delete `.STOP_FORGE` at the root of every worktree of the repository it runs in and return `status` `CLEARED` with the absolute paths it deleted in `removed`, an empty list when there were none.
+- [ ] **CMD-KILL-002**: When `resume` runs, `forge_hub.py` shall delete `.STOP_FORGE` at the root of every worktree of the repository it runs in and return `status` `CLEARED` with the absolute paths it deleted in `removed`, an empty list when there were none.
 - [ ] **CMD-KILL-003**: When `stop` runs while `.STOP_FORGE` already exists at the main worktree's root, `forge_hub.py` shall leave the file as it is and return `status` `STOPPED` with its path.
-- [ ] **CMD-KILL-004**: If `stop` or `unstop` runs in a directory that is not inside a git repository, then `forge_hub.py` shall exit `1` with a message on stderr.
+- [ ] **CMD-KILL-004**: If `stop` or `resume` runs in a directory that is not inside a git repository, then `forge_hub.py` shall exit `1` with a message on stderr.
 
 ## Identity
 
@@ -116,7 +116,7 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 ## Stop, resume, and mode
 
 - [D] **CMD-STOP-001**: When `/forge` is classified `stop`, the Commander shall run `forge_hub.py stop` and tell the user the path of the file it created.
-- [D] **CMD-STOP-002**: When `/forge` is classified `continue`, the Commander shall run `forge_hub.py unstop` and then resume as for `current`.
+- [D] **CMD-STOP-002**: When `/forge` is classified `continue`, the Commander shall run `forge_hub.py resume` and then resume as for `current`.
 - [D] **CMD-SW-001**: When `/forge` is classified `mode` while the Commander drives no workstream in this session, it shall first run `forge_hub.py brief` as for `current`, and when `brief` does not return `OK` act on its status per CMD-RESUME-005 through CMD-RESUME-008 and switch nothing.
 - [D] **CMD-SW-002**: When `/forge` is classified `mode` and the Commander holds the workstream's lock, it shall run `forge_hub.py mode` with the classified mode and route with the returned event.
 - [D] **CMD-SW-003**: When the Commander ran `brief` per CMD-SW-001, which takes the workstream's lock through the wake, and the router returns `mode_set`, it shall report the new mode, show the five lines, and ask whether to continue, per CMD-RESUME-003 and CMD-RESUME-004.
