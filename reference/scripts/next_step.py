@@ -5,7 +5,7 @@ Design: docs/intent/router/router-design.md. Specs: docs/intent/router/router-sp
 
     next_step.py --holder-pid PID --holder-session ID [--workstream SLUG] [--event FILE|-] [--dry-run]
 
-Each call: wake, apply the event, handle drift, check for a dirty tree, dispatch.
+Each call: kill switch, wake, apply the event, handle drift, check for a dirty tree, dispatch.
 Prints one JSON decision and exits 0; a non-zero exit is a usage error.
 """
 
@@ -24,6 +24,11 @@ import resolve_state  # noqa: E402
 import verify_gate  # noqa: E402
 
 BUILDERS = ["forge-planner", "forge-qa", "forge-dev"]
+MODES = resolve_state.MODES
+STAGE_PAUSE_MODES = {"collab-plan", "collab"}  # plan approval after every stage; strict planner
+TWO_PASS_MODES = {"collab-code", "collab"}  # skeleton/stub pass, with edit windows after both
+POST_QA_WINDOW_MODES = {"collab-qa", "collab-code", "collab"}
+DEV_FULL_WINDOW_MODES = {"collab-dev"}
 NON_COMMITTING = {"forge-verifier", "forge-reviewer", "forge-scout", "forge-council", "forge-reporter",
                   "forge-publisher"}
 VERIFIER_PHASES = {"POST_PLAN", "PRE_QA", "PRE_DEV", "POST_QA", "VERIFY_FINAL", "RECONCILE"}
@@ -148,6 +153,10 @@ class Ctx:
     def lid(self):
         return self.config("repo_mode") == "LID"
 
+    @property
+    def mode(self):
+        return self.config("mode", "collab")
+
 
 # ------------------------------------------------------------------- dispatch
 
@@ -156,9 +165,12 @@ def first_planning_phase(ctx):
     return "PLAN_S1" if ctx.lid else "PLAN"
 
 
+# @spec ROUTE-BUILD-003, ROUTE-MODE-008
 def agent_and_mode(ctx, phase, opts):
     if phase in PLAN_STAGES:
-        return "forge-planner", "auto" if ctx.config("plan_mode") == "auto" else "strict"
+        if opts.get("agent_mode"):
+            return "forge-planner", opts["agent_mode"]
+        return "forge-planner", "strict" if ctx.mode in STAGE_PAUSE_MODES else "auto"
     fixed = {
         "RECON": ("forge-scout", "PRE_PLAN"), "PLAN": ("forge-planner", "naive"),
         "QA_SKEL": ("forge-qa", "skeleton"), "DEV_STUB": ("forge-dev", "stub"),
@@ -403,7 +415,6 @@ def apply_result(ctx, env):
         ctx.lc["report_input"] = str(ctx.sd / "envelopes" / f"{d['dispatch_id']}.json")
     if agent in BUILDERS:
         ctx.anchors["last_known_head_sha"] = env["head_sha"]
-    collaborative = ctx.config("collaborative", True)
     pass_no = ctx.lc.get("pass")
 
     if status in BLOCKER_KINDS:
@@ -420,14 +431,20 @@ def apply_result(ctx, env):
     if phase == "PR_FETCH":
         return goto("PR_REVIEW", context_refs=[str(ctx.sd / "scout")])
     if status == "STAGE_COMPLETE":
-        return pause("plan_approval", phase, {"next": f"PLAN_S{int(phase[-1]) + 1}"})
+        nxt = f"PLAN_S{int(phase[-1]) + 1}"
+        return pause("plan_approval", phase, {"next": nxt}) if ctx.mode in STAGE_PAUSE_MODES else goto(nxt)
     if status == "READY_FOR_QA":
         ctx.state["scope_manifest"]["assigned"] = (env.get("scope") or {}).get("assigned", [])
+        if ctx.mode == "delivery":  # choosing delivery approved the plan in advance
+            approve_plan(ctx)
+            return goto("POST_PLAN")
         return pause("plan_approval", phase, {"next": "POST_PLAN", "set_plan_base": True})
     if phase == "POST_PLAN":
         if not ctx.state["scope_manifest"].get("assigned"):
             return goto("VERIFY_FINAL")
-        if collaborative:
+        if ctx.lc.get("two_pass") is None:
+            ctx.lc["two_pass"] = ctx.mode in TWO_PASS_MODES
+        if ctx.lc["two_pass"]:
             ctx.lc["pass"] = 1
             return goto("PRE_QA")
         return goto("QA_FULL")
@@ -445,14 +462,22 @@ def apply_result(ctx, env):
             return goto("PRE_QA")
         return goto("VERIFY_FINAL")
     if status == "SKELETON_COMMITTED":
-        return pause("edit_window", phase, {"next": "PRE_DEV"})
+        if ctx.mode in TWO_PASS_MODES:
+            return pause("edit_window", phase, {"next": "PRE_DEV"})
+        return goto("PRE_DEV")
     if status == "STUBS_COMMITTED":
-        return pause("edit_window", phase, {"next": "PRE_QA", "set_pass": 2})
+        if ctx.mode in TWO_PASS_MODES:
+            return pause("edit_window", phase, {"next": "PRE_QA", "set_pass": 2})
+        ctx.lc["pass"] = 2
+        return goto("PRE_QA")
     if status == "TESTS_COMMITTED":
         return goto("POST_QA")
     if phase == "POST_QA":
-        return pause("edit_window", phase, {"next": "PRE_DEV"}) if collaborative else goto("DEV_FULL")
+        nxt = "PRE_DEV" if ctx.lc.get("two_pass") else "DEV_FULL"
+        return pause("edit_window", phase, {"next": nxt}) if ctx.mode in POST_QA_WINDOW_MODES else goto(nxt)
     if status == "IMPLEMENTATION_COMPLETE":
+        if ctx.mode in DEV_FULL_WINDOW_MODES:
+            return pause("edit_window", phase, {"next": "VERIFY_FINAL"})
         return goto("VERIFY_FINAL")
     if phase == "VERIFY_FINAL":
         base = ctx.anchors.get("workstream_base_sha")
@@ -486,12 +511,10 @@ def apply_result(ctx, env):
         blocker = ctx.state["blockers"][-1]
         blocker["ruling"] = env.get("ruling") or {}
         ruling = blocker["ruling"]
-        auto = ctx.config("council_auto_resolve", False) and not ruling.get("requires_user", True)
-        if blocker["kind"] == "CONCERNS" or not auto:
+        if not auto_rules(ctx, blocker):
             return pause("council_signoff", phase, {"blocker_id": blocker["id"]},
                          context_refs=[ruling["matrix_ref"]] if ruling.get("matrix_ref") else [])
-        option = {"label": ruling.get("recommended"), "route_to": ruling.get("route_to"), "delta": ruling.get("delta")}
-        return apply_ruling(ctx, blocker, ruling, option, "auto")
+        return auto_apply(ctx, blocker)
     if status == "REPAIR_COMMITTED":
         sm = ctx.state["scope_manifest"]
         if agent == "forge-planner" and "assigned" in (env.get("scope") or {}):
@@ -510,6 +533,25 @@ def apply_result(ctx, env):
     raise ValueError(f"no transition for {status} in {phase}")
 
 
+def auto_rules(ctx, blocker):
+    """Whether delivery applies this blocker's stored ruling without asking."""
+    ruling = blocker.get("ruling") or {}
+    return ctx.mode == "delivery" and blocker["kind"] != "CONCERNS" and ruling.get("requires_user") is False
+
+
+def auto_apply(ctx, blocker):
+    ruling = blocker["ruling"]
+    option = {"label": ruling.get("recommended"), "route_to": ruling.get("route_to"), "delta": ruling.get("delta")}
+    return apply_ruling(ctx, blocker, ruling, option, "auto")
+
+
+# @spec ROUTE-BUILD-005, ROUTE-BUILD-041
+def approve_plan(ctx):
+    ctx.anchors["plan_base_sha"] = ctx.head()
+    sm = ctx.state["scope_manifest"]
+    sm["remaining"], sm["completed"] = list(sm["assigned"]), []
+
+
 # @spec ROUTE-BUILD-020, ROUTE-BUILD-038
 def gate_failed(ctx, phase, errors):
     if any(f["kind"] != "HUMAN_CODE_MODIFIED" for f in errors):
@@ -520,14 +562,18 @@ def gate_failed(ctx, phase, errors):
                  "Approve them, or reject to stop?")
 
 
-# @spec ROUTE-BUILD-039, ROUTE-BUILD-040
+# @spec ROUTE-BUILD-039, ROUTE-BUILD-040, ROUTE-BUILD-042
 def publish_approval(ctx, phase):
-    merged = lid_check.check(ctx.state).get("merged_specs") if ctx.lid else None
-    if not merged:
+    result = lid_check.check(ctx.state) if ctx.lid else {}
+    payload, question = {}, PAUSES["publish_approval"][1]
+    for key, line in (("merged_specs", "Merged specs nobody in this workstream implements: "),
+                      ("unmarked_specs", "Specs tested and tagged but still marked [ ]: ")):
+        if result.get(key):
+            payload[key] = result[key]
+            question += "\n" + line + ", ".join(result[key])
+    if not payload:
         return pause("publish_approval", phase)
-    return pause("publish_approval", phase, {"merged_specs": merged},
-                 question=PAUSES["publish_approval"][1] + "\nMerged specs nobody in this workstream implements: "
-                 + ", ".join(merged))
+    return pause("publish_approval", phase, payload, question=question)
 
 
 # @spec ROUTE-BUILD-028, ROUTE-PR-004
@@ -568,11 +614,10 @@ def apply_user(ctx, event):
 
     if kind == "plan_approval":
         if decision == "revise":
-            return goto(phase, notes=notes, context_refs=prior_refs, **user)
+            replaced = (ctx.lc.get("invoke") or {}).get("mode")
+            return goto(phase, notes=notes, context_refs=prior_refs, agent_mode=replaced, **user)
         if payload.get("set_plan_base"):
-            ctx.anchors["plan_base_sha"] = ctx.head()
-            sm = ctx.state["scope_manifest"]
-            sm["remaining"], sm["completed"] = list(sm["assigned"]), []
+            approve_plan(ctx)
         return goto(payload["next"], **user)
     if kind == "edit_window":
         if payload.get("set_pass"):
@@ -667,6 +712,9 @@ def apply_event(ctx, event):
             return stop("NOT_STARTED", "send a start event first", write=False)
         if phase == "DONE":
             return {"kind": "done"}
+        queued = ctx.lc.pop("next_dispatch", None)
+        if queued:  # what a pause answered by a mode switch leads to
+            return goto(queued["phase"], **queued["opts"])
         return goto(phase)
     etype = event.get("type")
     if etype == "start":
@@ -679,7 +727,48 @@ def apply_event(ctx, event):
         return apply_result(ctx, event.get("envelope") or {})
     if etype == "user":
         return apply_user(ctx, event)
+    if etype == "mode":
+        return apply_mode(ctx, event.get("mode"))
     return stop("EVENT_INVALID", f"unknown event type {etype}", write=False)
+
+
+def lacks_pause(ctx, mode):
+    """The answer to the pending pacing pause that mode would not have raised, or None."""
+    aw = ctx.lc.get("awaiting") or {}
+    kind, payload, phase = aw.get("kind"), aw.get("payload") or {}, ctx.lc.get("current_phase")
+    if kind == "plan_approval":
+        stage = str(payload.get("next", "")).startswith("PLAN_S")
+        if (stage and mode not in STAGE_PAUSE_MODES) or (payload.get("set_plan_base") and mode == "delivery"):
+            return "approve"
+    if kind == "edit_window":
+        keeps = {"QA_SKEL": TWO_PASS_MODES, "DEV_STUB": TWO_PASS_MODES, "POST_QA": POST_QA_WINDOW_MODES,
+                 "DEV_FULL": DEV_FULL_WINDOW_MODES}.get(phase)
+        if keeps is not None and mode not in keeps:
+            return "continue"
+    return None
+
+
+# @spec ROUTE-MODE-001, ROUTE-MODE-002, ROUTE-MODE-003, ROUTE-MODE-004, ROUTE-MODE-005, ROUTE-MODE-006
+# @spec ROUTE-MODE-009
+def apply_mode(ctx, mode):
+    if mode not in MODES or ctx.lc.get("current_phase") == "DONE":
+        return stop("EVENT_INVALID", f"mode {mode!r} is not one of {', '.join(MODES)}"
+                    if mode not in MODES else "the workstream is done", write=False)
+    ctx.state["config"]["mode"] = mode
+    aw = ctx.lc.get("awaiting") or {}
+    answer = lacks_pause(ctx, mode)
+    outcome = None
+    if answer:
+        outcome = apply_user(ctx, {"type": "user", "awaiting": aw["kind"], "decision": answer})
+    elif aw.get("kind") == "council_signoff":
+        blocker = next((b for b in ctx.state["blockers"] if b["id"] == (aw.get("payload") or {}).get("blocker_id")),
+                       None)
+        if blocker and auto_rules(ctx, blocker):
+            ctx.lc["awaiting"] = None
+            outcome = auto_apply(ctx, blocker)
+    if outcome and outcome["kind"] == "dispatch":  # dispatched on the next call, which carries no event
+        ctx.lc["next_dispatch"] = {"phase": outcome["phase"], "opts": outcome["opts"]}
+    return {"kind": "mode_set", "mode": mode}
 
 
 def pause_from_awaiting(ctx, aw):
@@ -706,14 +795,41 @@ def handle_drift(ctx, outcome):
     return goto("RECONCILE")
 
 
+# @spec ROUTE-KILL-001
+def kill_switch(cwd):
+    """The KILL_SWITCH stop when .STOP_FORGE sits at the main worktree's root or this worktree's, else None."""
+    def out(*args):
+        proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+        return proc.stdout.strip() if proc.returncode == 0 else ""
+    roots = [out("worktree", "list", "--porcelain").split("\n", 1)[0].removeprefix("worktree "),
+             out("rev-parse", "--show-toplevel")]
+    found = []
+    for root in roots:
+        path = str(Path(root) / ".STOP_FORGE") if root else ""
+        if path and path not in found and Path(path).is_file():
+            found.append(path)
+    if not found:
+        return None
+    return {"action": "stop", "phase": None, "status": "KILL_SWITCH", "detail": ", ".join(found),
+            "summary": "Stopped: the kill switch is on"}
+
+
 # @spec ROUTE-CLI-001, ROUTE-CLI-002, ROUTE-CLI-004, ROUTE-CLI-006, ROUTE-CLI-007, ROUTE-CLI-008, ROUTE-PAUSE-001
-# @spec ROUTE-ENV-011
+# @spec ROUTE-ENV-011, ROUTE-MODE-007, ROUTE-MODE-010
 def route(cwd, workstream, pid, session, event, dry_run=False):
+    killed = kill_switch(cwd)
+    if killed:
+        return killed
     report = resolve_state.wake(cwd, workstream, pid, session)
     if report["status"] != "OK":
         return {"action": "stop", "phase": None, "status": report["status"],
                 "detail": report.get("detail", ""), "summary": f"wake returned {report['status']}"}
     state, _ = resolve_state.load_state(report["state_path"])
+    config = state.get("config") or {}
+    if "mode" in config and config["mode"] not in MODES:
+        return {"action": "stop", "phase": state["lifecycle"].get("current_phase"), "status": "STATE_INVALID",
+                "detail": f"config.mode {config['mode']!r} is not one of {', '.join(MODES)}",
+                "summary": "Stopped: STATE_INVALID"}
     ctx = Ctx(cwd, report, state, dry_run)
     before = json.dumps(state, sort_keys=True)
 
@@ -745,6 +861,9 @@ def route(cwd, workstream, pid, session, event, dry_run=False):
         decision = {"action": "dispatch", "phase": outcome["phase"], "invoke": outcome["invoke"],
                     "summary": f"Dispatch {outcome['invoke']['agent']} ({outcome['invoke']['mode']}) "
                                f"for {outcome['phase']}"}
+    elif kind == "mode_set":
+        decision = {"action": "mode_set", "phase": ctx.lc["current_phase"], "mode": outcome["mode"],
+                    "summary": f"Mode set to {outcome['mode']}"}
     elif kind == "close":
         ctx.lc["current_phase"] = "DONE"
         decision = {"action": "close", "phase": "DONE", "summary": "Workstream finished; close it"}
@@ -774,6 +893,10 @@ def main(argv=None):
     parser.add_argument("--event")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    killed = kill_switch(os.getcwd())
+    if killed:  # before the wake and before reading the event
+        print(json.dumps(killed))
+        return 0
     try:
         event = read_event(args.event)
         decision = route(os.getcwd(), args.workstream, args.holder_pid, args.holder_session, event, args.dry_run)

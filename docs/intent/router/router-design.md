@@ -115,6 +115,7 @@ The router owns these `lifecycle` fields:
 | `current_phase` | One of the phases below |
 | `pass` | `1` or `2` in a two-pass build; `null` otherwise |
 | `two_pass` | `true` or `false`, set at the first `POST_PLAN` `PASS` from the mode and kept for the rest of the workstream; `null` before that |
+| `next_dispatch` | `{phase, opts}` a mode switch's answer to a pending pause leads to, with the answer's notes and agent mode; the next call without an event dispatches it and clears the field |
 | `dispatched` | `{dispatch_id, agent, mode, base_sha}` while a spoke is out; `null` otherwise |
 | `invoke` | The complete invocation envelope of the latest dispatch, so a re-derived dispatch carries the same notes and context files |
 | `awaiting` | `{kind, payload}` while paused; `null` otherwise |

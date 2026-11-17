@@ -543,6 +543,20 @@ def test_mode_switch_to_delivery_applies_ruling(r):
     assert dispatches(r.run(), "forge-dev", "repair")
 
 
+# @spec ROUTE-MODE-006, ROUTE-MODE-009
+@pytest.mark.parametrize("kind, phase, agent, agent_mode", [("TEST_CHANGE_REQUESTED", "DEV_FULL", "forge-dev", "full"),
+                                                            ("CI_FAILED", "CI_WATCH", "forge-scout", "CI_RERUN")])
+def test_mode_switch_ruling_keeps_dispatch_options(r, kind, phase, agent, agent_mode):
+    set_mode(r, mode="collab")
+    raise_blocker(r, kind, phase)
+    assert pauses(r.result("COUNCIL_RULING", ruling=ruling([])), "council_signoff")
+    assert mode_set(r.mode("delivery"), "delivery")
+    decision = r.run()
+    assert dispatches(decision, agent, agent_mode) and decision["phase"] == phase
+    if kind == "TEST_CHANGE_REQUESTED":
+        assert DELTA_A in json.dumps(decision["invoke"]["notes"])
+
+
 # @spec ROUTE-MODE-009
 @pytest.mark.parametrize("kind, phase, requires_user, mode", [
     ("TESTS_FAILED", "VERIFY_FINAL", True, "delivery"),
