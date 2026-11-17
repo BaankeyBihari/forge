@@ -40,7 +40,7 @@ The words of `/forge`'s argument, joined by single spaces, are classified by the
 | `resume` | `continue` | Clear the kill switch, then as for `current` |
 | `mode` and one of the six mode names, and nothing else | `mode` | Switch the current workstream's mode (see *Switching mode*) |
 | `drop`, a word naming a workstream directory of this repository, and at least one more word | `drop` | Abandon that workstream (see *Dropping a workstream*) |
-| `--mode <mode>` followed by an argument that classifies as `issue`, `pr`, `adopt`, `unknown`, or `describe` | that kind, with `mode` | Start the workstream in that mode |
+| `--mode <mode>` followed by an argument that does not start with `--mode` and classifies as `issue`, `pr`, `adopt`, `unknown`, or `describe` | that kind, with `mode` | Start the workstream in that mode |
 | `--mode` followed by anything else | `invalid` | Show the expected form |
 | `pr <ref>`, or a GitHub pull request URL | `pr` | Start a `pr_review` workstream with `new --pr <ref>` |
 | `adopt <branch>` | `adopt` | Start a workstream on that existing branch with `new --branch <branch>` |

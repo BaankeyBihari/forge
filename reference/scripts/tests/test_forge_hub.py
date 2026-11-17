@@ -244,12 +244,13 @@ def test_mode_flag_counts_only_first(workstream):
     assert classify(workstream, "add", "--mode", "delivery") == {"kind": "describe", "text": "add --mode delivery"}
 
 
-# @spec CMD-ARG-016
+# @spec CMD-ARG-015, CMD-ARG-016
 @pytest.mark.parametrize("words", [
     ["--mode"], ["--mode", "delivery"], ["--mode", "bogus", "42"], ["--mode", "42"],
     ["--mode", "delivery", "list"], ["--mode", "delivery", "stop"], ["--mode", "delivery", "resume"],
     ["--mode", "delivery", "feat-demo"], ["--mode", "delivery", "pr"], ["--mode", "delivery", "mode", "collab"],
     ["--mode", "delivery", "drop", "feat-demo", "old"],
+    ["--mode", "delivery", "--mode", "collab", "42"], ["--mode", "delivery", "--mode", "collab", "add", "x"],
 ])
 def test_mode_flag_invalid(workstream, words):
     out = classify(workstream, *words)

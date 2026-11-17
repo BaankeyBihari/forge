@@ -633,6 +633,19 @@ def test_marker_change_keeps_unstaged_edits_and_other_paths(ws):
     assert git(ws.repo, "ls-files", "--others", "--exclude-standard").splitlines() == ["src/u.py"]
 
 
+# @spec SPOKE-PROTO-MARK-007
+def test_marker_change_keeps_unstaged_deletion_of_the_spec_line(ws):
+    text = spec_text("- [ ] **A-001**: tested and tagged after this commit.", "- [ ] **A-002**: untested.")
+    plan_specs(ws, {A_SPECS: text, "tests/test_a.py": "# @spec A-001\n"})
+    deleted = "".join(line for line in text.splitlines(keepends=True) if "**A-001**" not in line)
+    (ws.repo / A_SPECS).write_text(deleted)
+    stage(ws.repo, {"src/a.py": "# @spec A-001\n"})
+    out = ws.commit()
+    assert out["status"] == "COMMITTED" and out["marked"] == ["A-001"]
+    assert committed(ws.repo, A_SPECS) == flip(text, "A-001", "x")
+    assert (ws.repo / A_SPECS).read_text() == deleted
+
+
 # @spec SPOKE-PROTO-MARK-004
 def test_committed_without_marker_changes_carries_empty_lists(ws):
     plan_specs(ws, {A_SPECS: spec_text("- [ ] **A-001**: untested.")})
