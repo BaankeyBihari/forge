@@ -104,6 +104,7 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 - [D] **CMD-PAUSE-006**: When presenting `council_signoff`, the Commander shall show the ruling's decision matrix and send `approve` with the chosen option's label, asking for notes on `reject`.
 - [D] **CMD-PAUSE-007**: When the user answers `revise` to `plan_approval` or `report_approval`, or `reject` to `human_code_approval` or `council_signoff`, the Commander shall ask for notes before routing the answer.
 - [D] **CMD-PAUSE-008**: When the user answers `dirty_tree` with `checkpoint`, the Commander shall commit every change as `wip(user): partial implementation` with no Forge trailers; with `stash`, it shall run `git stash push --include-untracked`; and when the git command fails, it shall report git's message and ask again without routing.
+- [D] **CMD-PAUSE-009**: When the user answers `dirty_tree` and `git status --porcelain` in the workstream worktree prints nothing, the Commander shall route the answer without running `git commit` or `git stash`.
 
 ## Close
 

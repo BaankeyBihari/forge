@@ -139,14 +139,14 @@ python3 $S/forge_hub.py answer --state <state_path> --decision <decision> [--opt
 
 Write the user's notes to a file in the session scratchpad with your file-write tool and pass it as `--notes-file`. Route with the returned `event_path`. `NOT_PAUSED` means nothing is waiting: route with no event.
 
-<!-- @spec CMD-PAUSE-005, CMD-PAUSE-006, CMD-PAUSE-007, CMD-PAUSE-008 -->
+<!-- @spec CMD-PAUSE-005, CMD-PAUSE-006, CMD-PAUSE-007, CMD-PAUSE-008, CMD-PAUSE-009 -->
 | Pause | How to ask |
 |---|---|
 | `publish_approval` | Three choices: approve and push (`approve`, `--option push`), approve and merge (`approve`, `--option merge`), hold (`hold`) |
 | `council_signoff` | Show the decision matrix from the ruling's `matrix_ref` file. Approve sends `approve` with `--option <chosen option's label>`. Reject asks for notes. When the options do not fit `AskUserQuestion`, show the matrix as text and ask in prose |
 | `plan_approval`, `report_approval` | `revise` asks for notes first |
 | `human_code_approval` | Show the paths and line ranges. `reject` asks for notes first |
-| `dirty_tree` | `checkpoint`: in the workstream worktree run `git add -A && git commit -m "wip(user): partial implementation"` (no Forge trailers). `stash`: run `git stash push --include-untracked`. If git fails, report git's message and ask again without routing. Then answer with the choice |
+| `dirty_tree` | `checkpoint`: in the workstream worktree run `git add -A && git commit -m "wip(user): partial implementation"` (no Forge trailers). `stash`: run `git stash push --include-untracked`. If `git status --porcelain` there prints nothing, run neither; just answer. If git fails, report git's message and ask again without routing. Then answer with the choice |
 | Any other | The router's `options` as labels, verbatim |
 
 <!-- @spec CMD-LOOP-006 -->

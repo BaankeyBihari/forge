@@ -188,7 +188,7 @@ forge_hub.py answer --state PATH --decision DECISION [--option OPTION] [--notes-
 | `council_signoff` | The ruling's decision matrix (its `matrix_ref` file) is shown; approve carries the chosen option's label; reject asks for notes. When the options do not fit the question tool, the matrix is shown as text and the choice asked in prose |
 | `plan_approval`, `report_approval` | `revise` asks for notes |
 | `human_code_approval` | The paths and line ranges are shown; reject asks for notes |
-| `dirty_tree` | `checkpoint`: the Commander commits every change as `wip(user): partial implementation` with no Forge trailers; `stash`: it runs `git stash push --include-untracked`. When the git command fails, it reports git's message and asks again without routing |
+| `dirty_tree` | `checkpoint`: the Commander commits every change as `wip(user): partial implementation` with no Forge trailers; `stash`: it runs `git stash push --include-untracked`. When `git status --porcelain` in the workstream worktree prints nothing at answer time, it runs neither command and routes the answer; the router re-checks the tree on the same call. When the git command fails, it reports git's message and asks again without routing |
 | Any other | The router's options, as labels, verbatim |
 
 ### Close
