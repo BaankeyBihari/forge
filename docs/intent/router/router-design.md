@@ -11,7 +11,7 @@ prefix: ROUTE
 
 Three properties follow from the HLD tenets:
 
-- **One writer.** Apart from the identity, config, and `anchors.stale_shas` written by `resolve_state.py`, every field of `state.json` is written here. Spokes return envelopes; they never touch state.
+- **One writer.** Apart from the identity, config, `anchors.stale_shas`, and `dropped` written by `resolve_state.py`, every field of `state.json` is written here, along with `config.mode` when the user switches it. Spokes return envelopes; they never touch state.
 - **Pure decision, testable.** The decision is a function of state, repository condition, and event. The whole transition table runs under pytest against temporary git repositories.
 - **Stop over guess.** Any input the router cannot account for — an envelope from an agent it did not dispatch, a HEAD it did not expect, a status not allowed in the current phase — produces a stop with a named reason and leaves state unchanged.
 
@@ -21,7 +21,7 @@ Three properties follow from the HLD tenets:
 next_step.py --holder-pid PID --holder-session ID [--workstream SLUG] [--event FILE|-] [--dry-run]
 ```
 
-Every call first runs the workstream-state wake (same identity, lock, and drift logic as `resolve_state.py wake`, imported, not shelled out). If the wake status is anything but `OK`, the router returns `stop` with that status and does nothing else.
+After the kill-switch check, every call runs the workstream-state wake (same identity, lock, and drift logic as `resolve_state.py wake`, imported, not shelled out). If the wake status is anything but `OK`, the router returns `stop` with that status and does nothing else.
 
 The optional event is one JSON object:
 
@@ -30,6 +30,7 @@ The optional event is one JSON object:
 | `start` | The Hub begins routing a newly created workstream at `INIT` | None: the flow, issue, and pull request come from `identity` |
 | `result` | A dispatched spoke returned | The spoke's result envelope |
 | `user` | The user answered a pause | `awaiting` (the pause kind being answered), `decision`, optional `option`, optional `notes` |
+| `mode` | The user switched the workstream's mode | `mode`, one of the six workstream modes |
 
 With no event, the router re-derives the decision from state: a pending pause is returned again, an outstanding dispatch returns the stored invocation envelope (`lifecycle.invoke`) unchanged, and drift or a dirty tree is handled as described below. At `INIT` a no-event call stops with `NOT_STARTED`, because only a `start` event begins routing; at `DONE` it returns `done`. This makes calling the router after a crash or on resume always safe.
 
@@ -37,11 +38,12 @@ With no event, the router re-derives the decision from state: a pending pause is
 
 Each call runs these steps in order and returns at the first one that yields a stop or a pause:
 
-1. Wake.
-2. Apply the event, if any.
-3. Handle drift (see *Drift and Dirty Trees*).
-4. Check for a dirty tree.
-5. Dispatch, applying the entry guards and the attempt limit first.
+1. Kill switch: when `.STOP_FORGE` exists at the main worktree's root or at the root of the worktree the router runs in (both found from git), stop with `KILL_SWITCH` without waking, taking the lock, reading or writing state, or applying the event; `detail` lists every such file and `phase` is `null`.
+2. Wake.
+3. Apply the event, if any. A `mode` event returns `mode_set` here.
+4. Handle drift (see *Drift and Dirty Trees*).
+5. Check for a dirty tree.
+6. Dispatch, applying the entry guards and the attempt limit first.
 
 Output is one JSON decision on stdout with exit `0`; a non-zero exit means a usage error.
 
@@ -54,6 +56,7 @@ Output is one JSON decision on stdout with exit `0`; a non-zero exit means a usa
 | `stop` | `status`, `detail` | Reports the problem to the user; no further routing until it is resolved |
 | `close` | — | Runs `resolve_state.py close` and reports the workstream finished |
 | `done` | — | Nothing further; the workstream is already closed |
+| `mode_set` | `mode` | Reports the switch; routes again with no event once no subagent is running |
 
 Every decision also carries `phase` (the phase after the decision) and `summary` (one line for the resume brief).
 
@@ -93,6 +96,8 @@ Every decision also carries `phase` (the phase after the decision) and `summary`
 
 A `user` event is accepted only when its `awaiting` matches the pending pause and its `decision` is one of that pause's options; otherwise the router returns `stop` with `EVENT_INVALID` and changes nothing.
 
+A `mode` event is accepted in any phase but `DONE` when its `mode` is one of the six workstream modes; otherwise the router returns `stop` with `EVENT_INVALID` and changes nothing. Applying it sets `config.mode` (a no-op when it already holds that mode), answers any pacing pause the new mode lacks (*Modes*), and returns `mode_set` without handling drift, checking the tree, or dispatching: a switch can arrive while a subagent is still running, and the Hub routes again once nothing is outstanding. At `INIT` the Hub's next call carries the `start` event. In a `pr_review` workstream the mode changes nothing, since that flow has no pacing pauses.
+
 A `result` event is accepted only when all of these hold; otherwise the router returns `stop` with `ENVELOPE_INVALID` and changes nothing:
 
 - `dispatch_id` and `agent` match `lifecycle.dispatched`.
@@ -108,7 +113,8 @@ The router owns these `lifecycle` fields:
 | Field | Meaning |
 |---|---|
 | `current_phase` | One of the phases below |
-| `pass` | `1` or `2` in collaborative build; `null` otherwise |
+| `pass` | `1` or `2` in a two-pass build; `null` otherwise |
+| `two_pass` | `true` or `false`, set at the first `POST_PLAN` `PASS` from the mode and kept for the rest of the workstream; `null` before that |
 | `dispatched` | `{dispatch_id, agent, mode, base_sha}` while a spoke is out; `null` otherwise |
 | `invoke` | The complete invocation envelope of the latest dispatch, so a re-derived dispatch carries the same notes and context files |
 | `awaiting` | `{kind, payload}` while paused; `null` otherwise |
@@ -122,19 +128,38 @@ The router owns these `lifecycle` fields:
 
 It also writes `anchors` (except `stale_shas`), `scope_manifest`, `blockers`, `council_decisions`, and `approvals`.
 
+## Modes
+
+`config.mode` decides where a workstream stops for the user. The router reads it each time it decides a transition or builds a dispatch, so a switched mode governs every step decided after the switch and nothing already decided.
+
+| Mode | Planner mode | Plan approval | Build flow | Edit windows | Council rulings with `requires_user` `false` |
+|---|---|---|---|---|---|
+| `delivery` | `auto` | None | Single pass | None | Applied without asking |
+| `collab-plan` | `strict` | After every stage | Single pass | None | Signed off by the user |
+| `collab-qa` | `auto` | Once, on the finished plan | Single pass | After `POST_QA` | Signed off by the user |
+| `collab-dev` | `auto` | Once, on the finished plan | Single pass | After `DEV_FULL` | Signed off by the user |
+| `collab-code` | `auto` | Once, on the finished plan | Two-pass | After `QA_SKEL`, `DEV_STUB`, and `POST_QA` | Signed off by the user |
+| `collab` | `strict` | After every stage | Two-pass | After `QA_SKEL`, `DEV_STUB`, and `POST_QA` | Signed off by the user |
+
+A workstream whose `config` has no `mode` is routed as `collab`. In a naive repository the planner mode is always `naive`; plan approval follows the table. The planner mode of a planning dispatch comes from the current mode, so after a switch planning continues from the next stage in the new mode's planner mode (an `auto` planner may start at any stage and chains to the end); a `revise` re-dispatch keeps the planner mode of the dispatch it replaces. **Single pass** is `QA_FULL` → `POST_QA` → `DEV_FULL`. **Two-pass** adds a first pass of QA skeletons and dev stubs, with the verifier recomputing remaining scope before each QA and dev phase. The build flow is chosen once, at the first `POST_PLAN` `PASS`, and recorded in `lifecycle.two_pass`; re-entering `POST_PLAN` keeps it. Switching mode afterwards changes only which edit windows and approvals still come. Statuses are checked against the agent mode recorded on the dispatch that returns them (`lifecycle.dispatched.mode`), so a dispatch made before a switch is never rejected for it; the transition is then decided with the current workstream mode.
+
+A switch made while a pacing pause is pending answers that pause when the new mode would not have made it: a `plan_approval` raised after a stage (`STAGE_COMPLETE`) is answered `approve` when the new mode does not stop after every stage, a `plan_approval` on the finished plan is answered `approve` when the new mode is `delivery`, and an `edit_window` is answered `continue` when the new mode has no edit window after the phase that raised it. The answer has the same effect as the user's, without dispatching; the Hub's next call dispatches. Every other pause stays until the user answers it.
+
+Every mode keeps the pauses that guard against harm rather than pace the work: `publish_approval`, `manual_merge`, `human_code_approval`, `findings_signoff`, `dirty_tree`, `attempt_limit`, `ci_none`, `report_approval`, `council_signoff` for `CONCERNS` and for rulings that need the user, and every stop.
+
 ## Phases
 
 | Phase | Flow | Agent and mode |
 |---|---|---|
 | `INIT` | both | — (awaits `start`) |
 | `RECON` | build | `forge-scout` `PRE_PLAN` |
-| `PLAN_S1` … `PLAN_S4` | build, LID repo | `forge-planner` `strict` or `auto` |
+| `PLAN_S1` … `PLAN_S4` | build, LID repo | `forge-planner` `strict` or `auto`, by mode |
 | `PLAN` | build, naive repo | `forge-planner` `naive` |
 | `POST_PLAN` | build | `forge-verifier` `POST_PLAN` |
-| `PRE_QA` | build, collaborative | `forge-verifier` `PRE_QA` |
-| `QA_SKEL` | build, collaborative pass 1 | `forge-qa` `skeleton` |
-| `PRE_DEV` | build, collaborative | `forge-verifier` `PRE_DEV` |
-| `DEV_STUB` | build, collaborative pass 1 | `forge-dev` `stub` |
+| `PRE_QA` | build, two-pass | `forge-verifier` `PRE_QA` |
+| `QA_SKEL` | build, two-pass, pass 1 | `forge-qa` `skeleton` |
+| `PRE_DEV` | build, two-pass | `forge-verifier` `PRE_DEV` |
+| `DEV_STUB` | build, two-pass, pass 1 | `forge-dev` `stub` |
 | `QA_FULL` | build | `forge-qa` `full` |
 | `POST_QA` | build | `forge-verifier` `POST_QA` |
 | `DEV_FULL` | build | `forge-dev` `full` |
@@ -160,22 +185,22 @@ A row applies when the current phase and the accepted envelope status match. Pau
 |---|---|---|
 | `INIT` | `start` event | `RECON` if `identity.issue` is set; else the first planning phase (`PLAN_S1` for LID, `PLAN` for naive) |
 | `RECON` | `OK` | First planning phase; the workstream's `scout/` directory, which holds the scout's brief, joins the planner's `context_refs` |
-| `PLAN_Sn` (strict) | `STAGE_COMPLETE` | Pause `plan_approval` → `approve`: `PLAN_S(n+1)`; `revise`: re-dispatch `PLAN_Sn` with `notes` |
-| `PLAN_Sn` / `PLAN` | `READY_FOR_QA` | Record `scope_manifest.assigned` (empty when the plan changes only plan paths); pause `plan_approval` → `approve`: set `plan_base_sha = HEAD`, `scope_manifest.remaining = assigned`, `completed = []`, go to `POST_PLAN`; `revise`: re-dispatch the current planning phase with `notes` |
+| `PLAN_Sn` | `STAGE_COMPLETE` | Mode with approval after every stage: pause `plan_approval` → `approve`: `PLAN_S(n+1)`; `revise`: re-dispatch `PLAN_Sn` with `notes`. Any other mode: `PLAN_S(n+1)` |
+| `PLAN_Sn` / `PLAN` | `READY_FOR_QA` | Record `scope_manifest.assigned` (empty when the plan changes only plan paths). Mode with a plan approval: pause `plan_approval` → `approve`: set `plan_base_sha = HEAD`, `scope_manifest.remaining = assigned`, `completed = []`, go to `POST_PLAN`; `revise`: re-dispatch the current planning phase with `notes`. `delivery`: the same as `approve`, without pausing |
 | `PLAN_Sn` / `PLAN` | `CONCERNS` | Blocker `CONCERNS` |
-| `POST_PLAN` | `PASS` | `scope_manifest.assigned` empty: `VERIFY_FINAL`. Otherwise collaborative: `pass = 1`, `PRE_QA`; sequential: `QA_FULL` |
+| `POST_PLAN` | `PASS` | `scope_manifest.assigned` empty: `VERIFY_FINAL`. Otherwise two-pass: `pass = 1`, `PRE_QA`; single pass: `QA_FULL` |
 | `POST_PLAN` | `AUDIT_FAILED` | Blocker `AUDIT_FAILED` |
 | `PRE_QA` | `PARTIAL_REMAINING` | Record scope; pass 1: `QA_SKEL`; pass 2: `QA_FULL` |
 | `PRE_QA` | `NOTHING_REMAINING` | Record scope; pass 1: `PRE_DEV`; pass 2: `PRE_DEV` |
-| `QA_SKEL` | `SKELETON_COMMITTED` | Pause `edit_window` → `continue`: `PRE_DEV` |
+| `QA_SKEL` | `SKELETON_COMMITTED` | Mode with an edit window after `QA_SKEL`: pause `edit_window` → `continue`: `PRE_DEV`. Otherwise `PRE_DEV` |
 | `PRE_DEV` | `PARTIAL_REMAINING` | Record scope; pass 1: `DEV_STUB`; pass 2: `DEV_FULL` |
 | `PRE_DEV` | `NOTHING_REMAINING` | Record scope; pass 1: `pass = 2`, `PRE_QA`; pass 2: `VERIFY_FINAL` |
-| `DEV_STUB` | `STUBS_COMMITTED` | Pause `edit_window` → `continue`: `pass = 2`, `PRE_QA` |
+| `DEV_STUB` | `STUBS_COMMITTED` | Mode with an edit window after `DEV_STUB`: pause `edit_window` → `continue`: `pass = 2`, `PRE_QA`. Otherwise `pass = 2`, `PRE_QA` |
 | `QA_FULL` | `TESTS_COMMITTED` | `POST_QA` |
-| `POST_QA` | `PASS` | Collaborative: pause `edit_window` → `continue`: `PRE_DEV`. Sequential: `DEV_FULL` |
+| `POST_QA` | `PASS` | Next is `PRE_DEV` in a two-pass build, `DEV_FULL` in a single pass. Mode with an edit window after `POST_QA`: pause `edit_window` → `continue`: next. Otherwise next |
 | `POST_QA` | `AUDIT_FAILED` | Blocker `AUDIT_FAILED` |
 | `DEV_STUB` / `DEV_FULL` | `TEST_CHANGE_REQUESTED` or `CONTRACT_MISMATCH` | Blocker of that kind |
-| `DEV_FULL` | `IMPLEMENTATION_COMPLETE` | `VERIFY_FINAL` |
+| `DEV_FULL` | `IMPLEMENTATION_COMPLETE` | Mode with an edit window after `DEV_FULL`: pause `edit_window` → `continue`: `VERIFY_FINAL`. Otherwise `VERIFY_FINAL` |
 | `VERIFY_FINAL` | `PASS` | Run the commit gate (below); on success set `verifier_pass_sha = HEAD`, go to `REVIEW_INTERNAL`; on failure see *Commit gate* |
 | `VERIFY_FINAL` | `AUDIT_FAILED` or `TESTS_FAILED` | Blocker of that kind |
 | `REVIEW_INTERNAL` | `REVIEW_APPROVED` | Set `reviewer_pass_sha = HEAD`; pause `publish_approval`, naming any merged specs (*Merged specs*, below) → `approve` with `option` `push` or `merge`: `PUBLISH`; `hold`: stay paused |
@@ -219,7 +244,7 @@ A gate error names a commit already in the branch, and agents cannot rewrite his
 
 ### Merged specs
 
-A merge from another branch can bring in specs nobody has implemented yet; they are not the workstream's (verifier design, *Merged specs*), but the user decides whether to take them up. In a LID repository, before pausing `publish_approval`, the router calls `lid_check.py`'s importable check on the workstream's state and, when its `merged_specs` is not empty, records the IDs in the pause's `merged_specs` and adds a line naming them to the question. Publishing is the last step the user approves before the branch leaves the worktree, so every workstream that publishes shows the list exactly once, computed by a script.
+A merge from another branch can bring in specs nobody has implemented yet; they are not the workstream's (verifier design, *Merged specs*), but the user decides whether to take them up. In a LID repository, before pausing `publish_approval`, the router calls `lid_check.py`'s importable check on the workstream's state and, when its `merged_specs` is not empty, records the IDs in the pause's `merged_specs` and adds a line naming them to the question. In the same way, a non-empty `unmarked_specs` (specs tested and tagged but still `[ ]`, verifier design) is recorded in the pause's `unmarked_specs` with a line naming them, so the user can mark them before merging. Publishing is the last step the user approves before the branch leaves the worktree, so every workstream that publishes shows the list exactly once, computed by a script.
 
 ## Transition Table — PR Review Flow
 
@@ -244,7 +269,7 @@ A blocker status appends `{id, kind, agent, phase, details, context_refs}` to `b
 | `CI_FAILED` | scout | `debugger`, `senior-dev` | Unless auto-resolve applies | Queue the ruling's `route_to` agents with its delta; resume `VERIFY_FINAL`. An empty `route_to` (a flaky failure) resolves the blocker and goes to `CI_WATCH` with mode `CI_RERUN`, which re-runs the failed jobs and watches again |
 | `CHANGES_REQUESTED` | reviewer | none | Only when a finding routes to the planner (pause `findings_signoff`) | Queue repairs for each `route_to` agent in arrow order (planner, qa, dev); resume `VERIFY_FINAL` |
 
-**Auto-resolve applies** when `config.council_auto_resolve` is `true` and the ruling's `requires_user` is `false`. Otherwise the router pauses `council_signoff`, presenting the ruling's options; `approve` (with the chosen `option`, which must be one of the ruling's option labels, otherwise `EVENT_INVALID`) records a `council_decisions` entry `{id, blocker_id, panel, option, approved_by: "user"}`, where `panel` is the ruling's `panel` (the personas actually convened) and applies the "after approval" column using that option's `route_to` and `delta`; auto-resolve applies the recommended option's and records the entry with `approved_by: "auto"`; `reject` with `notes` re-dispatches the council once with those notes.
+**Auto-resolve applies** when the mode applies council rulings without asking (`delivery`) and the ruling's `requires_user` is `false`. Otherwise the router pauses `council_signoff`, presenting the ruling's options; `approve` (with the chosen `option`, which must be one of the ruling's option labels, otherwise `EVENT_INVALID`) records a `council_decisions` entry `{id, blocker_id, panel, option, approved_by: "user"}`, where `panel` is the ruling's `panel` (the personas actually convened) and applies the "after approval" column using that option's `route_to` and `delta`; auto-resolve applies the recommended option's and records the entry with `approved_by: "auto"`; `reject` with `notes` re-dispatches the council once with those notes.
 
 Before dispatching the council, the router writes the blocker to `council/<blocker id>.json` in the workstream's state directory and puts that file first in `context_refs`, followed by the `context_refs` of the dispatch that raised the blocker. The returned ruling is stored on the blocker as `ruling`, so a `council_signoff` answered in a later session applies exactly the ruling the user was shown. A ruling for `AUDIT_FAILED` or `TESTS_FAILED` with an empty `route_to` needs no repair: the blocker is resolved and the failed phase runs again. The applied option's `route_to` limits which agents the queue may contain; a ruling whose top-level or option `route_to` names an agent outside `forge-planner`, `forge-qa`, `forge-dev` is an envelope error.
 
@@ -311,8 +336,8 @@ The transition table lists which statuses each phase accepts. Within a phase, th
 
 | Phase and mode | Not accepted |
 |---|---|
-| `PLAN_S1`–`PLAN_S3`, `strict` | `READY_FOR_QA` (strict planning finishes only at stage 4) |
-| `PLAN_S4`, `strict`; any planning phase, `auto` | `STAGE_COMPLETE` |
+| `PLAN_S1`–`PLAN_S3`, planner mode `strict` | `READY_FOR_QA` (strict planning finishes only at stage 4) |
+| `PLAN_S4`, planner mode `strict`; any planning phase, planner mode `auto` | `STAGE_COMPLETE` |
 | `REPORT`, `draft` | `REPORT_SENT` |
 | `REPORT`, `send` | `REPORT_DRAFTED` |
 | Any `forge-planner` dispatch | `HUMAN_CODE_CHANGE_REQUESTED` |
@@ -344,7 +369,10 @@ When the workstream directory holds `task.md` (the user's task description, writ
 |---|---|---|---|
 | Router reads repository condition itself | Imports the wake logic and runs it on every call | Hub passes a wake report in | One call per step for the Hub, and the router can never act on a stale report. |
 | Re-derivable decisions | No-event calls return the pending pause or the outstanding dispatch | Hub remembers what it was doing | The Hub's memory does not survive a session; state does. |
-| Plan approval in `auto` cadence | Pause once when planning finishes, before any test or code | No pause until review | Planning output decides everything downstream; one approval is cheap compared with rebuilding against a wrong plan. |
+| Plan approval | Every mode but `delivery` pauses at least once on the finished plan, before any test or code | No pause until review in every mode | Planning output decides everything downstream; one approval is cheap compared with rebuilding against a wrong plan. `delivery` is for a user who hands the change over and approves only its publishing. |
+| Pacing | One `config.mode`, read at each decision | Separate `plan_mode`, `collaborative`, and `council_auto_resolve` settings | The user picks and switches one name; every pause is derived from it, so no stored combination falls outside the six modes. |
+| Build flow after a mode switch | Fixed at `POST_PLAN`; only edit windows and approvals follow the new mode | Re-derived at each phase | Switching mid-pass from two-pass to single pass would strand skeletons and stubs without their full counterparts; keeping the flow and dropping its pauses finishes the work cleanly. |
+| Kill switch | Checked by the router before anything else | Checked by the Hub before each router call | A script check cannot be skipped or mistyped, and it needs no shell command the harness may refuse in a worktree session. The guard still blocks every spoke tool call. |
 | Reviewer findings | Routed straight to repairs; council not involved | Council (`senior-dev`, `critic`) triages findings first | Review findings are already specific and tagged with an owner; a council round adds cost without new information. A finding for the planner still needs the user's sign-off. |
 | Publish approval | Always paused for the user, who chooses `push` or `merge` | Publish automatically after review | Pushing and merging are outward-facing and hard to undo. |
 | Local merge | Forge checks the merge is possible; the user performs it | Forge merges into `main` | Changing `main` is the user's call; Forge stops at proving it would succeed. |

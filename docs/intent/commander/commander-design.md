@@ -36,6 +36,12 @@ The words of `/forge`'s argument, joined by single spaces, are classified by the
 |---|---|---|
 | empty | `current` | Resume, waking without `--workstream` (resolves from `FORGE_WORKSTREAM`, then the current branch) |
 | `list` | `list` | List the repository's workstreams |
+| `stop` | `stop` | Set the kill switch (see *Stop and resume*) |
+| `resume` | `continue` | Clear the kill switch, then as for `current` |
+| `mode` and one of the six mode names, and nothing else | `mode` | Switch the current workstream's mode (see *Switching mode*) |
+| `drop`, a word naming a workstream directory of this repository, and at least one more word | `drop` | Abandon that workstream (see *Dropping a workstream*) |
+| `--mode <mode>` followed by an argument that classifies as `issue`, `pr`, `adopt`, `unknown`, or `describe` | that kind, with `mode` | Start the workstream in that mode |
+| `--mode` followed by anything else | `invalid` | Show the expected form |
 | `pr <ref>`, or a GitHub pull request URL | `pr` | Start a `pr_review` workstream with `new --pr <ref>` |
 | `adopt <branch>` | `adopt` | Start a workstream on that existing branch with `new --branch <branch>` |
 | `pr` or `adopt` followed by anything but one word | `invalid` | Show the expected form |
@@ -44,11 +50,11 @@ The words of `/forge`'s argument, joined by single spaces, are classified by the
 | One word that is a valid workstream slug but names no workstream | `unknown` | Ask whether to start a new workstream with that name or show the list |
 | Anything else | `describe` | Name a workstream from the text and start it with `new --name` |
 
-Output is `{"kind": ..., "ref"?: ..., "branch"?: ..., "workstream"?: ..., "text"?: ..., "detail"?: ...}`. The `unknown` kind keeps a mistyped workstream name from silently starting a new workstream.
+Output is `{"kind": ..., "ref"?: ..., "branch"?: ..., "workstream"?: ..., "text"?: ..., "mode"?: ..., "reason"?: ..., "detail"?: ...}`. For `drop`, `workstream` is the first word after `drop` and `reason` the rest, joined by single spaces. Text that starts with `mode` or `drop` but does not fit those rows ("drop support for Python 2") falls through to the later rules, so it starts a workstream like any description. The `unknown` kind keeps a mistyped workstream name from silently starting a new workstream.
 
 ## Starting a Workstream
 
-For `issue`, `pr`, and `adopt`, the Commander runs `new` with the reference. For `describe`, it derives a slug of two to five words from the description (`rate-limit-login`), never `list`, `pr`, or `adopt`, and passes `--name`; when the description gives nothing to name, it asks the user for a name. It also writes the whole description, unchanged, to a file in its scratch directory with its file-write tool and passes that file as `--task-file`, so the planner works from the user's own words. It passes `--base` only when the user named a base branch, and `--set` only for settings the user asked for (`plan_mode=auto`). The worktree root is `.claude/worktrees`, which `resolve_state.py` resolves against the main worktree's root wherever the session is.
+For `issue`, `pr`, and `adopt`, the Commander runs `new` with the reference. For `describe`, it derives a slug of two to five words from the description (`rate-limit-login`), never one of the command words `list`, `pr`, `adopt`, `stop`, `resume`, `mode`, or `drop`, and passes `--name`; when the description gives nothing to name, it asks the user for a name. It also writes the whole description, unchanged, to a file in its scratch directory with its file-write tool and passes that file as `--task-file`, so the planner works from the user's own words. It passes `--base` only when the user named a base branch, `--set mode=<mode>` when `classify` returned a `mode`, and other `--set` values only for settings the user asked for. The worktree root is `.claude/worktrees`, which `resolve_state.py` resolves against the main worktree's root wherever the session is.
 
 Before starting or resuming a different workstream, the Commander releases the lock of the one it was driving in this session (`resolve_state.py release`), so the session never holds two locks.
 
@@ -86,7 +92,7 @@ forge_hub.py brief --holder-pid PID --holder-session ID [--workstream SLUG]
 `brief` wakes the workstream, asks the router for its next decision with `--dry-run`, loads the `hub` memory partition, and returns `{"status": "OK", "lines": [...], "pending_envelope": bool}`:
 
 ```text
-Workstream: acme/widgets/feat-rate-limit (LID, collaborative, plan strict)
+Workstream: acme/widgets/feat-rate-limit (LID, mode collab)
 Phase: PRE_DEV (forge-verifier → PARTIAL_REMAINING)
 Progress: 1 of 3 scope patterns complete; remaining: src/limits/**, src/api/**
 Hub context: User wants per-IP limits only; account limits are a follow-up.
@@ -95,7 +101,7 @@ Next step: Dispatch forge-dev (stub) for DEV_STUB
 
 | Line | Source |
 |---|---|
-| Workstream | `identity` org, repo, workstream; `config.repo_mode`; `config.collaborative` as `collaborative` or `sequential`; `config.plan_mode` |
+| Workstream | `identity` org, repo, workstream; `config.repo_mode`; `config.mode` |
 | Phase | `lifecycle.current_phase`, with `last_agent → last_status`, or `nothing run yet` |
 | Progress | Counts of `scope_manifest.completed` and `assigned`, then the `remaining` patterns; `no plan yet` while `assigned` is empty; the number of open blockers when there are any |
 | Hub context | The first decision of the newest non-historical `hub` entry that has one, or `none recorded` |
@@ -125,13 +131,37 @@ Each step calls `next_step.py` with at most one event and acts on its decision:
 |---|---|
 | `dispatch` | Dispatch the subagent; pick up its envelope; route with it |
 | `pause` | Present the pause (see *Pauses*) |
-| `stop` | Report the status and detail; for `ENVELOPE_INVALID`, offer a retry (see *Bad envelopes*); end the loop |
+| `stop` | Report the status and detail; for `ENVELOPE_INVALID`, offer a retry (see *Bad envelopes*); for `KILL_SWITCH`, name the file and say `/forge resume` clears it; end the loop |
+| `mode_set` | Report the new mode. When a subagent this session started has not returned yet, wait for it and pick up its envelope as usual; otherwise route with no event |
 | `close` | Close the workstream (see *Close*) |
 | `done` | Close the workstream: the router finished it but the state directory still exists, so an earlier close did not complete |
 
 ### Kill switch
 
-Before every call to the router, the Commander checks for `.STOP_FORGE` at the main worktree's root and at the workstream worktree's root. When either exists, it ends the loop and tells the user which file to remove, before any question is asked or anything is committed — a `.STOP_FORGE` in the worktree makes the tree dirty, and answering the resulting `dirty_tree` pause with `checkpoint` would commit the file. The guard blocks every spoke call under the same rule.
+The router checks for `.STOP_FORGE` at the main worktree's root and at the workstream worktree's root before anything else on every call, and stops with `KILL_SWITCH` (router design). Because that check comes first, a `.STOP_FORGE` in the worktree never surfaces as a `dirty_tree` pause whose `checkpoint` would commit it. The guard blocks every spoke call under the same rule.
+
+### Stop and resume
+
+```text
+forge_hub.py stop
+forge_hub.py unstop
+```
+
+`stop` creates `.STOP_FORGE` at the main worktree's root and returns `{"status": "STOPPED", "path": ...}`. `unstop` deletes `.STOP_FORGE` at the root of every worktree of the repository, and returns `{"status": "CLEARED", "removed": [...]}`, listing the paths it deleted (none when there was no file). The scripts find both roots from git, so the Commander runs no git command of its own for them.
+
+`/forge stop` runs `stop` and tells the user where the file is. A subagent already running is blocked by the guard at its next tool call and returns without finishing; the next `/forge` sees its dispatch outstanding as usual. `/forge resume` runs `unstop` and then resumes as `/forge` does.
+
+### Switching mode
+
+```text
+forge_hub.py mode --state PATH --mode MODE
+```
+
+`mode` writes `{"type": "mode", "mode": MODE}` to `<state dir>/envelopes/mode-<YYYYMMDDTHHMMSSZ>.event.json` and returns `{"status": "OK", "event_path": ...}`; the router validates the name. `/forge mode <mode>` acts on the workstream this session is driving; when it drives none, the Commander first runs `brief` (as for `current`) to take the workstream's lock; when `brief` does not return `OK`, it acts on the status as when resuming and switches nothing. It then routes with the event and, if it ran `brief` for this, shows the five lines and asks whether to continue. The router answers `mode_set` without dispatching, so switching mode while a subagent runs never starts a second one. When the router stops with `KILL_SWITCH` instead, the mode was not switched, and the Commander says to run `/forge resume` first.
+
+### Dropping a workstream
+
+`/forge drop <workstream> <reason>` abandons a workstream before it finishes. The Commander first asks the user to confirm dropping it, showing its phase and the reason; on no it does nothing. On yes it releases the lock of any other workstream it drives, wakes the named one with `resolve_state.py wake --workstream <slug>` to take its lock (moving the session into the reported worktree and waking again on `ELSEWHERE`, offering `--steal` on `LOCKED`, as when resuming), writes the reason to a scratch file, and closes as in *Close* with `--reason-file` added. The archived state records the reason; the branch is kept. After `WORKTREE_DIRTY`, the user cleans the worktree and runs `/forge drop` again. A workstream whose state does not parse cannot be locked, so it cannot be dropped this way; the Commander reports its state directory for the user to move by hand.
 
 ### Dispatch
 
@@ -193,7 +223,7 @@ forge_hub.py answer --state PATH --decision DECISION [--option OPTION] [--notes-
 
 ### Close
 
-To close, the Commander asks whether to remove the worktree. It leaves the worktree with `ExitWorktree` (keeping it on disk), then runs `resolve_state.py close --workstream <slug>`, adding `--remove-worktree` when the user said yes. `WORKTREE_DIRTY` is reported with git's message; `/forge <workstream>` later moves back into the worktree, the router returns `done`, and the close runs again.
+To close, the Commander asks whether to remove the worktree. It leaves the worktree with `ExitWorktree` (keeping it on disk), then runs `resolve_state.py close --workstream <slug>`, adding `--remove-worktree` when the user said yes (and `--reason-file` when dropping). `WORKTREE_DIRTY` is reported with git's message; `/forge <workstream>` later moves back into the worktree, the router returns `done`, and the close runs again.
 
 ### Memory
 
@@ -212,7 +242,10 @@ The Commander writes `hub` and `shared` memory entries at the points the forge-m
 | Envelope left by a crashed session | Applied on resume before anything else | Route with no event, which re-dispatches the spoke | The spoke's work is done and its envelope on disk; re-dispatching repeats it. |
 | Pauses that wait on outside work | End the turn; the next message answers | Keep the session blocked in a question until the user is done | The user edits code or merges a branch outside the conversation; a blocked question invites answering before the work is done, and a "not yet" answer would otherwise be asked again at once. |
 | Kill switch location | Main worktree root or the workstream worktree root | The worktree root only | Users create the file where they work, usually the main checkout; one file there stops every workstream. |
-| Kill switch timing | Checked before every router call | Checked before each dispatch; checkpoint commits skip `.STOP_FORGE` | Stopping before any question means one rule covers every path, including the dirty-tree pause the file itself causes. |
+| Kill switch timing | Checked by the router first on every call | Checked by the Commander before each router call; checked before each dispatch | Stopping before any question means one rule covers every path, including the dirty-tree pause the file itself causes; in a script it needs no shell command the harness may refuse in a worktree session. |
+| Typed stop and resume | `forge_hub.py stop` and `unstop` manage the kill-switch file | The user creates and deletes the file by hand | The user does not need to know the path, and the scripts find the main worktree's root without a shell command the harness may refuse. |
+| Drop classification | `drop` only when the next word names an existing workstream, and always confirmed | Any `drop <slug> <words>`; no confirmation | A task description that begins with "drop" must not archive a workstream that happens to share a word with it. |
+| Mode switch result | The router returns `mode_set` and dispatches nothing | Continue as a no-event call | A switch made while a subagent runs would otherwise return that same dispatch, and the Commander would start it a second time. |
 | Brief's hub context line | Taken from the newest `hub` memory entry by the script | Written by the Commander each time | The brief stays fully mechanical, so it is the same in every session. |
 | Task description handoff | The Commander writes the description to a file and passes `new --task-file` | Keep only the derived slug; pass the text as `start` event notes | The slug loses every decision the user stated; event notes are gone after the first dispatch and on resume. |
 

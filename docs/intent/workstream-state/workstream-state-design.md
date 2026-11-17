@@ -27,7 +27,7 @@ $FORGE_HOME/
   archive/<org>/<repo>/<workstream>-<UTC timestamp>/
 ```
 
-`config.json` holds defaults copied into a new workstream's `config` section: `plan_mode` (`strict`), `collaborative` (`true`), `council_auto_resolve` (`false`), and `retention` (`archive` or `delete`, default `archive`). A missing file means all defaults.
+`config.json` holds defaults copied into a new workstream's `config` section: `mode` (one of `delivery`, `collab-plan`, `collab-qa`, `collab-dev`, `collab-code`, `collab`; default `collab`) and `retention` (`archive` or `delete`, default `archive`). A missing file means all defaults. The router design defines what each mode does.
 
 ## Identity Derivation
 
@@ -109,10 +109,11 @@ On success it returns `CREATED` with the identity and `worktree_path`.
 |---|---|---|
 | `schema_version` | Integer, currently `1` | `resolve_state.py` at creation |
 | `identity` | See *Identity record* and *Workstream Creation* | `resolve_state.py` at creation |
-| `config` | `repo_mode`, `plan_mode`, `collaborative`, `council_auto_resolve`, `retention`, and optional `test_patterns` (see the gates design) and `test_command` (the command spokes run tests with; see the spokes design) | `resolve_state.py` at creation |
+| `config` | `repo_mode`, `mode`, `retention`, and optional `test_patterns` (see the gates design) and `test_command` (the command spokes run tests with; see the spokes design) | `resolve_state.py` at creation; `next_step.py` changes `mode` when the user switches it |
 | `anchors` | `workstream_base_sha`, `plan_base_sha`, `last_known_head_sha`, `verifier_pass_sha`, `reviewer_pass_sha`, `stale_shas` | `next_step.py`, except `workstream_base_sha` (set by `resolve_state.py` at creation to `HEAD`, or `null` in a repository with no commits) and `stale_shas`, which `resolve_state.py` appends to |
 | `lifecycle` | Phase, flow, dispatch, pause, and repair bookkeeping; fields listed in the router design | `next_step.py` |
 | `scope_manifest`, `blockers`, `council_decisions`, `approvals` | Routing and gate data | `next_step.py` |
+| `dropped` | `{reason, at}`, present only on a workstream the user abandoned | `resolve_state.py close --reason-file` |
 
 Every write goes to a temporary file in the same directory followed by `os.replace`, so a reader never sees a partial file. A file whose `schema_version` is newer than the script supports, or that does not parse, returns `STATE_INVALID` and is never overwritten.
 
@@ -161,6 +162,8 @@ Uncommitted changes are reported separately as `dirty`: the paths from `git stat
 
 `close` ends a workstream. With `retention: archive` it moves the workstream directory to `archive/<org>/<repo>/<workstream>-<UTC timestamp>/`; with `delete` it removes it. It refuses when the caller does not hold the lock. With `--remove-worktree` it first runs `git worktree remove` on the workstream's worktree. Git refuses when the worktree has uncommitted changes; `close` then returns `WORKTREE_DIRTY` with git's message and changes nothing else, keeping the state directory and the lock, so the user can clean up and close again. The branch is never deleted. The Hub asks the user before passing `--remove-worktree`.
 
+A workstream the user abandons before it finishes is closed the same way with `--reason-file FILE`: after any worktree removal succeeds and before archiving, `close` writes `dropped: {reason, at}` (`reason` the file's text with surrounding whitespace removed, `at` a UTC ISO 8601 timestamp) into `state.json`, so the archive records why the work stopped. A drop always archives, whatever `retention` says, so the reason is kept. An unreadable file or an empty reason is a usage error and changes nothing. Without `--reason-file`, `close` writes no `dropped` field.
+
 ## Command Interface
 
 ```text
@@ -170,10 +173,10 @@ resolve_state.py new   (--issue REF | --name SLUG | --branch NAME | --pr REF) [-
                        --holder-pid PID --holder-session ID [--set KEY=VALUE ...]
 resolve_state.py list
 resolve_state.py release --workstream SLUG --holder-pid PID --holder-session ID
-resolve_state.py close   --workstream SLUG --holder-pid PID --holder-session ID [--remove-worktree]
+resolve_state.py close   --workstream SLUG --holder-pid PID --holder-session ID [--remove-worktree] [--reason-file FILE]
 ```
 
-After creating the worktree, `new` creates the workstream directory, `state.json` (phase `INIT`), the memory partitions, the lock, and `task.md` when `--task-file` is given; `--set` overrides `config` keys for this workstream; each `VALUE` is parsed as JSON (so `collaborative=false` stores a boolean and `test_patterns=["spec/**"]` a list), and a value that is not valid JSON is stored as a string (`plan_mode=auto`). `wake` never creates state: with no state it returns `NO_STATE`, and the Hub decides whether to start a workstream with `new`.
+After creating the worktree, `new` creates the workstream directory, `state.json` (phase `INIT`), the memory partitions, the lock, and `task.md` when `--task-file` is given; `--set` overrides `config` keys for this workstream; each `VALUE` is parsed as JSON (so `test_patterns=["spec/**"]` stores a list), and a value that is not valid JSON is stored as a string (`mode=delivery`). A `mode` that is not one of the six names, from `--set` or from `config.json`, is a usage error and nothing is created. `wake` never creates state: with no state it returns `NO_STATE`, and the Hub decides whether to start a workstream with `new`.
 
 Every command prints one JSON object to stdout and exits `0`, including for every status above. A non-zero exit means a usage error or that the working directory is not a git repository; the message goes to stderr.
 
@@ -197,6 +200,8 @@ Bare repositories and submodule-specific behavior are not supported; the script 
 | Last-update time in `list` | `state.json` modification time | An `updated_at` field | Every write already updates the mtime; a field would need every writer to maintain it. |
 | Repository mode detection | Done here, at creation | Left to the planner | It is a mechanical file check, and the router needs `repo_mode` before the planner runs. |
 | State root override | `FORGE_HOME` environment variable | Fixed `~/.forge` | Tests and the sandbox must run without touching the user's real state. |
+| Pacing setting | One `mode` name | `plan_mode`, `collaborative`, and `council_auto_resolve` as separate keys | One name is what the user picks and switches; the router derives each pause from it, so no combination can be stored that no mode describes. |
+| Abandoning a workstream | `close --reason-file` records `dropped` in the archived state | A separate `drop` command; deleting the state | Dropping is closing plus a reason; one command keeps the lock, worktree, and retention rules in one place. |
 | Task description | Copied to `task.md` beside `state.json` by `new --task-file` | A `state.json` field; carried only in the `start` event | A file is read like the scout's brief and survives resume and re-dispatch; a state field would mix free text into routing state, and an event is gone after the first dispatch. |
 
 ## Open Questions & Future Decisions

@@ -17,8 +17,8 @@ The **Hub** is the `/forge` skill (the Commander) running in the user's main Cla
 | Spoke | Role | Writes |
 |---|---|---|
 | `forge-planner` | Design and specs (LID stages 1–4, or a `PLAN.md` for non-LID repos) | `.lid/**`, `docs/**`, `PLAN.md` |
-| `forge-qa` | Tests (skeletons, full tests, contract repairs) | Test paths only |
-| `forge-dev` | Production code (stubs, full implementation) | Production paths only; never tests |
+| `forge-qa` | Tests (skeletons, full tests, contract repairs) | Test paths; spec markers, set by script |
+| `forge-dev` | Production code (stubs, full implementation) | Production paths; spec markers, set by script; never tests |
 | `forge-verifier` | Mechanical gate: trailers, boundaries, test run, arrow audit, scope delta | Nothing in the repo |
 | `forge-reviewer` | Qualitative review, internal or of an external PR | Nothing in the repo |
 | `forge-scout` | Read-only recon: GitHub issues, PR diffs and threads, CI logs | Its own cache in workstream state |
@@ -162,7 +162,7 @@ Each workstream runs in one named **mode** that decides where it stops for the u
 | `collab-code` | One approval of the finished plan | Two-pass flow, pausing after skeletons, stubs, and full tests |
 | `collab` | Stops after every LID stage | Two-pass flow, pausing after skeletons, stubs, and full tests |
 
-Every mode still stops for publishing, for changes to human-authored code, for uncommitted changes, for attempt limits, for council rulings that need the user, and on any error or the kill switch. New workstreams take the default mode from `~/.forge/config.json` (`collab` when unset), or the one named at start; the user switches mode at any time, and the new mode governs every step not yet started.
+Every mode still stops for publishing, for changes to human-authored code beyond what the approved plan covers (in `delivery`, choosing the mode approves the plan), for uncommitted changes, for attempt limits, for council rulings that need the user, and on any error or the kill switch. New workstreams take the default mode from `~/.forge/config.json` (`collab` when unset), or the one named at start; the user switches mode at any time, and the new mode governs every step not yet started.
 
 ### Installation
 

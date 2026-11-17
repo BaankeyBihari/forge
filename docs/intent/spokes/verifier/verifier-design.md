@@ -25,6 +25,8 @@ In `reference/scripts/`, Python standard library only. Prints one JSON object an
 
 **Merged specs.** A spec that is not a workstream spec, whose line a merge on that chain added or changed, and that is not marked `D` and has no test citation is listed in `merged_specs`. It is not a finding: it does not fail the workstream, but it shows the user that the merge brought in unimplemented intent they may want to take up, here or in a workstream of its own.
 
+**Unmarked specs.** A workstream spec not marked `D`, with no `DUPLICATE_ID` finding, whose line is `[ ]` while it has both a test citation and a code tag is listed in `unmarked_specs`. It is not a finding: the router names these specs in the publish question so the user sees intent the markers do not yet show, which happens when the last test or tag came from a commit that does not set markers (a human commit, or a planner repair).
+
 **Annotations.** An `@spec` annotation is the text `@spec` followed by one or more comma-separated tokens on the same line, each matching the spec ID syntax; text after `@spec` that does not match it (prose such as `@spec <ID>`) is not an annotation. One in a file of the test path class is a test citation; one in a file of the production class is a code tag (gates design, *Path Classes*).
 
 | Finding | When |
@@ -34,7 +36,7 @@ In `reference/scripts/`, Python standard library only. Prints one JSON object an
 | `UNTESTED` | A workstream spec not marked `D` has no test citation |
 | `UNTAGGED` | A workstream spec not marked `D` has no code tag |
 
-Output: `{"status": "OK", "workstream_specs": [IDs], "merged_specs": [IDs], "findings": [{kind, id, path?, line?, detail}]}`. Each finding names one ID; every finding is reported, and the verifier's mode decides which kinds fail it.
+Output: `{"status": "OK", "workstream_specs": [IDs], "merged_specs": [IDs], "unmarked_specs": [IDs], "findings": [{kind, id, path?, line?, detail}]}`. Each finding names one ID; every finding is reported, and the verifier's mode decides which kinds fail it.
 
 ## Modes
 
@@ -58,7 +60,7 @@ Output: `{"status": "OK", "workstream_specs": [IDs], "merged_specs": [IDs], "fin
 | Structural LID checks | `lid_check.py`, read-only | The verifier follows arrow-maintenance's audit checklist by hand; the planner runs arrow-maintenance's audit-and-update | *Scripts over prompts*: counting citations is mechanical. arrow-maintenance's pass writes `docs/arrows/`, which a read-only role cannot do and a user's repository may not want. |
 | Coverage scope | Specs added or changed in the workstream, for every finding kind | Every spec in the repository | A brownfield repository's existing gaps or duplicate IDs would fail every workstream on work it did not touch. |
 | Pre-existing test failures | Fail `VERIFY_FINAL`; the user narrows `config.test_command` | Run the suite at `workstream_base_sha` and ignore failures already there | One run, no extra worktree; a published branch with a red suite needs the user's explicit choice. |
-| Spec markers | Read only for `D`; Forge never flips `[ ]` to `[x]` | The planner flips markers after implementation | Flipping would need another planning dispatch after the code lands; tests and tags already show what is implemented. |
+| Spec markers | Read only for `D`; `forge_spoke.py commit` keeps `[ ]` and `[x]` in line with tests and tags (spoke protocol design), and `unmarked_specs` lists what no such commit caught | The planner flips markers after implementation; the verifier flips them | Flipping needs a write the verifier does not have, and a planning dispatch after the code lands costs a turn; the commits that change tests and tags already hold the evidence. |
 | Scope completeness | Judgment over script-provided facts | A pattern is complete once any human commit touches it; pure judgment | A partial human commit touches a pattern without finishing it; facts keep the judgment grounded in what git shows. |
 | Commit gate | Run by the router only, at `VERIFY_FINAL` | The verifier also runs it at `POST_QA` and `VERIFY_FINAL` | A gate error names a commit already in the branch, which no repair can clear; `forge_spoke.py commit` already prevents trailer and boundary errors when committing. |
 | Specs brought in by a merge | Not workstream specs; untested ones listed in `merged_specs`, never a finding | Count them as workstream specs; a pause asking the user whether each belongs to this workstream or another | Counting fails a workstream for intent it never took on. A pause would need a re-planning path for adopted specs; listing them, and naming them in the `publish_approval` question, lets the user decide without one. |

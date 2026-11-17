@@ -13,7 +13,7 @@ prefix: SPOKE-DEV
 
 | Mode | Phase | Does | Returns |
 |---|---|---|---|
-| `stub` | `DEV_STUB` (collaborative pass 1) | Modules, exported types, and function signatures the test skeletons name, with bodies that raise the language's not-implemented error | `STUBS_COMMITTED` |
+| `stub` | `DEV_STUB` (two-pass build, pass 1) | Modules, exported types, and function signatures the test skeletons name, with bodies that raise the language's not-implemented error | `STUBS_COMMITTED` |
 | `full` | `DEV_FULL` | Production code for everything in scope, run against the tests in scope | `IMPLEMENTATION_COMPLETE` |
 | `repair` | `REPAIR` | Changes production code as the delta or finding in `notes` says | `REPAIR_COMMITTED` |
 

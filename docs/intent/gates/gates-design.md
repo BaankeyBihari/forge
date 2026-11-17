@@ -40,6 +40,8 @@ The guard component classifies paths with the same function, so a write the guar
 
 No other agent may author a commit. Changing a path includes adding, modifying, and deleting it; a rename counts as a deletion of the old path and an addition of the new one, so both must be allowed.
 
+One narrow exception lets the commits that change the evidence keep spec markers in line with it: a `forge-qa` or `forge-dev` commit whose `Forge-Mode` is `full` or `repair` may also change a spec file (a plan path matching `docs/intent/**/*-specs.md`, `**` matching zero or more directories) when, pairing the `-U0` diff's removed and added lines in order within each hunk, every removed line is a spec line, its added counterpart differs only by its marker, and the marker goes from `[ ]` to `[x]` or from `[x]` to `[ ]`. Any other change to such a file is a boundary violation. `forge_spoke.py commit` makes these marker changes itself (spoke protocol design); no agent edits a spec file's markers by hand.
+
 ## Commit Checks
 
 `check-commits` examines the commits on the range's first-parent chain (`git rev-list --first-parent A..B`; a range given as a single revision `B` means every first-parent commit reachable from `B`, for a workstream begun in a repository with no commits) and ignores commits without a `Forge-Agent` trailer — those are human commits and are subject to no rules here. For each Forge commit:
@@ -59,7 +61,7 @@ A Forge commit that is a merge commit is reported as `FORGE_MERGE`: no agent tha
 
 ### Boundaries
 
-Each path the commit changes (`git diff --no-renames --name-only <commit>^ <commit>`) must be in the agent's write boundary. A violation is reported per path.
+Each path the commit changes (`git diff --no-renames --name-only <commit>^ <commit>`) must be in the agent's write boundary; a spec file is checked against the marker-only exception above by its content. A violation is reported per path.
 
 ### Human-authored lines
 
@@ -70,9 +72,9 @@ Human-authored lines fall into two groups by their origin commit:
 - **Baseline** — the origin commit is an ancestor of (or equal to) `anchors.workstream_base_sha`, the `HEAD` when the workstream was created. This is the code that existed before Forge started.
 - **Workstream** — any other human origin commit: commits the user made, or merged in, after the workstream began.
 
-Workstream lines are always protected. Baseline lines are protected except in a path that matches the planner's `scope_manifest.assigned` patterns, once the plan is approved (`anchors.plan_base_sha` is set): approving the plan approves changing the existing code it says to change.
+Workstream lines are always protected. Baseline lines are protected except in a path that matches the planner's `scope_manifest.assigned` patterns, once the plan is approved (`anchors.plan_base_sha` is set): approving the plan approves changing the existing code it says to change. In `delivery` mode the plan is approved without a pause; choosing that mode is the user's approval of the plan in advance, with the same effect.
 
-A Forge commit that is `anchors.plan_base_sha` or one of its ancestors is a planning commit the user approved with the plan, and is exempt from the human-authored line checks. A `forge-planner` commit after `plan_base_sha` is exempt too: it can change only plan paths, and the user approved it at the pause that caused it (the findings sign-off for a planner repair). Trailers and boundaries of every Forge commit are still checked.
+A Forge commit that is `anchors.plan_base_sha` or one of its ancestors is a planning commit the user approved with the plan, and is exempt from the human-authored line checks. A `forge-planner` commit after `plan_base_sha` is exempt too: it can change only plan paths, and the user approved it at the pause that caused it (the findings sign-off for a planner repair). Trailers and boundaries of every Forge commit are still checked. A marker change the exception allows is exempt as well: it changes no requirement text, and the boundary check verifies that it changed nothing else. The marker change does move the line's blame origin to that Forge commit, which matters to no later check because the line's text is unchanged.
 
 For each file the commit changes, the gate takes the commit's diff against its parent with no context (`-U0`) and collects the line ranges the commit removes or replaces on the parent side. It blames exactly those lines in the parent (`git blame --porcelain -L … <commit>^ -- <path>`). Each blamed line has an origin commit and an origin line number; the line is human-authored when its origin commit has no `Forge-Agent` trailer.
 
@@ -132,6 +134,7 @@ Each finding carries `kind` and `severity` (`error` unless the table says otherw
 
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
+| Who keeps spec markers current | QA and dev `full` and `repair` commits, with marker-only changes the gate checks line by line | A router commit with planner trailers before final verification; a planner close-out dispatch; the user | Markers belong with the commits that change the tests and tags behind them, as linked-intent development expects. The narrow rule keeps every other byte of a spec file out of those agents' reach, and the router stays a writer of state only. |
 | Human-line rule | Modifying or deleting a protected human line needs approval; insertions between protected lines are warnings | Any change to a file with human lines needs approval; insertions between human lines need approval | Agents must be able to add code beside human code; the rule protects what the human wrote, and the warning keeps insertions into human code visible at review without blocking. Detecting "inside a human function" from neighbouring lines is too approximate to block on. |
 | Pre-existing code | Covered by plan approval within the plan's assigned paths | Protected everywhere; never protected | Protecting all of a brownfield codebase would put an approval on nearly every dev step; never protecting it would let agents rewrite code the plan did not mention. |
 | Planning commits | Every `forge-planner` commit is exempt from the human-line checks; trailers and boundaries still checked | Human-line checks apply to planner commits; exempt only up to `plan_base_sha` | The planner revises existing design docs, which are human-authored; the user reviews those edits at plan approval, and planner repairs only follow a findings sign-off, so an approval per line would repeat that review. Trailers and boundaries cost nothing to check and catch a planner writing outside `docs/`. |

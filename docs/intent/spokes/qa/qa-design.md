@@ -13,7 +13,7 @@ prefix: SPOKE-QA
 
 | Mode | Phase | Does | Returns |
 |---|---|---|---|
-| `skeleton` | `QA_SKEL` (collaborative pass 1) | Test files with one placeholder per behavior to test — named, annotated with its `@spec` ID in a LID repository or naming its `PLAN.md` test item otherwise, marked skipped or to-do in the framework's own way, no assertions | `SKELETON_COMMITTED` |
+| `skeleton` | `QA_SKEL` (two-pass build, pass 1) | Test files with one placeholder per behavior to test — named, annotated with its `@spec` ID in a LID repository or naming its `PLAN.md` test item otherwise, marked skipped or to-do in the framework's own way, no assertions | `SKELETON_COMMITTED` |
 | `full` | `QA_FULL` | Executable tests for every behavior in scope; fills placeholders in place | `TESTS_COMMITTED` |
 | `repair` | `REPAIR` | Changes tests as the council ruling's delta or the review finding in `notes` says | `REPAIR_COMMITTED` |
 
