@@ -6,7 +6,7 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 
 - [x] **WS-STORE-001**: `resolve_state.py` shall keep all Forge state under the directory named by the `FORGE_HOME` environment variable, or under `~/.forge` when `FORGE_HOME` is unset.
 - [ ] **WS-STORE-002**: When creating a workstream, `resolve_state.py` shall copy `mode` and `retention` from `$FORGE_HOME/config.json` into the workstream's `config`, using `collab` and `archive` respectively for any key the file lacks or when the file does not exist.
-- [ ] **WS-STORE-003**: If `$FORGE_HOME/config.json` sets `mode` to a value other than `delivery`, `collab-plan`, `collab-qa`, `collab-dev`, `collab-code`, or `collab`, then `new` shall exit with a usage error and create nothing.
+- [ ] **WS-STORE-003**: If the `mode` a new workstream would get, from `$FORGE_HOME/config.json` or from `--set mode=` (which overrides the file), is not `delivery`, `collab-plan`, `collab-qa`, `collab-dev`, `collab-code`, or `collab`, then `new` shall exit with a usage error and create nothing.
 
 ## Identity
 
@@ -44,7 +44,6 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 - [x] **WS-NEW-018**: If `gh` fails to read the issue or pull request given to `new`, then `resolve_state.py` shall return `GH_FAILED` with `gh`'s message and create nothing.
 - [x] **WS-NEW-019**: When `new` succeeds, `resolve_state.py` shall create `state.json` with `schema_version` `1` and phase `INIT`, the memory partitions `hub`, `shared`, `planner`, `qa`, `dev`, `verifier`, `reviewer`, and `scout`, the `scout/`, `council/`, and `envelopes/` directories, and a lock held by the caller, and return `CREATED` with the identity and `worktree_path`.
 - [x] **WS-NEW-020**: When `new` is given `--set KEY=VALUE`, `resolve_state.py` shall parse `VALUE` as JSON, or take it as a string when it is not valid JSON, and store the result under `KEY` in the new workstream's `config`, overriding the copied default.
-- [ ] **WS-NEW-026**: If `new` is given `--set mode=VALUE` with `VALUE` other than `delivery`, `collab-plan`, `collab-qa`, `collab-dev`, `collab-code`, or `collab`, then `resolve_state.py` shall exit with a usage error and create nothing.
 - [x] **WS-NEW-021**: When `new` creates a workstream, `resolve_state.py` shall set `config.repo_mode` to `LID` if the new worktree contains `docs/high-level-design.md`, a `docs/intent/` directory, or an `AGENTS.md` or `CLAUDE.md` with a `## LID` heading line, and to `NAIVE` otherwise.
 - [x] **WS-NEW-022**: `resolve_state.py` shall resolve a relative `--worktree-root` against the main worktree's root directory.
 - [x] **WS-NEW-023**: If `new` is given `--branch` for a name that is not a local branch, then `resolve_state.py` shall exit with a usage error and create nothing.

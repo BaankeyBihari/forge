@@ -10,9 +10,9 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 - [x] **ROUTE-CLI-004**: When called with `--dry-run`, `next_step.py` shall return the decision it would make without writing `state.json`.
 - [x] **ROUTE-CLI-005**: `next_step.py` shall print exactly one JSON decision to stdout, exit `0` for every decision, and exit non-zero only for a usage error.
 - [x] **ROUTE-CLI-006**: `next_step.py` shall include `action`, `phase` (the phase after the decision), and a one-line `summary` in every decision.
-- [ ] **ROUTE-CLI-007**: `next_step.py` shall be the only writer of every `state.json` field except `identity`, `config` other than `config.mode`, `anchors.workstream_base_sha`, `anchors.stale_shas`, and `dropped`.
+- [ ] **ROUTE-CLI-007**: `next_step.py` shall be the only writer of every `state.json` field except `identity`, `config` (except `config.mode` after the workstream is created), `anchors.workstream_base_sha`, `anchors.stale_shas`, and `dropped`.
 - [ ] **ROUTE-CLI-008**: On every call, `next_step.py` shall check the kill switch, then run the wake, then apply the event if any, then handle drift, then check for a dirty tree, then dispatch, returning at the first step that yields a stop or a pause.
-- [ ] **ROUTE-KILL-001**: When `.STOP_FORGE` exists at the root of the main worktree or of the worktree `next_step.py` runs in, `next_step.py` shall return `stop` with status `KILL_SWITCH`, `phase` `null`, and a `detail` listing the absolute path of every such file, without running the wake, reading the event, or reading or writing any workstream file.
+- [ ] **ROUTE-KILL-001**: When `.STOP_FORGE` exists at the root of the main worktree or of the worktree `next_step.py` runs in, `next_step.py` shall return `stop` with status `KILL_SWITCH`, `phase` `null`, and a `detail` listing the absolute path of each such file once, without running the wake, reading the event, or reading or writing any workstream file.
 
 ## Modes
 
@@ -21,7 +21,9 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 - [ ] **ROUTE-MODE-003**: When applying a `mode` event while `lifecycle.awaiting` is a `plan_approval` raised by `STAGE_COMPLETE` and the new mode is neither `collab-plan` nor `collab`, `next_step.py` shall answer that pause with `approve`.
 - [ ] **ROUTE-MODE-004**: When applying a `mode` event while `lifecycle.awaiting` is a `plan_approval` raised by `READY_FOR_QA` and the new mode is `delivery`, `next_step.py` shall answer that pause with `approve`.
 - [ ] **ROUTE-MODE-005**: When applying a `mode` event while `lifecycle.awaiting` is an `edit_window` raised after `QA_SKEL` or `DEV_STUB` and the new mode is neither `collab-code` nor `collab`, raised after `POST_QA` and the new mode is not `collab-qa`, `collab-code`, or `collab`, or raised after `DEV_FULL` and the new mode is not `collab-dev`, `next_step.py` shall answer that pause with `continue`.
-- [ ] **ROUTE-MODE-006**: When `next_step.py` answers a pause per ROUTE-MODE-003, ROUTE-MODE-004, or ROUTE-MODE-005, it shall make the same state changes the user's answer would make and dispatch nothing on that call.
+- [ ] **ROUTE-MODE-006**: When `next_step.py` answers a pause per ROUTE-MODE-003, ROUTE-MODE-004, ROUTE-MODE-005, or ROUTE-MODE-009, it shall make the same state changes the user's answer would make and dispatch nothing on that call.
+- [ ] **ROUTE-MODE-009**: When applying a `mode` event of `delivery` while `lifecycle.awaiting` is a `council_signoff` for a blocker other than `CONCERNS` whose stored ruling has `requires_user` `false`, `next_step.py` shall apply the ruling as ROUTE-BLK-006 applies it in `delivery`, recording `approved_by: "auto"`.
+- [ ] **ROUTE-MODE-010**: If `config.mode` holds a value other than `delivery`, `collab-plan`, `collab-qa`, `collab-dev`, `collab-code`, or `collab`, then `next_step.py` shall return `stop` with `STATE_INVALID` naming the value and change no state.
 - [ ] **ROUTE-MODE-007**: While `config` has no `mode`, `next_step.py` shall route the workstream as mode `collab`.
 - [ ] **ROUTE-MODE-008**: When re-dispatching a planning phase while applying a `revise` answer, `next_step.py` shall give the dispatch the agent mode of the dispatch it replaces.
 

@@ -50,7 +50,7 @@ The words of `/forge`'s argument, joined by single spaces, are classified by the
 | One word that is a valid workstream slug but names no workstream | `unknown` | Ask whether to start a new workstream with that name or show the list |
 | Anything else | `describe` | Name a workstream from the text and start it with `new --name` |
 
-Output is `{"kind": ..., "ref"?: ..., "branch"?: ..., "workstream"?: ..., "text"?: ..., "mode"?: ..., "reason"?: ..., "detail"?: ...}`. For `drop`, `workstream` is the first word after `drop` and `reason` the rest, joined by single spaces. Text that starts with `mode` or `drop` but does not fit those rows ("drop support for Python 2") falls through to the later rules, so it starts a workstream like any description. The `unknown` kind keeps a mistyped workstream name from silently starting a new workstream.
+Output is `{"kind": ..., "ref"?: ..., "branch"?: ..., "workstream"?: ..., "text"?: ..., "mode"?: ..., "reason"?: ..., "detail"?: ...}`. For `drop`, `workstream` is the first word after `drop` and `reason` the rest, joined by single spaces. `mode` followed by one word that is not a mode name, and `stop` or `resume` followed by anything, are `invalid`: they are almost always typos, never task descriptions. Text that starts with `drop` but does not fit its row ("drop support for Python 2") falls through to the later rules, so it starts a workstream like any description. `--mode` counts only as the first word, and the task text passed on excludes it. The `unknown` kind keeps a mistyped workstream name from silently starting a new workstream.
 
 ## Starting a Workstream
 
