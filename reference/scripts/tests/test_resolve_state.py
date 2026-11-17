@@ -16,6 +16,7 @@ import socket
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -93,20 +94,67 @@ def test_default_root_is_home_dot_forge(repo, tmp_path, monkeypatch):
     assert (home / ".forge/state/local/project/feat-demo/state.json").is_file()
 
 
+MODES = ["delivery", "collab-plan", "collab-qa", "collab-dev", "collab-code", "collab"]
+
+
+def demo_config(forge_home):
+    return read_state(state_dir(forge_home, "local", "project", "feat-demo") / "state.json")["config"]
+
+
+def nothing_created(repo, forge_home, branch="feat/demo"):
+    assert not git(repo, "branch", "--list", branch)
+    assert not (repo / ".claude/worktrees").exists() or not any((repo / ".claude/worktrees").iterdir())
+    assert not (forge_home / "state").exists() or not any((forge_home / "state").rglob("state.json"))
+
+
 # @spec WS-STORE-002
 def test_config_defaults(workstream):
     config = read_state(workstream["state_path"])["config"]
-    assert (config["plan_mode"], config["collaborative"], config["council_auto_resolve"],
-            config["retention"]) == ("strict", True, False, "archive")
+    assert (config["mode"], config["retention"]) == ("collab", "archive")
+    assert not {"plan_mode", "collaborative", "council_auto_resolve"} & set(config)
 
 
 # @spec WS-STORE-002
-def test_config_from_global_file(repo, forge_home):
-    (forge_home / "config.json").write_text(json.dumps({"plan_mode": "auto", "retention": "delete"}))
-    new(repo, "--name", "demo")
-    config = read_state(state_dir(forge_home, "local", "project", "feat-demo") / "state.json")["config"]
-    assert (config["plan_mode"], config["collaborative"], config["council_auto_resolve"],
-            config["retention"]) == ("auto", True, False, "delete")
+@pytest.mark.parametrize("file, mode, retention", [
+    ({"mode": "delivery", "retention": "delete"}, "delivery", "delete"),
+    ({"retention": "delete"}, "collab", "delete"),
+    ({"mode": "collab-qa"}, "collab-qa", "archive"),
+])
+def test_config_from_global_file(repo, forge_home, file, mode, retention):
+    (forge_home / "config.json").write_text(json.dumps(file))
+    assert new(repo, "--name", "demo").json["status"] == "CREATED"
+    config = demo_config(forge_home)
+    assert (config["mode"], config["retention"]) == (mode, retention)
+
+
+# @spec WS-STORE-002, WS-STORE-003
+@pytest.mark.parametrize("mode", MODES)
+def test_every_mode_name_is_accepted(repo, forge_home, mode):
+    (forge_home / "config.json").write_text(json.dumps({"mode": mode}))
+    assert new(repo, "--name", "demo").json["status"] == "CREATED"
+    assert demo_config(forge_home)["mode"] == mode
+
+
+# @spec WS-STORE-003
+@pytest.mark.parametrize("file, sets", [
+    ({"mode": "bogus"}, []),
+    ({"mode": "Collab"}, []),
+    ({}, ["--set", "mode=bogus"]),
+    ({"mode": "delivery"}, ["--set", "mode=sequential"]),
+    ({}, ["--set", "mode=42"]),
+], ids=["file", "file-case", "set", "set-over-good-file", "set-json-number"])
+def test_bad_mode_is_usage_error(repo, forge_home, file, sets):
+    (forge_home / "config.json").write_text(json.dumps(file))
+    res = new(repo, "--name", "demo", *sets)
+    assert res.returncode == 2 and res.stderr
+    nothing_created(repo, forge_home)
+
+
+# @spec WS-STORE-003
+def test_set_mode_overrides_bad_file_mode(repo, forge_home):
+    (forge_home / "config.json").write_text(json.dumps({"mode": "bogus"}))
+    assert new(repo, "--name", "demo", "--set", "mode=delivery").json["status"] == "CREATED"
+    assert demo_config(forge_home)["mode"] == "delivery"
 
 
 # --------------------------------------------------------------------- identity
@@ -209,8 +257,7 @@ def read_state_template():
         "schema_version": 1,
         "identity": {"flow": "build", "base_branch": "trunk", "issue": None, "pr": None,
                      "parent_workstream": None},
-        "config": {"repo_mode": "NAIVE", "plan_mode": "strict", "collaborative": True,
-                   "council_auto_resolve": False, "retention": "archive"},
+        "config": {"repo_mode": "NAIVE", "mode": "collab", "retention": "archive"},
         "anchors": {"workstream_base_sha": None, "plan_base_sha": None, "last_known_head_sha": None,
                     "verifier_pass_sha": None, "reviewer_pass_sha": None, "stale_shas": []},
         "lifecycle": {"current_phase": "INIT"},
@@ -553,12 +600,12 @@ def test_new_initializes_everything(workstream):
 
 # @spec WS-NEW-020
 def test_set_overrides(repo, forge_home):
-    new(repo, "--name", "demo", "--set", "collaborative=false", "--set", 'test_patterns=["spec/**"]',
-        "--set", "plan_mode=auto")
+    new(repo, "--name", "demo", "--set", "retention=delete", "--set", 'test_patterns=["spec/**"]',
+        "--set", "mode=delivery")
     config = read_state(state_dir(forge_home, "local", "project", "feat-demo") / "state.json")["config"]
-    assert config["collaborative"] is False
+    assert config["retention"] == "delete"
     assert config["test_patterns"] == ["spec/**"]
-    assert config["plan_mode"] == "auto"
+    assert config["mode"] == "delivery"
 
 
 # @spec WS-NEW-021
@@ -918,6 +965,93 @@ def test_close_with_dirty_worktree_changes_nothing(workstream):
     assert res.json["detail"]
     assert workstream["worktree"].exists() and workstream["state_path"].is_file()
     assert lock_path(workstream).read_text() == lock_before
+
+
+def reason_file(tmp_path, text="  Superseded by the auth rewrite.\n\n"):
+    path = tmp_path / "reason.txt"
+    path.write_text(text)
+    return path
+
+
+def archived_state(forge_home):
+    [archived] = list((forge_home / "archive/local/project").iterdir())
+    assert archived.name.startswith("feat-demo-")
+    return read_state(archived / "state.json")
+
+
+# @spec WS-CLOSE-006
+def test_close_with_reason_records_dropped(workstream, forge_home, tmp_path):
+    before = datetime.now(timezone.utc).replace(microsecond=0)
+    res = close(workstream, "--reason-file", reason_file(tmp_path))
+    assert res.returncode == 0 and res.json["status"] == "CLOSED"
+    assert not workstream["state_path"].parent.exists()
+    dropped = archived_state(forge_home)["dropped"]
+    assert set(dropped) == {"reason", "at"}
+    assert dropped["reason"] == "Superseded by the auth rewrite."
+    at = datetime.fromisoformat(dropped["at"])
+    assert at.utcoffset() == timedelta(0)
+    assert before <= at <= datetime.now(timezone.utc)
+
+
+# @spec WS-CLOSE-006
+def test_drop_archives_even_with_retention_delete(repo, forge_home, tmp_path):
+    new(repo, "--name", "demo", "--set", "retention=delete")
+    res = rs(repo / ".claude/worktrees/feat-demo", "close", "--workstream", "feat-demo", *holder_args(),
+             "--reason-file", reason_file(tmp_path, "not needed"))
+    assert res.returncode == 0, res.stderr
+    assert res.json["status"] == "CLOSED"
+    assert not state_dir(forge_home, "local", "project", "feat-demo").exists()
+    assert archived_state(forge_home)["dropped"]["reason"] == "not needed"
+
+
+# @spec WS-CLOSE-006, WS-CLOSE-003
+def test_drop_with_worktree_removal(workstream, forge_home, tmp_path):
+    res = rs(workstream["repo"], "close", "--workstream", "feat-demo", *holder_args(), "--remove-worktree",
+             "--reason-file", reason_file(tmp_path))
+    assert res.returncode == 0, res.stderr
+    assert res.json["status"] == "CLOSED"
+    assert not workstream["worktree"].exists()
+    assert git(workstream["repo"], "branch", "--list", "feat/demo")
+    assert archived_state(forge_home)["dropped"]["reason"] == "Superseded by the auth rewrite."
+
+
+# @spec WS-CLOSE-006, WS-CLOSE-005
+def test_drop_with_dirty_worktree_writes_no_reason(workstream, tmp_path):
+    Path(workstream["worktree"], "README.md").write_text("dirty\n")
+    before = workstream["state_path"].read_bytes()
+    res = rs(workstream["repo"], "close", "--workstream", "feat-demo", *holder_args(), "--remove-worktree",
+             "--reason-file", reason_file(tmp_path))
+    assert res.returncode == 0 and res.json["status"] == "WORKTREE_DIRTY"
+    assert workstream["state_path"].read_bytes() == before
+
+
+# @spec WS-CLOSE-007
+@pytest.mark.parametrize("content", [None, "", "  \n\t\n"], ids=["missing", "empty", "blank"])
+def test_bad_reason_file_is_usage_error(workstream, forge_home, tmp_path, content):
+    bad = tmp_path / "bad-reason.txt"
+    if content is not None:
+        bad.write_text(content)
+    state_before = workstream["state_path"].read_bytes()
+    lock_before = lock_path(workstream).read_text()
+    res = rs(workstream["repo"], "close", "--workstream", "feat-demo", *holder_args(), "--remove-worktree",
+             "--reason-file", bad)
+    assert res.returncode == 2 and res.stderr
+    assert workstream["worktree"].exists()
+    assert workstream["state_path"].read_bytes() == state_before
+    assert lock_path(workstream).read_text() == lock_before
+    assert not (forge_home / "archive").exists()
+    # The refusal was about the file, not the option: a readable reason then closes.
+    res = close(workstream, "--reason-file", reason_file(tmp_path))
+    assert res.returncode == 0, res.stderr
+    assert res.json["status"] == "CLOSED"
+
+
+# @spec WS-CLOSE-008
+@pytest.mark.parametrize("extra", [[], ["--remove-worktree"]])
+def test_close_without_reason_writes_no_dropped(workstream, forge_home, extra):
+    assert rs(workstream["repo"], "close", "--workstream", "feat-demo", *holder_args(),
+              *extra).json["status"] == "CLOSED"
+    assert "dropped" not in archived_state(forge_home)
 
 
 # ------------------------------------------------------------ command interface

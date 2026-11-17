@@ -1,15 +1,16 @@
 """Tests for next_step.py (docs/intent/router/router-specs.md).
 
 Each test starts from a workstream created by resolve_state.py `new` (naive repo,
-config defaults: plan_mode strict, collaborative true) and drives the router through
-its CLI, editing state.json directly to place the workstream in a phase.
+config.mode collab by default) and drives the router through its CLI, editing
+state.json directly to place the workstream in a phase.
 
 ASSUMPTIONS about shapes the specs leave open:
 - events: {"type": "start"}, {"type": "result", "envelope": {...}},
-  {"type": "user", "awaiting", "decision", "option"?, "notes"?}
+  {"type": "user", "awaiting", "decision", "option"?, "notes"?}, {"type": "mode", "mode"}
 """
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -81,6 +82,9 @@ class Router:
         if notes is not None:
             event["notes"] = notes
         return self.run(event)
+
+    def mode(self, mode):
+        return self.run({"type": "mode", "mode": mode})
 
     # -- state
     def state(self):
@@ -222,6 +226,346 @@ def test_event_then_drift_then_dirty(r):
     assert state["anchors"]["last_known_head_sha"] == head(r.wt)  # drift handled
     assert pauses(decision, "dirty_tree")  # dirty check before dispatching VERIFY_FINAL
     assert decision["phase"] == "VERIFY_FINAL"
+
+
+# @spec ROUTE-CLI-001
+def test_wake_runs_before_mode_event(r):
+    r.sp.write_text("{broken")
+    assert stops(r.mode("delivery"), "STATE_INVALID")
+
+
+# @spec ROUTE-CLI-003
+def test_mode_event_from_file(r, tmp_path):
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"type": "mode", "mode": "delivery"}))
+    res = run_script("next_step.py", "--workstream", "feat-demo", *holder_args(), "--event", event, cwd=r.wt)
+    assert res.json["action"] == "mode_set", res.json
+    assert r.state()["config"]["mode"] == "delivery"
+
+
+# @spec ROUTE-CLI-007
+def test_router_writes_only_config_mode(r):
+    r.start()
+    before = r.state()
+    r.mode("collab-dev")
+    r.result("READY_FOR_QA", scope={"assigned": ["src/**"]})
+    r.user("approve")
+    after = r.state()
+    assert after["identity"] == before["identity"]
+    assert after["config"] == {**before["config"], "mode": "collab-dev"}
+    for anchor in ["workstream_base_sha", "stale_shas"]:
+        assert after["anchors"][anchor] == before["anchors"][anchor]
+    assert "dropped" not in after
+
+
+# ------------------------------------------------------------------- kill switch
+
+
+def stop_file(root):
+    """Create .STOP_FORGE at root; return its absolute path."""
+    path = Path(root, ".STOP_FORGE")
+    path.write_text("")
+    return os.path.realpath(path)
+
+
+def kill_detail(decision):
+    detail = decision["detail"]
+    return detail if isinstance(detail, str) else json.dumps(detail)
+
+
+# @spec ROUTE-KILL-001
+@pytest.mark.parametrize("where", ["main", "worktree", "both"])
+def test_kill_switch_stops(r, where):
+    r.start()
+    roots = {"main": [r.ws["repo"]], "worktree": [r.wt], "both": [r.ws["repo"], r.wt]}[where]
+    paths = [stop_file(root) for root in roots]
+    state_before, lock_before = r.sp.read_bytes(), (r.sd / "lock.json").read_bytes()
+    decision = r.run()
+    assert stops(decision, "KILL_SWITCH") and decision["phase"] is None
+    for path in paths:
+        assert kill_detail(decision).count(path) == 1, (path, decision)
+    assert r.sp.read_bytes() == state_before and (r.sd / "lock.json").read_bytes() == lock_before
+
+
+# @spec ROUTE-KILL-001
+def test_kill_switch_in_main_worktree_listed_once(r):
+    path = stop_file(r.ws["repo"])
+    res = run_script("next_step.py", "--workstream", "feat-demo", *holder_args(), cwd=r.ws["repo"])
+    assert res.returncode == 0, res.stderr
+    assert stops(res.json, "KILL_SWITCH") and kill_detail(res.json).count(path) == 1
+
+
+# @spec ROUTE-KILL-001, ROUTE-CLI-008, ROUTE-CLI-001
+def test_kill_switch_before_wake(r):
+    stop_file(r.wt)
+    r.sp.write_text("{broken")
+    assert stops(r.start(), "KILL_SWITCH")
+    assert r.sp.read_text() == "{broken"
+
+
+# @spec ROUTE-KILL-001, ROUTE-CLI-008
+def test_kill_switch_before_lock(r):
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        lock = r.sd / "lock.json"
+        data = json.loads(lock.read_text())
+        data.update(holder_pid=proc.pid, holder_session="other")
+        lock.write_text(json.dumps(data))
+        stop_file(r.ws["repo"])
+        before = lock.read_bytes()
+        assert stops(r.start(), "KILL_SWITCH")
+        assert lock.read_bytes() == before
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+# @spec ROUTE-KILL-001
+def test_kill_switch_does_not_read_event(r):
+    stop_file(r.wt)
+    args = ["--workstream", "feat-demo", *holder_args(), "--event", "-"]
+    res = run_script("next_step.py", *args, cwd=r.wt, stdin="{not json")
+    assert res.returncode == 0, res.stderr
+    assert stops(res.json, "KILL_SWITCH")
+
+
+# @spec ROUTE-KILL-001
+def test_kill_switch_stops_mode_event(r):
+    r.start()
+    stop_file(r.ws["repo"])
+    before = r.sp.read_bytes()
+    assert stops(r.mode("delivery"), "KILL_SWITCH")
+    assert r.sp.read_bytes() == before
+
+
+# ------------------------------------------------------------------------- modes
+
+
+MODES = ["delivery", "collab-plan", "collab-qa", "collab-dev", "collab-code", "collab"]
+
+
+def set_mode(r, **config):
+    state = r.state()
+    state["config"].update(config)
+    write_state(r.sp, state)
+
+
+def mode_set(decision, mode):
+    assert decision["action"] == "mode_set", decision
+    assert decision["mode"] == mode, decision
+    return True
+
+
+# @spec ROUTE-MODE-001, ROUTE-CLI-003
+@pytest.mark.parametrize("mode", MODES)
+def test_mode_event_sets_mode(r, mode):
+    before = r.state()
+    decision = r.mode(mode)
+    assert mode_set(decision, mode) and decision["phase"] == "INIT"
+    after = r.state()
+    assert after["config"]["mode"] == mode
+    assert after["lifecycle"] == before["lifecycle"]
+
+
+# @spec ROUTE-MODE-001
+def test_mode_event_same_mode_still_reports(r):
+    set_mode(r, mode="collab")
+    assert mode_set(r.mode("collab"), "collab")
+    assert r.state()["config"]["mode"] == "collab"
+
+
+# @spec ROUTE-MODE-001, ROUTE-CLI-008
+def test_mode_event_skips_drift_dirty_and_dispatch(r):
+    first = r.goto("DEV_FULL")
+    r.patch(anchors={"last_known_head_sha": head(r.wt)})
+    r.human_commit({"src/h.py": "h\n"})
+    Path(r.wt, "wip.txt").write_text("wip\n")
+    before = r.state()
+    decision = r.mode("delivery")
+    assert mode_set(decision, "delivery") and decision["phase"] == "DEV_FULL"
+    after = r.state()
+    assert after["lifecycle"]["dispatched"]["dispatch_id"] == first["invoke"]["dispatch_id"]
+    assert after["lifecycle"]["awaiting"] is None
+    assert after["lifecycle"].get("after_reconcile") == before["lifecycle"].get("after_reconcile")
+    assert after["anchors"] == before["anchors"]
+
+
+# @spec ROUTE-MODE-002
+@pytest.mark.parametrize("value", ["turbo", "Collab", "", None])
+def test_mode_event_unknown_mode(r, value):
+    r.start()
+    unchanged_stop(r, lambda: r.mode(value), "EVENT_INVALID")
+
+
+# @spec ROUTE-MODE-002
+def test_mode_event_at_done(r):
+    r.patch(lifecycle={"current_phase": "DONE"})
+    unchanged_stop(r, lambda: r.mode("delivery"), "EVENT_INVALID")
+
+
+# @spec ROUTE-MODE-010
+@pytest.mark.parametrize("event", [None, {"type": "start"}, {"type": "mode", "mode": "collab"}],
+                         ids=["no-event", "start", "mode"])
+def test_stored_mode_not_a_mode_stops(r, event):
+    set_mode(r, mode="turbo")
+    before = r.sp.read_bytes()
+    decision = r.run(event)
+    assert stops(decision, "STATE_INVALID") and "turbo" in decision["detail"]
+    assert r.sp.read_bytes() == before
+
+
+# @spec ROUTE-MODE-007
+def test_no_mode_routes_as_collab(r):
+    state = r.state()
+    state["config"].pop("mode", None)
+    # Keys of an older config are not modes; only a missing mode decides the routing.
+    state["config"].update(repo_mode="LID", plan_mode="auto", collaborative=False, council_auto_resolve=True)
+    write_state(r.sp, state)
+    assert dispatches(r.start(), "forge-planner", "strict")
+    assert pauses(r.result("STAGE_COMPLETE"), "plan_approval")
+    r.patch(scope_manifest={"assigned": ["src/**"], "completed": [], "remaining": ["src/**"]})
+    r.goto("POST_PLAN")
+    assert dispatches(r.result("PASS"), "forge-verifier", "PRE_QA")
+    assert r.state()["lifecycle"]["two_pass"] is True
+
+
+def stage_approval(r):
+    """LID workstream in collab paused on plan_approval after PLAN_S1's STAGE_COMPLETE."""
+    set_mode(r, repo_mode="LID", mode="collab")
+    r.start()
+    assert pauses(r.result("STAGE_COMPLETE"), "plan_approval")
+
+
+# @spec ROUTE-MODE-003, ROUTE-MODE-006
+@pytest.mark.parametrize("mode", ["delivery", "collab-qa", "collab-dev", "collab-code"])
+def test_mode_switch_approves_stage_pause(r, mode):
+    stage_approval(r)
+    assert mode_set(r.mode(mode), mode)
+    lc = r.state()["lifecycle"]
+    assert lc["awaiting"] is None and lc["dispatched"] is None
+    decision = r.run()
+    assert dispatches(decision, "forge-planner", "auto") and decision["phase"] == "PLAN_S2"
+
+
+# @spec ROUTE-MODE-003
+@pytest.mark.parametrize("mode", ["collab-plan", "collab"])
+def test_mode_switch_keeps_stage_pause(r, mode):
+    stage_approval(r)
+    assert mode_set(r.mode(mode), mode)
+    assert pauses(r.run(), "plan_approval")
+
+
+def plan_approval(r):
+    """Naive workstream paused on plan_approval of the finished plan."""
+    r.start()
+    assert pauses(r.result("READY_FOR_QA", scope={"assigned": ["src/**"]}), "plan_approval")
+
+
+# @spec ROUTE-MODE-004, ROUTE-MODE-006
+def test_mode_switch_to_delivery_approves_plan(r):
+    plan_approval(r)
+    assert mode_set(r.mode("delivery"), "delivery")
+    state = r.state()
+    assert state["lifecycle"]["awaiting"] is None and state["lifecycle"]["dispatched"] is None
+    assert state["anchors"]["plan_base_sha"] == head(r.wt)
+    assert state["scope_manifest"] == {"assigned": ["src/**"], "completed": [], "remaining": ["src/**"]}
+    assert dispatches(r.run(), "forge-verifier", "POST_PLAN")
+
+
+# @spec ROUTE-MODE-004
+@pytest.mark.parametrize("mode", ["collab-plan", "collab-qa", "collab-dev", "collab-code"])
+def test_mode_switch_keeps_plan_pause(r, mode):
+    plan_approval(r)
+    assert mode_set(r.mode(mode), mode)
+    assert pauses(r.run(), "plan_approval")
+
+
+def edit_window(r, raised_after, two_pass):
+    """Pause edit_window after raised_after, in the mode that has that window."""
+    set_mode(r, mode="collab-dev" if raised_after == "DEV_FULL" else "collab")
+    r.patch(lifecycle={"two_pass": two_pass})
+    r.goto(raised_after, **({"pass": 1} if raised_after in ("QA_SKEL", "DEV_STUB") else {}))
+    status = {"QA_SKEL": "SKELETON_COMMITTED", "DEV_STUB": "STUBS_COMMITTED", "POST_QA": "PASS",
+              "DEV_FULL": "IMPLEMENTATION_COMPLETE"}[raised_after]
+    if raised_after != "POST_QA":
+        r.spoke_commit({f"src/{raised_after.lower()}.py": "x\n"})
+    assert pauses(r.result(status), "edit_window")
+
+
+# @spec ROUTE-MODE-005, ROUTE-MODE-006
+@pytest.mark.parametrize("raised_after, two_pass, mode, agent, phase", [
+    ("QA_SKEL", True, "delivery", "forge-verifier", "PRE_DEV"),
+    ("QA_SKEL", True, "collab-qa", "forge-verifier", "PRE_DEV"),
+    ("DEV_STUB", True, "collab-dev", "forge-verifier", "PRE_QA"),
+    ("POST_QA", True, "collab-plan", "forge-verifier", "PRE_DEV"),
+    ("POST_QA", False, "collab-dev", "forge-dev", "DEV_FULL"),
+    ("DEV_FULL", False, "collab", "forge-verifier", "VERIFY_FINAL"),
+    ("DEV_FULL", False, "delivery", "forge-verifier", "VERIFY_FINAL"),
+])
+def test_mode_switch_continues_edit_window(r, raised_after, two_pass, mode, agent, phase):
+    edit_window(r, raised_after, two_pass)
+    assert mode_set(r.mode(mode), mode)
+    lc = r.state()["lifecycle"]
+    assert lc["awaiting"] is None and lc["dispatched"] is None
+    if raised_after == "DEV_STUB":
+        assert lc["pass"] == 2
+    decision = r.run()
+    assert dispatches(decision, agent) and decision["phase"] == phase
+
+
+# @spec ROUTE-MODE-005
+@pytest.mark.parametrize("raised_after, mode", [
+    ("QA_SKEL", "collab-code"), ("DEV_STUB", "collab-code"), ("POST_QA", "collab-qa"),
+    ("POST_QA", "collab-code"), ("DEV_FULL", "collab-dev"),
+])
+def test_mode_switch_keeps_edit_window(r, raised_after, mode):
+    edit_window(r, raised_after, True)
+    assert mode_set(r.mode(mode), mode)
+    assert pauses(r.run(), "edit_window")
+
+
+def council_signoff(r, kind="TESTS_FAILED", phase="VERIFY_FINAL", requires_user=False):
+    set_mode(r, mode="collab")
+    raise_blocker(r, kind, phase)
+    assert pauses(r.result("COUNCIL_RULING", ruling=ruling(["forge-dev"], requires_user)), "council_signoff")
+
+
+# @spec ROUTE-MODE-009, ROUTE-MODE-006
+def test_mode_switch_to_delivery_applies_ruling(r):
+    council_signoff(r)
+    blocker_id = r.state()["blockers"][0]["id"]
+    assert mode_set(r.mode("delivery"), "delivery")
+    state = r.state()
+    [entry] = state["council_decisions"]
+    assert (entry["blocker_id"], entry["option"], entry["approved_by"]) == (blocker_id, "A", "auto")
+    assert state["lifecycle"]["awaiting"] is None and state["lifecycle"]["dispatched"] is None
+    assert [i["agent"] for i in state["lifecycle"]["repair_queue"]] == ["forge-dev"]
+    assert dispatches(r.run(), "forge-dev", "repair")
+
+
+# @spec ROUTE-MODE-009
+@pytest.mark.parametrize("kind, phase, requires_user, mode", [
+    ("TESTS_FAILED", "VERIFY_FINAL", True, "delivery"),
+    ("CONCERNS", "PLAN", False, "delivery"),
+    ("TESTS_FAILED", "VERIFY_FINAL", False, "collab-qa"),
+])
+def test_mode_switch_keeps_council_signoff(r, kind, phase, requires_user, mode):
+    council_signoff(r, kind, phase, requires_user)
+    assert mode_set(r.mode(mode), mode)
+    assert r.state()["council_decisions"] == []
+    assert pauses(r.run(), "council_signoff")
+
+
+# @spec ROUTE-MODE-008
+@pytest.mark.parametrize("first, switched, planner_mode", [("collab", "collab-qa", "strict"),
+                                                           ("collab-qa", "collab", "auto")])
+def test_revise_keeps_replaced_planner_mode(r, first, switched, planner_mode):
+    set_mode(r, repo_mode="LID", mode=first)
+    r.goto("PLAN_S4")
+    assert pauses(r.result("READY_FOR_QA", scope={"assigned": ["src/**"]}), "plan_approval")
+    assert mode_set(r.mode(switched), switched)
+    decision = r.user("revise", notes="split the parser")
+    assert dispatches(decision, "forge-planner", planner_mode) and decision["phase"] == "PLAN_S4"
 
 
 # ------------------------------------------------------------------ re-derivation
@@ -506,8 +850,11 @@ def test_status_excluded_by_agent_or_mode(r, case, status):
         set_mode(r, repo_mode="LID")
         r.goto(case.split("-")[1])
     elif case == "auto-PLAN_S1":
-        set_mode(r, repo_mode="LID", plan_mode="auto")
+        set_mode(r, repo_mode="LID")
         r.goto("PLAN_S1")
+        state = r.state()  # statuses are checked against the dispatch's recorded agent mode
+        state["lifecycle"]["dispatched"]["mode"] = "auto"
+        write_state(r.sp, state)
     elif case == "draft":
         at_report(r)
     elif case == "send":
@@ -649,12 +996,6 @@ def test_report_input_set_from_envelope(r, status):
 # --------------------------------------------------------------------- build flow
 
 
-def set_mode(r, **config):
-    state = r.state()
-    state["config"].update(config)
-    write_state(r.sp, state)
-
-
 # @spec ROUTE-BUILD-001
 def test_start_with_issue_goes_to_recon(r):
     r.patch(identity={"issue": "https://github.com/acme/widgets/issues/1"})
@@ -663,13 +1004,13 @@ def test_start_with_issue_goes_to_recon(r):
 
 
 # @spec ROUTE-BUILD-001, ROUTE-BUILD-003
-@pytest.mark.parametrize("repo_mode, plan_mode, phase, mode",
-                         [("LID", "strict", "PLAN_S1", "strict"), ("LID", "auto", "PLAN_S1", "auto"),
-                          ("NAIVE", "strict", "PLAN", "naive"), ("NAIVE", "auto", "PLAN", "naive")])
-def test_start_without_issue(r, repo_mode, plan_mode, phase, mode):
-    set_mode(r, repo_mode=repo_mode, plan_mode=plan_mode)
+@pytest.mark.parametrize("repo_mode, mode, phase, planner_mode",
+                         [("LID", m, "PLAN_S1", "strict" if m in ("collab-plan", "collab") else "auto") for m in MODES]
+                         + [("NAIVE", "collab", "PLAN", "naive"), ("NAIVE", "delivery", "PLAN", "naive")])
+def test_start_without_issue(r, repo_mode, mode, phase, planner_mode):
+    set_mode(r, repo_mode=repo_mode, mode=mode)
     decision = r.start()
-    assert dispatches(decision, "forge-planner", mode) and decision["phase"] == phase
+    assert dispatches(decision, "forge-planner", planner_mode) and decision["phase"] == phase
 
 
 # @spec ROUTE-BUILD-002
@@ -689,6 +1030,46 @@ def test_strict_stage_complete(r):
     decision = r.user("approve")
     assert dispatches(decision, "forge-planner", "strict") and decision["phase"] == "PLAN_S2"
     assert decision["invoke"]["stage"] == "LID-S2"
+
+
+# @spec ROUTE-BUILD-004
+@pytest.mark.parametrize("mode", ["delivery", "collab-qa", "collab-dev", "collab-code"])
+def test_stage_complete_without_stage_approval(r, mode):
+    set_mode(r, repo_mode="LID", mode="collab")
+    r.start()  # a strict dispatch, then the mode changes while it runs
+    set_mode(r, mode=mode)
+    decision = r.result("STAGE_COMPLETE")
+    assert dispatches(decision, "forge-planner", "auto") and decision["phase"] == "PLAN_S2"
+
+
+# @spec ROUTE-BUILD-004
+def test_stage_complete_collab_plan_pauses(r):
+    set_mode(r, repo_mode="LID", mode="collab-plan")
+    r.start()
+    assert pauses(r.result("STAGE_COMPLETE"), "plan_approval")
+    assert dispatches(r.user("approve"), "forge-planner", "strict")
+
+
+# @spec ROUTE-BUILD-005
+@pytest.mark.parametrize("mode", ["collab-plan", "collab-qa", "collab-dev", "collab-code", "collab"])
+def test_ready_for_qa_pauses_unless_delivery(r, mode):
+    set_mode(r, mode=mode)
+    r.start()
+    assert pauses(r.result("READY_FOR_QA", scope={"assigned": ["src/**"]}), "plan_approval")
+    assert dispatches(r.user("approve"), "forge-verifier", "POST_PLAN")
+
+
+# @spec ROUTE-BUILD-041
+@pytest.mark.parametrize("assigned", [["src/**", "lib/**"], []])
+def test_ready_for_qa_in_delivery(r, assigned):
+    set_mode(r, mode="delivery")
+    r.patch(scope_manifest={"assigned": [], "completed": ["old/**"], "remaining": ["old/**"]})
+    r.start()
+    decision = r.result("READY_FOR_QA", scope={"assigned": assigned})
+    assert dispatches(decision, "forge-verifier", "POST_PLAN")
+    state = r.state()
+    assert state["anchors"]["plan_base_sha"] == head(r.wt)
+    assert state["scope_manifest"] == {"assigned": assigned, "completed": [], "remaining": assigned}
 
 
 # @spec ROUTE-BUILD-005
@@ -723,22 +1104,36 @@ def test_plan_revise(r):
 
 
 # @spec ROUTE-BUILD-007
-@pytest.mark.parametrize("collaborative, phase, agent", [(True, "PRE_QA", "forge-verifier"),
-                                                         (False, "QA_FULL", "forge-qa")])
-def test_post_plan_pass(r, collaborative, phase, agent):
-    set_mode(r, collaborative=collaborative)
+@pytest.mark.parametrize("mode", MODES)
+def test_post_plan_pass(r, mode):
+    two_pass = mode in ("collab-code", "collab")
+    set_mode(r, mode=mode)
     r.patch(scope_manifest={"assigned": ["src/**"], "completed": [], "remaining": ["src/**"]})
     r.goto("POST_PLAN")
     decision = r.result("PASS")
-    assert dispatches(decision, agent) and decision["phase"] == phase
-    if collaborative:
-        assert r.state()["lifecycle"]["pass"] == 1
+    lc = r.state()["lifecycle"]
+    assert lc["two_pass"] is two_pass
+    if two_pass:
+        assert dispatches(decision, "forge-verifier", "PRE_QA") and lc["pass"] == 1
+    else:
+        assert dispatches(decision, "forge-qa", "full") and decision["phase"] == "QA_FULL"
+
+
+# @spec ROUTE-BUILD-007
+@pytest.mark.parametrize("mode, two_pass", [("collab", False), ("delivery", True)])
+def test_post_plan_pass_keeps_build_flow(r, mode, two_pass):
+    set_mode(r, mode=mode)
+    r.patch(scope_manifest={"assigned": ["src/**"], "completed": [], "remaining": ["src/**"]})
+    r.goto("POST_PLAN", two_pass=two_pass)
+    decision = r.result("PASS")
+    assert r.state()["lifecycle"]["two_pass"] is two_pass
+    assert decision["phase"] == ("PRE_QA" if two_pass else "QA_FULL")
 
 
 # @spec ROUTE-BUILD-035
-@pytest.mark.parametrize("collaborative", [True, False])
-def test_post_plan_pass_with_empty_scope_goes_to_verify_final(r, collaborative):
-    set_mode(r, collaborative=collaborative)
+@pytest.mark.parametrize("mode", ["collab", "delivery"])
+def test_post_plan_pass_with_empty_scope_goes_to_verify_final(r, mode):
+    set_mode(r, mode=mode)
     r.goto("POST_PLAN")
     assert dispatches(r.result("PASS"), "forge-verifier", "VERIFY_FINAL")
 
@@ -771,6 +1166,19 @@ def test_qa_skeleton_edit_window(r):
     assert r.user("continue")["phase"] == "PRE_DEV"
 
 
+# @spec ROUTE-BUILD-011
+@pytest.mark.parametrize("mode, paused", [(m, m in ("collab-code", "collab")) for m in MODES])
+def test_qa_skeleton_edit_window_by_mode(r, mode, paused):
+    set_mode(r, mode=mode)
+    r.goto("QA_SKEL", **{"pass": 1})
+    r.spoke_commit({"tests/test_a.py": "def test_a(): ...\n"})
+    decision = r.result("SKELETON_COMMITTED")
+    if paused:
+        assert pauses(decision, "edit_window")
+    else:
+        assert dispatches(decision, "forge-verifier", "PRE_DEV")
+
+
 # @spec ROUTE-BUILD-012, ROUTE-BUILD-013
 @pytest.mark.parametrize("pass_no, status, phase, new_pass", [(1, "PARTIAL_REMAINING", "DEV_STUB", 1),
                                                               (2, "PARTIAL_REMAINING", "DEV_FULL", 2),
@@ -791,6 +1199,19 @@ def test_dev_stubs_edit_window(r):
     assert decision["phase"] == "PRE_QA" and r.state()["lifecycle"]["pass"] == 2
 
 
+# @spec ROUTE-BUILD-014
+@pytest.mark.parametrize("mode, paused", [(m, m in ("collab-code", "collab")) for m in MODES])
+def test_dev_stubs_edit_window_by_mode(r, mode, paused):
+    set_mode(r, mode=mode)
+    r.goto("DEV_STUB", **{"pass": 1})
+    r.spoke_commit({"src/a.py": "def a(): raise NotImplementedError\n"})
+    decision = r.result("STUBS_COMMITTED")
+    if paused:
+        assert pauses(decision, "edit_window") and r.state()["lifecycle"]["pass"] == 1
+    else:
+        assert dispatches(decision, "forge-verifier", "PRE_QA") and r.state()["lifecycle"]["pass"] == 2
+
+
 # @spec ROUTE-BUILD-015
 def test_qa_full_to_post_qa(r):
     r.goto("QA_FULL")
@@ -799,24 +1220,42 @@ def test_qa_full_to_post_qa(r):
 
 
 # @spec ROUTE-BUILD-016
-def test_post_qa_collaborative_pauses(r):
-    r.goto("POST_QA")
+@pytest.mark.parametrize("mode", ["collab-qa", "collab-code", "collab"])
+@pytest.mark.parametrize("two_pass, phase", [(True, "PRE_DEV"), (False, "DEV_FULL")])
+def test_post_qa_edit_window(r, mode, two_pass, phase):
+    set_mode(r, mode=mode)
+    r.goto("POST_QA", two_pass=two_pass)
     assert pauses(r.result("PASS"), "edit_window")
-    assert r.user("continue")["phase"] == "PRE_DEV"
+    assert r.user("continue")["phase"] == phase
 
 
 # @spec ROUTE-BUILD-032
-def test_post_qa_sequential_goes_to_dev(r):
-    set_mode(r, collaborative=False)
-    r.goto("POST_QA")
-    assert dispatches(r.result("PASS"), "forge-dev", "full")
+@pytest.mark.parametrize("mode", ["delivery", "collab-plan", "collab-dev"])
+@pytest.mark.parametrize("two_pass, agent, phase", [(True, "forge-verifier", "PRE_DEV"),
+                                                    (False, "forge-dev", "DEV_FULL")])
+def test_post_qa_without_edit_window(r, mode, two_pass, agent, phase):
+    set_mode(r, mode=mode)
+    r.goto("POST_QA", two_pass=two_pass)
+    decision = r.result("PASS")
+    assert dispatches(decision, agent) and decision["phase"] == phase
 
 
 # @spec ROUTE-BUILD-017
-def test_dev_full_to_verify_final(r):
+@pytest.mark.parametrize("mode", [m for m in MODES if m != "collab-dev"])
+def test_dev_full_to_verify_final(r, mode):
+    set_mode(r, mode=mode)
     r.goto("DEV_FULL")
     r.spoke_commit({"src/a.py": "a\n"})
     assert dispatches(r.result("IMPLEMENTATION_COMPLETE"), "forge-verifier", "VERIFY_FINAL")
+
+
+# @spec ROUTE-BUILD-017
+def test_dev_full_edit_window_in_collab_dev(r):
+    set_mode(r, mode="collab-dev")
+    r.goto("DEV_FULL")
+    r.spoke_commit({"src/a.py": "a\n"})
+    assert pauses(r.result("IMPLEMENTATION_COMPLETE"), "edit_window")
+    assert dispatches(r.user("continue"), "forge-verifier", "VERIFY_FINAL")
 
 
 # @spec ROUTE-BUILD-018, ROUTE-BUILD-019
@@ -928,17 +1367,62 @@ def test_publish_approval_names_merged_specs(r):
     assert "B-001" in decision["question"] and "B-002" in decision["question"]
 
 
+def commit_unmarked_spec(r):
+    """A workstream spec still `[ ]` that a test cites and code tags: lid_check lists it in unmarked_specs."""
+    r.human_commit({"docs/intent/a/a-specs.md": "# Specs\n\n- [ ] **A-001**: tested and tagged.\n",
+                    "tests/test_a.py": "# @spec A-001\ndef test_a(): pass\n",
+                    "src/a.py": "# @spec A-001\ndef a(): pass\n"})
+
+
+def publish_payload(r):
+    return r.state()["lifecycle"]["awaiting"].get("payload") or {}
+
+
 # @spec ROUTE-BUILD-040
-@pytest.mark.parametrize("repo_mode, main_specs", [
-    ("naive", ["- [ ] **B-001**: from main."]),
-    ("LID", None),
-], ids=["naive-repo", "nothing-merged"])
-def test_publish_approval_unchanged_without_merged_specs(r, repo_mode, main_specs):
+@pytest.mark.parametrize("repo_mode, main_specs, unmarked", [
+    ("naive", ["- [ ] **B-001**: from main."], False),
+    ("naive", None, True),
+    ("LID", None, False),
+], ids=["naive-repo", "naive-unmarked", "nothing-listed"])
+def test_publish_approval_unchanged_without_listed_specs(r, repo_mode, main_specs, unmarked):
     set_mode(r, repo_mode=repo_mode)
+    if unmarked:
+        commit_unmarked_spec(r)
     decision = review_after_merge_from_main(r, main_specs)
     assert pauses(decision, "publish_approval")
     assert decision["question"] == DEFAULT_PUBLISH_QUESTION
-    assert "merged_specs" not in (r.state()["lifecycle"]["awaiting"].get("payload") or {})
+    assert not {"merged_specs", "unmarked_specs"} & set(publish_payload(r))
+
+
+# @spec ROUTE-BUILD-040
+def test_publish_approval_merged_only_has_no_unmarked_line(r):
+    set_mode(r, repo_mode="LID")
+    decision = review_after_merge_from_main(r, ["- [ ] **B-001**: from main."])
+    assert "unmarked_specs" not in publish_payload(r)
+    lines = decision["question"].splitlines()
+    assert lines[0] == DEFAULT_PUBLISH_QUESTION and all("B-001" in line for line in lines[1:])
+
+
+# @spec ROUTE-BUILD-042, ROUTE-BUILD-040
+def test_publish_approval_names_unmarked_specs(r):
+    set_mode(r, repo_mode="LID")
+    commit_unmarked_spec(r)
+    decision = review_after_merge_from_main(r, None)
+    assert pauses(decision, "publish_approval")
+    payload = publish_payload(r)
+    assert payload.get("unmarked_specs") == ["A-001"] and "merged_specs" not in payload
+    lines = decision["question"].splitlines()
+    assert lines[0] == DEFAULT_PUBLISH_QUESTION and len(lines) > 1 and all("A-001" in line for line in lines[1:])
+
+
+# @spec ROUTE-BUILD-042, ROUTE-BUILD-039
+def test_publish_approval_names_merged_and_unmarked_specs(r):
+    set_mode(r, repo_mode="LID")
+    commit_unmarked_spec(r)
+    decision = review_after_merge_from_main(r, ["- [ ] **B-001**: from main."])
+    payload = publish_payload(r)
+    assert (payload.get("merged_specs"), payload.get("unmarked_specs")) == (["B-001"], ["A-001"])
+    assert "A-001" in decision["question"] and "B-001" in decision["question"]
 
 
 def at_publish_approval(r):
@@ -1220,18 +1704,25 @@ def ruling(route_to=(), requires_user=False, panel=("debugger", "senior-dev"), a
             "options": options, "recommended": "A", "route_to": list(route_to), "delta": DELTA_A}
 
 
+def approve_ruling(r, shown):
+    """Return the ruling, then approve its recommended option A at council_signoff (paused in mode collab)."""
+    assert pauses(r.result("COUNCIL_RULING", ruling=shown), "council_signoff")
+    return r.user("approve", option="A")
+
+
 # @spec ROUTE-BLK-005
 def test_concerns_ruling_always_needs_signoff(r):
-    set_mode(r, council_auto_resolve=True)
+    set_mode(r, mode="delivery")
     raise_blocker(r, "CONCERNS", "PLAN")
     assert pauses(r.result("COUNCIL_RULING", ruling=ruling()), "council_signoff")
 
 
 # @spec ROUTE-BLK-006
-@pytest.mark.parametrize("auto, requires_user, paused", [(True, False, False), (True, True, True),
-                                                         (False, False, True)])
-def test_auto_resolve(r, auto, requires_user, paused):
-    set_mode(r, council_auto_resolve=auto)
+@pytest.mark.parametrize("mode, requires_user, paused",
+                         [("delivery", False, False), ("delivery", True, True)]
+                         + [(m, False, True) for m in MODES if m != "delivery"])
+def test_auto_resolve(r, mode, requires_user, paused):
+    set_mode(r, mode=mode)
     raise_blocker(r, "TESTS_FAILED", "VERIFY_FINAL")
     decision = r.result("COUNCIL_RULING", ruling=ruling(["forge-dev"], requires_user))
     if paused:
@@ -1242,7 +1733,7 @@ def test_auto_resolve(r, auto, requires_user, paused):
 
 # @spec ROUTE-BLK-006
 def test_auto_resolve_records_decision(r):
-    set_mode(r, council_auto_resolve=True)
+    set_mode(r, mode="delivery")
     raise_blocker(r, "TESTS_FAILED", "VERIFY_FINAL")
     blocker_id = r.state()["blockers"][0]["id"]
     r.result("COUNCIL_RULING", ruling=ruling(["forge-dev"]))
@@ -1308,9 +1799,8 @@ def test_concerns_ruling_removes_blocker(r):
 # @spec ROUTE-BLK-010
 @pytest.mark.parametrize("kind", ["TEST_CHANGE_REQUESTED", "CONTRACT_MISMATCH"])
 def test_dev_blocker_ruling_queues_route_to(r, kind):
-    set_mode(r, council_auto_resolve=True)
     raise_blocker(r, kind, "DEV_FULL")
-    decision = r.result("COUNCIL_RULING", ruling=ruling(["forge-dev", "forge-qa"]))
+    decision = approve_ruling(r, ruling(["forge-dev", "forge-qa"]))
     assert dispatches(decision, "forge-dev", "repair") and decision["phase"] == "REPAIR"
     assert [item["agent"] for item in r.state()["lifecycle"]["repair_queue"]] == ["forge-dev", "forge-qa"]
 
@@ -1318,9 +1808,8 @@ def test_dev_blocker_ruling_queues_route_to(r, kind):
 # @spec ROUTE-BLK-023
 @pytest.mark.parametrize("kind", ["TEST_CHANGE_REQUESTED", "CONTRACT_MISMATCH"])
 def test_dev_blocker_empty_route_reruns_blocked_phase(r, kind):
-    set_mode(r, council_auto_resolve=True)
     raise_blocker(r, kind, "DEV_FULL")
-    decision = r.result("COUNCIL_RULING", ruling=ruling([]))
+    decision = approve_ruling(r, ruling([]))
     assert dispatches(decision, "forge-dev", "full") and decision["phase"] == "DEV_FULL"
     assert DELTA_A in json.dumps(decision["invoke"]["notes"])
     assert r.state()["blockers"] == []
@@ -1328,10 +1817,9 @@ def test_dev_blocker_empty_route_reruns_blocked_phase(r, kind):
 
 # @spec ROUTE-BLK-023
 def test_repair_blocker_empty_route_reruns_interrupted_item(r):
-    set_mode(r, council_auto_resolve=True)
     place(r, "REPAIR", "forge-qa")
     r.result("CONTRACT_MISMATCH", escalation={"details": "contract details"})
-    decision = r.result("COUNCIL_RULING", ruling=ruling([]))
+    decision = approve_ruling(r, ruling([]))
     assert dispatches(decision, "forge-qa", "repair") and decision["phase"] == "REPAIR"
     notes = json.dumps(decision["invoke"]["notes"])
     assert "fix" in notes and DELTA_A in notes
@@ -1342,11 +1830,10 @@ def test_repair_blocker_empty_route_reruns_interrupted_item(r):
 
 # @spec ROUTE-BLK-026
 def test_queued_repair_carries_delta_and_blocked_context(r):
-    set_mode(r, council_auto_resolve=True)
     r.goto("DEV_FULL")
     with_context_refs(r, ["specs/dev.md"])
     r.result("TEST_CHANGE_REQUESTED", escalation={"details": "test_a asserts the wrong value"})
-    r.result("COUNCIL_RULING", ruling=ruling(["forge-qa"]))
+    approve_ruling(r, ruling(["forge-qa"]))
     [item] = r.state()["lifecycle"]["repair_queue"]
     assert item["notes"] == DELTA_A
     assert item["context_refs"] == ["council/matrix.md", "specs/dev.md"]
@@ -1356,37 +1843,33 @@ def test_queued_repair_carries_delta_and_blocked_context(r):
 @pytest.mark.parametrize("kind, phase", [("AUDIT_FAILED", "POST_QA"), ("TESTS_FAILED", "VERIFY_FINAL"),
                                          ("CI_FAILED", "CI_WATCH")])
 def test_ruling_queues_route_to_in_order(r, kind, phase):
-    set_mode(r, council_auto_resolve=True)
     raise_blocker(r, kind, phase)
-    decision = r.result("COUNCIL_RULING", ruling=ruling(["forge-dev", "forge-qa"]))
+    decision = approve_ruling(r, ruling(["forge-dev", "forge-qa"]))
     assert dispatches(decision, "forge-dev", "repair")
     assert [item["agent"] for item in r.state()["lifecycle"]["repair_queue"]] == ["forge-dev", "forge-qa"]
 
 
 # @spec ROUTE-BLK-020
 def test_repair_items_name_their_blocker(r):
-    set_mode(r, council_auto_resolve=True)
     raise_blocker(r, "TESTS_FAILED", "VERIFY_FINAL")
     blocker_id = r.state()["blockers"][0]["id"]
-    r.result("COUNCIL_RULING", ruling=ruling(["forge-qa", "forge-dev"]))
+    approve_ruling(r, ruling(["forge-qa", "forge-dev"]))
     assert {item["blocker_id"] for item in r.state()["lifecycle"]["repair_queue"]} == {blocker_id}
 
 
 # @spec ROUTE-BLK-019
 @pytest.mark.parametrize("kind, phase", [("AUDIT_FAILED", "POST_QA"), ("TESTS_FAILED", "VERIFY_FINAL")])
 def test_empty_route_resumes_failed_phase(r, kind, phase):
-    set_mode(r, council_auto_resolve=True)
     raise_blocker(r, kind, phase)
-    decision = r.result("COUNCIL_RULING", ruling=ruling([]))
+    decision = approve_ruling(r, ruling([]))
     assert dispatches(decision, "forge-verifier", phase)
     assert r.state()["blockers"] == []
 
 
 # @spec ROUTE-BLK-012
 def test_flaky_ci_reruns(r):
-    set_mode(r, council_auto_resolve=True)
     raise_blocker(r, "CI_FAILED", "CI_WATCH")
-    decision = r.result("COUNCIL_RULING", ruling=ruling([]))
+    decision = approve_ruling(r, ruling([]))
     assert dispatches(decision, "forge-scout", "CI_RERUN") and decision["phase"] == "CI_WATCH"
     assert r.state()["blockers"] == []
 
@@ -1419,9 +1902,8 @@ def test_planner_findings_need_signoff(r):
 
 # @spec ROUTE-BLK-016, ROUTE-BLK-020
 def test_repair_queue_drains_then_resumes(r):
-    set_mode(r, council_auto_resolve=True)
     raise_blocker(r, "TESTS_FAILED", "VERIFY_FINAL")
-    r.result("COUNCIL_RULING", ruling=ruling(["forge-qa", "forge-dev"]))
+    approve_ruling(r, ruling(["forge-qa", "forge-dev"]))
     r.spoke_commit({"tests/test_a.py": "fixed\n"})
     second = r.result("REPAIR_COMMITTED")
     assert dispatches(second, "forge-dev", "repair")
@@ -1453,7 +1935,6 @@ def test_completed_repair_removes_only_its_own_blocker(r):
 
 # @spec ROUTE-BLK-025
 def test_blocker_in_repair_queues_its_repairs_first(r):
-    set_mode(r, council_auto_resolve=True)
     r.patch(blockers=[blocker("blk-outer", "TESTS_FAILED", "forge-verifier", "VERIFY_FINAL")])
     r.goto("REPAIR", repair_queue=[item("forge-qa", "outer qa", "blk-outer"),
                                    item("forge-dev", "outer dev", "blk-outer")], resume_phase="VERIFY_FINAL")
@@ -1462,7 +1943,7 @@ def test_blocker_in_repair_queues_its_repairs_first(r):
     lc = r.state()["lifecycle"]
     assert lc["resume_phase"] == "VERIFY_FINAL"
     assert [i["notes"] for i in lc["repair_queue"]] == ["outer qa", "outer dev"]
-    decision = r.result("COUNCIL_RULING", ruling=ruling(["forge-dev"]))
+    decision = approve_ruling(r, ruling(["forge-dev"]))
     assert dispatches(decision, "forge-dev", "repair")
     assert [i["notes"] for i in r.state()["lifecycle"]["repair_queue"]] == [DELTA_A, "outer qa", "outer dev"]
     assert r.state()["lifecycle"]["resume_phase"] == "VERIFY_FINAL"

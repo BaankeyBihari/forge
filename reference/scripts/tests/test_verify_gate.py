@@ -285,6 +285,71 @@ def test_rename_counts_old_and_new_path(repo, tmp_path):
     assert [f["path"] for f in findings_of(res, "BOUNDARY_VIOLATION")] == ["src/mover.py"]
 
 
+SPECS = "docs/intent/a/a-specs.md"
+SPEC_TEXT = "# A specs\n\n- [ ] **A-001**: one.\n- [x] **A-002**: two.\n- [ ] **A-003**: three.\n\nNotes.\n"
+EVIDENCE = {"forge-qa": "tests/test_a.py", "forge-dev": "src/b.py"}
+
+
+def spec_base(repo, path=SPECS, text=SPEC_TEXT):
+    """A human commit adding a spec file; returns its SHA."""
+    return commit(repo, {path: text}, "human specs")
+
+
+# @spec GATE-BND-002, GATE-BND-003
+@pytest.mark.parametrize("agent", ["forge-qa", "forge-dev"])
+@pytest.mark.parametrize("mode", ["full", "repair"])
+def test_marker_only_spec_change_is_allowed(repo, tmp_path, agent, mode):
+    base = spec_base(repo)
+    flipped = SPEC_TEXT.replace("- [ ] **A-001**", "- [x] **A-001**").replace("- [x] **A-002**", "- [ ] **A-002**")
+    stage = "REPAIR" if mode == "repair" else STAGES[agent][0]
+    forge(repo, agent, {EVIDENCE[agent]: "# @spec A-001\n", SPECS: flipped}, stage=stage, mode=mode)
+    res = check_commits(repo, f"{base}..HEAD", make_state(tmp_path / "s.json"))
+    assert findings_of(res, "BOUNDARY_VIOLATION") == []
+
+
+# @spec GATE-BND-003
+@pytest.mark.parametrize("path", ["docs/intent/a-specs.md", "docs/intent/x/y/z-specs.md"],
+                         ids=["zero-dirs", "nested"])
+def test_marker_only_change_allowed_at_any_depth_under_intent(repo, tmp_path, path):
+    base = spec_base(repo, path)
+    forge(repo, "forge-dev", {"src/b.py": "b\n", path: SPEC_TEXT.replace("- [ ] **A-003**", "- [x] **A-003**")})
+    res = check_commits(repo, f"{base}..HEAD", make_state(tmp_path / "s.json"))
+    assert findings_of(res, "BOUNDARY_VIOLATION") == []
+
+
+# @spec GATE-BND-002, GATE-BND-003
+@pytest.mark.parametrize("agent, mode, path, new_text", [
+    ("forge-dev", "full", SPECS, SPEC_TEXT.replace("- [ ] **A-001**: one.", "- [x] **A-001**: one, revised.")),
+    ("forge-dev", "full", SPECS, SPEC_TEXT.replace("- [ ] **A-001**", "- [D] **A-001**")),
+    ("forge-dev", "full", SPECS, SPEC_TEXT.replace("- [x] **A-002**", "- [D] **A-002**")),
+    ("forge-dev", "full", SPECS, SPEC_TEXT.replace("Notes.", "Other notes.")),
+    ("forge-dev", "full", SPECS, SPEC_TEXT + "- [ ] **A-004**: added.\n"),
+    ("forge-dev", "full", SPECS, SPEC_TEXT.replace("- [x] **A-002**: two.\n", "")),
+    ("forge-qa", "full", SPECS, SPEC_TEXT.replace("- [ ] **A-001**: one.\n- [x] **A-002**: two.\n",
+                                                  "- [x] **A-002**: two.\n- [ ] **A-001**: one.\n")),
+    ("forge-qa", "skeleton", SPECS, SPEC_TEXT.replace("- [ ] **A-001**", "- [x] **A-001**")),
+    ("forge-dev", "stub", SPECS, SPEC_TEXT.replace("- [ ] **A-001**", "- [x] **A-001**")),
+    ("forge-dev", "full", "docs/intent/a/a-design.md", SPEC_TEXT.replace("- [ ] **A-001**", "- [x] **A-001**")),
+    ("forge-dev", "full", "docs/a-specs.md", SPEC_TEXT.replace("- [ ] **A-001**", "- [x] **A-001**")),
+], ids=["text-changed", "open-to-deferred", "done-to-deferred", "non-spec-line", "line-added", "line-deleted",
+        "lines-reordered", "qa-skeleton", "dev-stub", "not-a-specs-file", "outside-intent"])
+def test_other_spec_file_changes_are_boundary_violations(repo, tmp_path, agent, mode, path, new_text):
+    base = spec_base(repo, path)
+    stage = {"skeleton": "COLLAB-SKEL", "stub": "COLLAB-STUB"}.get(mode)
+    forge(repo, agent, {EVIDENCE[agent]: "x\n", path: new_text}, stage=stage, mode=mode)
+    res = check_commits(repo, f"{base}..HEAD", make_state(tmp_path / "s.json"))
+    assert [f["path"] for f in findings_of(res, "BOUNDARY_VIOLATION")] == [path]
+
+
+# @spec GATE-BND-003
+def test_open_checkbox_that_is_not_a_spec_line_may_not_flip(repo, tmp_path):
+    text = "# A specs\n\n- [ ] a task, not a spec.\n- [ ] **A-001**: one.\n"
+    base = spec_base(repo, SPECS, text)
+    forge(repo, "forge-dev", {"src/b.py": "b\n", SPECS: text.replace("- [ ] a task", "- [x] a task")})
+    res = check_commits(repo, f"{base}..HEAD", make_state(tmp_path / "s.json"))
+    assert [f["path"] for f in findings_of(res, "BOUNDARY_VIOLATION")] == [SPECS]
+
+
 # ----------------------------------------------------------- human-authored lines
 
 
@@ -426,6 +491,19 @@ def test_planner_commits_skip_human_checks_but_not_trailers_or_boundaries(repo, 
     assert findings_of(res, "HUMAN_CODE_MODIFIED") == []
     assert [f["commit"] for f in findings_of(res, "BOUNDARY_VIOLATION")] == [stray]
     assert [f["commit"] for f in findings_of(res, "TRAILER_INVALID")] == [bad_stage]
+
+
+# @spec GATE-HUM-011
+def test_allowed_marker_change_skips_human_line_checks_for_those_lines(repo, tmp_path):
+    base = commit(repo, {"src/a.py": "".join(f"line{i}\n" for i in range(1, 6))}, "human base")
+    spec_base(repo)  # human spec lines added during the workstream: always protected
+    forge(repo, "forge-dev", {
+        SPECS: SPEC_TEXT.replace("- [ ] **A-001**", "- [x] **A-001**"),
+        "src/a.py": "line1\nline2\nCHANGED\nline4\nline5\n",
+    })
+    res = check_commits(repo, f"{base}..HEAD", make_state(tmp_path / "s.json", anchors={"workstream_base_sha": base}))
+    assert [f["path"] for f in findings_of(res, "HUMAN_CODE_MODIFIED")] == ["src/a.py"]
+    assert findings_of(res, "BOUNDARY_VIOLATION") == []
 
 
 # -------------------------------------------------------------------- approvals

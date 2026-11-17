@@ -93,8 +93,8 @@ class Workstream:
                          "branch": "main", "base_branch": "main", "issue": None, "pr": None,
                          "parent_workstream": None, "git_common_dir": str(self.repo / ".git"),
                          "worktree_path": str(self.repo), **(identity or {})},
-            "config": {"plan_mode": "auto" if mode == "auto" else "strict", "collaborative": True,
-                       "council_auto_resolve": False, "repo_mode": "LID", **(config or {})},
+            "config": {"mode": "delivery" if mode == "auto" else "collab", "repo_mode": "LID",
+                       **(config or {})},
             "anchors": {"workstream_base_sha": base, "plan_base_sha": None, "last_known_head_sha": base,
                         "verifier_pass_sha": None, "reviewer_pass_sha": None, "stale_shas": [],
                         **(anchors or {})},
@@ -516,6 +516,183 @@ def test_refused_commit_leaves_index_alone(ws):
     before = git(ws.repo, "ls-files", "-s"), git(ws.repo, "status", "--porcelain")
     assert ws.commit()["status"] == "BOUNDARY_VIOLATION"
     assert (git(ws.repo, "ls-files", "-s"), git(ws.repo, "status", "--porcelain")) == before
+
+
+# ------------------------------------------------------------------ commit: spec markers
+
+A_SPECS = "docs/intent/a/a-specs.md"
+B_SPECS = "docs/intent/b/b-specs.md"
+
+
+def spec_text(*lines):
+    return "# A specs\n\n" + "\n".join(lines) + "\n"
+
+
+def flip(text, spec_id, to):
+    """text with spec_id's marker set to `to` (" " or "x")."""
+    for frm in (" ", "x"):
+        text = text.replace(f"- [{frm}] **{spec_id}**", f"- [{to}] **{spec_id}**")
+    return text
+
+
+def plan_specs(ws, files, agent="forge-dev", mode=None, **kw):
+    """Commit files as human work after the workstream base, then dispatch agent."""
+    base = head(ws.repo)
+    commit(ws.repo, files, "planned specs and earlier work")
+    phase = "REPAIR" if mode == "repair" else None
+    ws.dispatch(agent, phase=phase, mode=mode, anchors={"workstream_base_sha": base}, **kw)
+
+
+def committed(repo, path, rev="HEAD"):
+    return git(repo, "show", f"{rev}:{path}") + "\n"
+
+
+# @spec SPOKE-PROTO-MARK-001, SPOKE-PROTO-MARK-004, SPOKE-PROTO-MARK-007
+@pytest.mark.parametrize("agent", ["forge-qa", "forge-dev"])
+@pytest.mark.parametrize("mode", ["full", "repair"])
+def test_commit_marks_open_specs_that_are_tested_and_tagged(ws, agent, mode):
+    text = spec_text("- [ ] **A-001**: tested and tagged after this commit.", "- [ ] **A-002**: untested.")
+    other = {"forge-qa": ("src/a.py", "# @spec A-001, A-002\n"),
+             "forge-dev": ("tests/test_a.py", "# @spec A-001\n")}[agent]
+    plan_specs(ws, {A_SPECS: text, other[0]: other[1]}, agent, mode)
+    stage(ws.repo, {IN_BOUNDARY[agent]: "# @spec A-001\n"})
+    out = ws.commit()
+    assert out["status"] == "COMMITTED"
+    assert (out["marked"], out["unmarked"]) == (["A-001"], [])
+    assert committed(ws.repo, A_SPECS) == flip(text, "A-001", "x")
+    assert (ws.repo / A_SPECS).read_text() == flip(text, "A-001", "x")
+    assert git(ws.repo, "status", "--porcelain") == ""
+
+
+# @spec SPOKE-PROTO-MARK-002, SPOKE-PROTO-MARK-004
+@pytest.mark.parametrize("agent", ["forge-qa", "forge-dev"])
+def test_commit_unmarks_done_specs_that_lack_a_test_or_tag(ws, agent):
+    text = spec_text("- [x] **A-001**: loses its evidence in this commit.", "- [x] **A-002**: tagged, untested.",
+                     "- [x] **A-003**: tested and tagged.", "- [ ] **A-004**: untested and untagged.")
+    plan_specs(ws, {A_SPECS: text, "tests/test_a.py": "# @spec A-001, A-003\n",
+                    "src/a.py": "# @spec A-001, A-002, A-003\n"}, agent, "repair")
+    stage(ws.repo, {IN_BOUNDARY[agent]: "# @spec A-003\n"})
+    out = ws.commit()
+    assert out["status"] == "COMMITTED"
+    assert (out["marked"], sorted(out["unmarked"])) == ([], ["A-001", "A-002"])
+    assert committed(ws.repo, A_SPECS) == flip(flip(text, "A-001", " "), "A-002", " ")
+
+
+# @spec SPOKE-PROTO-MARK-003
+def test_markers_follow_the_staged_tree_not_unstaged_edits(ws):
+    text = spec_text("- [ ] **A-001**: tag only in an unstaged edit.", "- [x] **A-002**: tag removed only unstaged.")
+    plan_specs(ws, {A_SPECS: text, "tests/test_a.py": "# @spec A-001, A-002\n", "src/b.py": "# @spec A-002\n"})
+    stage(ws.repo, {"src/a.py": "a = 1\n"})
+    (ws.repo / "src" / "a.py").write_text("# @spec A-001\na = 1\n")
+    (ws.repo / "src" / "b.py").write_text("b = 1\n")
+    out = ws.commit()
+    assert out["status"] == "COMMITTED"
+    assert (out["marked"], out["unmarked"]) == ([], [])
+    assert committed(ws.repo, A_SPECS) == text
+
+
+# @spec SPOKE-PROTO-MARK-003
+def test_markers_follow_lid_check_rules_for_specs_ids_and_annotations(ws):
+    older = spec_text("- [ ] **B-001**: covered, but older than the workstream.", "- [x] **A-004**: older duplicate.")
+    commit(ws.repo, {B_SPECS: older}, "older specs")
+    text = spec_text(
+        "- [ ] **A-001**: tested and tagged.",
+        "- [D] **A-002**: deferred, tested and tagged.",
+        "- [ ] **A-003**: tested, tagged only in a plan path.",
+        "- [ ] **A-004**: tested and tagged, duplicated.",
+        "- [ ] **A-005**: tested, named in code only after non-ID text.",
+    )
+    plan_specs(ws, {A_SPECS: text, "docs/notes.md": "@spec A-003\n",
+                    "tests/test_a.py": "# @spec A-001, A-002, A-003, A-004, A-005, B-001\n"})
+    stage(ws.repo, {"src/a.py": "# @spec A-001, A-002, A-004, B-001\n# see @spec <ID> A-005\n"})
+    out = ws.commit()
+    assert out["status"] == "COMMITTED"
+    assert (out["marked"], out["unmarked"]) == (["A-001"], [])
+    assert committed(ws.repo, A_SPECS) == flip(text, "A-001", "x")
+    assert committed(ws.repo, B_SPECS) == older
+
+
+# @spec SPOKE-PROTO-MARK-007, SPOKE-PROTO-COMMIT-007
+def test_marker_change_keeps_unstaged_edits_and_other_paths(ws):
+    text = spec_text("- [ ] **A-001**: tested and tagged after this commit.", "- [ ] **A-002**: untested.")
+    b_text = spec_text("- [ ] **B-001**: untested.")
+    plan_specs(ws, {A_SPECS: text, B_SPECS: b_text, "tests/test_a.py": "# @spec A-001\n", "src/b.py": "b1\n"})
+    edited = "Draft note above every spec.\n" + text.replace("A-002**: untested.", "A-002**: reworded, unstaged.")
+    (ws.repo / A_SPECS).write_text(edited)
+    (ws.repo / B_SPECS).write_text(b_text + "Unstaged note.\n")
+    (ws.repo / "src" / "b.py").write_text("b2\n")
+    (ws.repo / "src" / "u.py").write_text("untracked\n")
+    stage(ws.repo, {"src/a.py": "# @spec A-001\n"})
+    out = ws.commit()
+    assert out["status"] == "COMMITTED" and out["marked"] == ["A-001"]
+    assert git(ws.repo, "show", "--name-only", "--format=", out["sha"]).splitlines() == [A_SPECS, "src/a.py"]
+    assert committed(ws.repo, A_SPECS) == flip(text, "A-001", "x")
+    assert (ws.repo / A_SPECS).read_text() == flip(edited, "A-001", "x")
+    assert staged(ws.repo) == []
+    assert git(ws.repo, "diff", "--name-only").splitlines() == [A_SPECS, B_SPECS, "src/b.py"]
+    assert git(ws.repo, "ls-files", "--others", "--exclude-standard").splitlines() == ["src/u.py"]
+
+
+# @spec SPOKE-PROTO-MARK-004
+def test_committed_without_marker_changes_carries_empty_lists(ws):
+    plan_specs(ws, {A_SPECS: spec_text("- [ ] **A-001**: untested.")})
+    stage(ws.repo, {"src/a.py": "a\n"})
+    out = ws.commit()
+    assert out["status"] == "COMMITTED"
+    assert (out["marked"], out["unmarked"]) == ([], [])
+
+
+# @spec SPOKE-PROTO-MARK-004
+@pytest.mark.parametrize("files, expected", [
+    ({}, "NOTHING_STAGED"),
+    ({"src/a.py": "# @spec A-001\n", "docs/x.md": "x\n"}, "BOUNDARY_VIOLATION"),
+], ids=["nothing-staged", "boundary-violation"])
+def test_other_statuses_carry_no_marker_lists(ws, files, expected):
+    plan_specs(ws, {A_SPECS: spec_text("- [ ] **A-001**: tested."), "tests/test_a.py": "# @spec A-001\n"})
+    stage(ws.repo, files)
+    out = ws.commit()
+    assert out["status"] == expected
+    assert "marked" not in out and "unmarked" not in out
+
+
+# @spec SPOKE-PROTO-MARK-004, SPOKE-PROTO-MARK-006
+@pytest.mark.parametrize("agent, phase, mode, config", [
+    ("forge-planner", "PLAN_S4", "strict", None),
+    ("forge-planner", "REPAIR", "repair", None),
+    ("forge-qa", "QA_SKEL", "skeleton", None),
+    ("forge-dev", "DEV_STUB", "stub", None),
+    ("forge-dev", "DEV_FULL", "full", {"repo_mode": "NAIVE"}),
+], ids=["planner", "planner-repair", "qa-skeleton", "dev-stub", "naive-repo"])
+def test_no_marker_changes_outside_lid_qa_and_dev_full_and_repair(ws, agent, phase, mode, config):
+    text = spec_text("- [ ] **A-001**: tested and tagged.", "- [x] **A-002**: untested.")
+    base = head(ws.repo)
+    commit(ws.repo, {A_SPECS: text, "tests/test_a.py": "# @spec A-001\n", "src/b.py": "# @spec A-001, A-002\n"},
+           "planned specs and earlier work")
+    ws.dispatch(agent, phase=phase, mode=mode, config=config, anchors={"workstream_base_sha": base})
+    stage(ws.repo, {IN_BOUNDARY[agent]: "# @spec A-001\nX = 1\n"})
+    out = ws.commit()
+    assert out["status"] == "COMMITTED"
+    assert "marked" not in out and "unmarked" not in out
+    assert committed(ws.repo, A_SPECS) == text
+    assert (ws.repo / A_SPECS).read_text() == text
+
+
+# @spec SPOKE-PROTO-MARK-005
+def test_failed_commit_restores_changed_spec_files(ws, tmp_path):
+    text = spec_text("- [ ] **A-001**: tested and tagged after this commit.")
+    plan_specs(ws, {A_SPECS: text, "tests/test_a.py": "# @spec A-001\n"})
+    (ws.repo / A_SPECS).write_text("Unstaged note.\n" + text)
+    stage(ws.repo, {"src/a.py": "# @spec A-001\n"})
+    hooks, seen = tmp_path / "hooks", tmp_path / "seen-by-hook.md"
+    hooks.mkdir()
+    (hooks / "pre-commit").write_text(f"#!/bin/sh\ngit show :{A_SPECS} > '{seen}'\nexit 1\n")
+    (hooks / "pre-commit").chmod(0o755)
+    git(ws.repo, "config", "core.hooksPath", str(hooks))
+    before = head(ws.repo), git(ws.repo, "ls-files", "-s"), (ws.repo / A_SPECS).read_text()
+    (ws.sd / "msg.txt").write_text("Work\n")
+    ws.run("commit", "--message-file", ws.sd / "msg.txt")  # outcome on a failed commit is not specified
+    assert "- [x] **A-001**" in seen.read_text(), "commit failed before changing any marker"
+    assert (head(ws.repo), git(ws.repo, "ls-files", "-s"), (ws.repo / A_SPECS).read_text()) == before
 
 
 # ------------------------------------------------------------------ finish: computed fields

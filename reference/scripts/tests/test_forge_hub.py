@@ -64,7 +64,8 @@ def test_usage_errors(workstream, args):
 def test_every_subcommand_prints_one_object(workstream):
     sp = str(workstream["state_path"])
     for args in [["classify", "list"], ["brief", "--workstream", "feat-demo", *holder_args()],
-                 ["envelope", "--state", sp], ["answer", "--state", sp, "--decision", "approve"]]:
+                 ["envelope", "--state", sp], ["answer", "--state", sp, "--decision", "approve"],
+                 ["mode", "--state", sp, "--mode", "delivery"], ["stop"], ["unstop"]]:
         res = hub(*args, cwd=workstream["worktree"])
         assert res.returncode == 0, (args, res.stderr)
         assert isinstance(json.loads(res.stdout), dict)
@@ -154,10 +155,105 @@ def test_describe(workstream, words):
 
 # @spec CMD-ARG-010
 def test_order(workstream, forge_home):
-    for name in ["list", "42"]:  # directories that look like workstreams never shadow earlier rules
+    # directories that look like workstreams never shadow earlier rules
+    for name in ["list", "42", "stop", "resume", "mode"]:
         (workstream["state_path"].parent.parent / name).mkdir()
     assert classify(workstream, "list")["kind"] == "list"
     assert classify(workstream, "42")["kind"] == "issue"
+    assert classify(workstream, "stop")["kind"] == "stop"
+    assert classify(workstream, "resume")["kind"] == "continue"
+    assert classify(workstream, "mode", "collab")["kind"] == "mode"
+    assert classify(workstream, "drop", "feat-demo", "pr", "12")["kind"] == "drop"
+    assert classify(workstream, "--mode", "delivery", "pr", "12") == {"kind": "pr", "ref": "12", "mode": "delivery"}
+
+
+# @spec CMD-ARG-011
+def test_stop(workstream):
+    assert classify(workstream, "stop") == {"kind": "stop"}
+
+
+# @spec CMD-ARG-012
+def test_resume_word_is_continue(workstream):
+    assert classify(workstream, "resume") == {"kind": "continue"}
+
+
+MODES = ["delivery", "collab-plan", "collab-qa", "collab-dev", "collab-code", "collab"]
+
+
+# @spec CMD-ARG-013
+@pytest.mark.parametrize("mode", MODES)
+def test_mode(workstream, mode):
+    assert classify(workstream, "mode", mode) == {"kind": "mode", "mode": mode}
+
+
+# @spec CMD-ARG-017
+@pytest.mark.parametrize("words", [["mode", "bogus"], ["mode", "Collab"]])
+def test_mode_with_unknown_name(workstream, words):
+    out = classify(workstream, *words)
+    assert out["kind"] == "invalid"
+    assert all(m in out["detail"] for m in MODES), out["detail"]
+
+
+# @spec CMD-ARG-017
+@pytest.mark.parametrize("words", [["stop", "now"], ["stop", "feat-demo", "please"], ["resume", "feat-demo"],
+                                   ["resume", "a", "b"]])
+def test_stop_or_resume_with_words(workstream, words):
+    out = classify(workstream, *words)
+    assert out["kind"] == "invalid" and out["detail"]
+
+
+# @spec CMD-ARG-010, CMD-ARG-013, CMD-ARG-017
+@pytest.mark.parametrize("words, expected", [
+    (["mode"], {"kind": "unknown", "workstream": "mode"}),
+    (["mode", "collab", "please"], {"kind": "describe", "text": "mode collab please"}),
+    (["mode", "a", "b"], {"kind": "describe", "text": "mode a b"}),
+])
+def test_other_mode_forms_fall_through(workstream, words, expected):
+    assert classify(workstream, *words) == expected
+
+
+# @spec CMD-ARG-014
+def test_drop(workstream):
+    assert classify(workstream, "drop", "feat-demo", "superseded", "by", "#12") == {
+        "kind": "drop", "workstream": "feat-demo", "reason": "superseded by #12"}
+
+
+# @spec CMD-ARG-014, CMD-ARG-009
+@pytest.mark.parametrize("words", [["drop", "support", "for", "Python", "2"], ["drop", "feat-dmeo", "old"],
+                                   ["drop", "feat-demo"], ["drop", "..", "escape"], ["drop", ".", "here"]])
+def test_drop_that_does_not_fit_is_described(workstream, words):
+    assert classify(workstream, *words) == {"kind": "describe", "text": " ".join(words)}
+
+
+# @spec CMD-ARG-015
+@pytest.mark.parametrize("words, expected", [
+    (["--mode", "delivery", "42"], {"kind": "issue", "ref": "42"}),
+    (["--mode", "collab-qa", "pr", "12"], {"kind": "pr", "ref": "12"}),
+    (["--mode", "collab", "https://github.com/acme/widgets/pull/12"],
+     {"kind": "pr", "ref": "https://github.com/acme/widgets/pull/12"}),
+    (["--mode", "collab-dev", "adopt", "feat/old-work"], {"kind": "adopt", "branch": "feat/old-work"}),
+    (["--mode", "collab-code", "feat-dmeo"], {"kind": "unknown", "workstream": "feat-dmeo"}),
+    (["--mode", "collab-plan", "add", "rate", "limiting"], {"kind": "describe", "text": "add rate limiting"}),
+])
+def test_mode_flag(workstream, words, expected):
+    assert classify(workstream, *words) == {**expected, "mode": words[1]}
+
+
+# @spec CMD-ARG-015
+def test_mode_flag_counts_only_first(workstream):
+    assert classify(workstream, "add", "--mode", "delivery") == {"kind": "describe", "text": "add --mode delivery"}
+
+
+# @spec CMD-ARG-016
+@pytest.mark.parametrize("words", [
+    ["--mode"], ["--mode", "delivery"], ["--mode", "bogus", "42"], ["--mode", "42"],
+    ["--mode", "delivery", "list"], ["--mode", "delivery", "stop"], ["--mode", "delivery", "resume"],
+    ["--mode", "delivery", "feat-demo"], ["--mode", "delivery", "pr"], ["--mode", "delivery", "mode", "collab"],
+    ["--mode", "delivery", "drop", "feat-demo", "old"],
+])
+def test_mode_flag_invalid(workstream, words):
+    out = classify(workstream, *words)
+    assert out["kind"] == "invalid" and out["detail"]
 
 
 # ---------------------------------------------------------------- resume brief
@@ -213,7 +309,7 @@ def test_fresh_workstream_brief(workstream):
     out = brief(workstream)
     assert out["status"] == "OK" and out["pending_envelope"] is False
     assert out["lines"] == [
-        "Workstream: local/project/feat-demo (NAIVE, collaborative, plan strict)",
+        "Workstream: local/project/feat-demo (NAIVE, mode collab)",
         "Phase: INIT (nothing run yet)",
         "Progress: no plan yet",
         "Hub context: none recorded",
@@ -227,9 +323,17 @@ def test_brief_without_workstream_uses_current_branch(workstream):
 
 
 # @spec CMD-BRIEF-003
-def test_sequential_and_auto(workstream):
-    patch_state(workstream, config={"collaborative": False, "plan_mode": "auto", "repo_mode": "LID"})
-    assert brief(workstream)["lines"][0] == "Workstream: local/project/feat-demo (LID, sequential, plan auto)"
+def test_brief_shows_mode(workstream):
+    patch_state(workstream, config={"mode": "collab-qa", "repo_mode": "LID"})
+    assert brief(workstream)["lines"][0] == "Workstream: local/project/feat-demo (LID, mode collab-qa)"
+
+
+# @spec CMD-BRIEF-003
+def test_brief_without_mode_shows_collab(workstream):
+    state = read_state(workstream["state_path"])
+    state["config"] = {"repo_mode": "NAIVE", "retention": "archive"}
+    write_state(workstream["state_path"], state)
+    assert brief(workstream)["lines"][0] == "Workstream: local/project/feat-demo (NAIVE, mode collab)"
 
 
 # @spec CMD-BRIEF-004
@@ -377,7 +481,7 @@ def test_discard(workstream):
 
 
 # @spec CMD-ENV-006
-@pytest.mark.parametrize("sub", [["envelope"], ["answer", "--decision", "approve"]])
+@pytest.mark.parametrize("sub", [["envelope"], ["answer", "--decision", "approve"], ["mode", "--mode", "delivery"]])
 @pytest.mark.parametrize("content", [None, "{broken"])
 def test_state_invalid(workstream, tmp_path, sub, content):
     state = tmp_path / "state.json"
@@ -442,3 +546,73 @@ def test_unreadable_notes_file(workstream, tmp_path):
     res = answer(workstream, "--decision", "revise", "--notes-file", tmp_path / "missing.txt")
     assert res.returncode == 2 and res.stderr
     assert not envelopes(workstream).exists() or not list(envelopes(workstream).glob("answer-*"))
+
+
+# ----------------------------------------------------------------- mode events
+
+
+# @spec CMD-MODE-001
+@pytest.mark.parametrize("mode", ["collab-qa", "not-a-mode"])
+def test_mode_event(workstream, mode):
+    before = workstream["state_path"].read_bytes()
+    out = ok(hub("mode", "--state", workstream["state_path"], "--mode", mode, cwd=workstream["worktree"]))
+    path = Path(out["event_path"])
+    assert path.is_absolute() and path.parent == envelopes(workstream)
+    assert re.fullmatch(r"mode-\d{8}T\d{6}Z\.event\.json", path.name)
+    assert json.loads(path.read_text()) == {"type": "mode", "mode": mode}
+    assert workstream["state_path"].read_bytes() == before
+
+
+# ----------------------------------------------------------------- kill switch
+
+
+def stop_file(root):
+    return Path(root) / ".STOP_FORGE"
+
+
+# @spec CMD-KILL-001
+@pytest.mark.parametrize("where", ["worktree", "subdir", "repo"])
+def test_stop_creates_file_at_main_root(workstream, where):
+    cwd = {"worktree": workstream["worktree"], "subdir": workstream["worktree"] / "deep",
+           "repo": workstream["repo"]}[where]
+    cwd.mkdir(exist_ok=True)
+    out = ok(hub("stop", cwd=cwd), "STOPPED")
+    assert out["path"] == str(stop_file(workstream["repo"]))
+    assert stop_file(workstream["repo"]).is_file()
+    assert not stop_file(workstream["worktree"]).exists()
+
+
+# @spec CMD-KILL-003
+def test_stop_keeps_existing_file(workstream):
+    stop_file(workstream["repo"]).write_text("set by hand\n")
+    out = ok(hub("stop", cwd=workstream["worktree"]), "STOPPED")
+    assert out["path"] == str(stop_file(workstream["repo"]))
+    assert stop_file(workstream["repo"]).read_text() == "set by hand\n"
+
+
+# @spec CMD-KILL-002
+def test_unstop_clears_every_worktree(workstream):
+    stop_file(workstream["repo"]).write_text("")
+    stop_file(workstream["worktree"]).write_text("")
+    out = ok(hub("unstop", cwd=workstream["worktree"]), "CLEARED")
+    assert sorted(out["removed"]) == sorted([str(stop_file(workstream["repo"])),
+                                             str(stop_file(workstream["worktree"]))])
+    assert not stop_file(workstream["repo"]).exists() and not stop_file(workstream["worktree"]).exists()
+    assert ok(hub("unstop", cwd=workstream["repo"]), "CLEARED")["removed"] == []
+
+
+# @spec CMD-KILL-002
+def test_unstop_only_worktree_file(workstream):
+    stop_file(workstream["worktree"]).write_text("")
+    out = ok(hub("unstop", cwd=workstream["repo"]), "CLEARED")
+    assert out["removed"] == [str(stop_file(workstream["worktree"]))]
+
+
+# @spec CMD-KILL-004
+@pytest.mark.parametrize("sub", ["stop", "unstop"])
+def test_kill_switch_outside_git_exits_1(tmp_path, sub):
+    outside = tmp_path / "plain"
+    outside.mkdir()
+    res = hub(sub, cwd=outside)
+    assert res.returncode == 1 and res.stderr
+    assert not stop_file(outside).exists()

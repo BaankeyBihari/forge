@@ -445,12 +445,13 @@ def test_workstream_spec_without_code_tag_is_untagged(repo, tmp_path, marker):
     assert ids_of(res, "UNTAGGED") == ["A-001"]
 
 
-# @spec SPOKE-VER-LID-008
+# @spec SPOKE-VER-LID-008, SPOKE-VER-LID-010
 def test_clean_workstream_is_ok_with_no_findings(repo, tmp_path):
     base = head(repo)
-    commit(repo, {A_SPECS: specs("- [ ] **A-001**: x."), **covered("A-001")})
+    commit(repo, {A_SPECS: specs("- [x] **A-001**: x.", "- [ ] **A-002**: y."), **covered("A-001", "A-002")})
     res = lid(make_state(tmp_path / "s.json", repo, base), repo)
-    assert res.json == {"status": "OK", "workstream_specs": ["A-001"], "merged_specs": [], "findings": []}
+    assert res.json == {"status": "OK", "workstream_specs": ["A-001", "A-002"], "merged_specs": [],
+                        "unmarked_specs": ["A-002"], "findings": []}
 
 
 # @spec SPOKE-VER-LID-008
@@ -470,3 +471,36 @@ def test_every_finding_carries_kind_id_detail_and_path_line_for_annotations(repo
         assert isinstance(f["id"], str) and isinstance(f["detail"], str) and f["detail"]
     for f in findings_of(res, "UNKNOWN_ID"):
         assert f["path"] == "src/a.py" and f["line"] == 1
+
+
+# @spec SPOKE-VER-LID-010
+def test_unmarked_specs_lists_open_workstream_specs_with_test_and_tag(repo, tmp_path):
+    commit(repo, {B_SPECS: specs("- [ ] **B-001**: older, covered, not a workstream spec.",
+                                 "- [x] **A-005**: older definition of a duplicated ID.")})
+    base = head(repo)
+    commit(repo, {
+        A_SPECS: specs(
+            "- [ ] **A-001**: open, tested and tagged.",
+            "- [x] **A-002**: marked, tested and tagged.",
+            "- [D] **A-003**: deferred, tested and tagged.",
+            "- [ ] **A-004**: open, tested only.",
+            "- [ ] **A-005**: open, tested and tagged, duplicated.",
+            "- [ ] **A-006**: open, tested, tagged only in a plan path.",
+        ),
+        "tests/test_a.py": "# @spec A-001, A-002, A-003, A-004, A-005, A-006, B-001\n",
+        "src/a.py": "# @spec A-001, A-002, A-003, A-005, B-001\n",
+        "docs/notes.md": "@spec A-006\n",
+    })
+    res = lid(make_state(tmp_path / "s.json", repo, base), repo)
+    assert res.json["status"] == "OK"
+    assert res.json["unmarked_specs"] == ["A-001"]
+    assert "A-001" not in {f["id"] for f in res.json["findings"]}
+    assert {f["kind"] for f in res.json["findings"]} <= {"DUPLICATE_ID", "UNTAGGED"}
+
+
+# @spec SPOKE-VER-LID-010
+def test_unmarked_specs_is_empty_list_when_none(repo, tmp_path):
+    base = head(repo)
+    commit(repo, {A_SPECS: specs("- [x] **A-001**: x."), **covered("A-001")})
+    res = lid(make_state(tmp_path / "s.json", repo, base), repo)
+    assert res.json["unmarked_specs"] == []
