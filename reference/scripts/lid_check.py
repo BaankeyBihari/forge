@@ -43,14 +43,14 @@ def _finding(kind, spec_id, detail, path=None, line=None):
 
 
 # @spec SPOKE-VER-LID-001
-def _spec_lines(root):
-    """[(id, marker, origin)] for every spec line at HEAD; origin is its first-parent blame commit."""
-    paths = [p for p in _git(root, "ls-tree", "-r", "-z", "--name-only", "HEAD").split("\0")
+def _spec_lines(root, rev="HEAD"):
+    """[(id, marker, origin)] for every spec line at rev; origin is its first-parent blame commit."""
+    paths = [p for p in _git(root, "ls-tree", "-r", "-z", "--name-only", rev).split("\0")
              if p and verify_gate.matches(p, SPEC_FILES)]
     specs = []
     for path in paths:
         origin = None
-        for line in _git(root, "blame", "--first-parent", "--porcelain", "HEAD", "--", path).split("\n"):
+        for line in _git(root, "blame", "--first-parent", "--porcelain", rev, "--", path).split("\n"):
             if line.startswith("\t"):
                 m = SPEC_LINE.match(line[1:])
                 if m:
@@ -61,24 +61,38 @@ def _spec_lines(root):
 
 
 # @spec SPOKE-VER-LID-003
-def _annotations(root):
-    """[(path, line, id)] for every @spec annotation token at HEAD."""
-    out = _git(root, "grep", "-z", "-n", "-I", "-F", "-e", "@spec", "HEAD", ok=(0, 1))
+def _annotations(root, rev="HEAD"):
+    """[(path, line, id)] for every @spec annotation token at rev."""
+    out = _git(root, "grep", "-z", "-n", "-I", "-F", "-e", "@spec", rev, ok=(0, 1))
     found = []
     for record in out.split("\n"):
         if not record:
             continue
         path, number, text = record.split("\0", 2)
         for m in ANNOTATION.finditer(text):
-            found += [(path[len("HEAD:"):], int(number), t.strip()) for t in m.group(1).split(",")]
+            found += [(path[len(rev) + 1:], int(number), t.strip()) for t in m.group(1).split(",")]
     return found
 
 
 # @spec SPOKE-VER-LID-CLI-002, SPOKE-VER-LID-CLI-004, SPOKE-VER-LID-CLI-005, SPOKE-VER-LID-002
 # @spec SPOKE-VER-LID-004, SPOKE-VER-LID-005, SPOKE-VER-LID-006, SPOKE-VER-LID-007, SPOKE-VER-LID-008
-# @spec SPOKE-VER-LID-009
-def check(state):
-    """The result lid_check.py prints for a parsed state.json object."""
+# @spec SPOKE-VER-LID-009, SPOKE-VER-LID-010
+def check(state, rev="HEAD"):
+    """The result lid_check.py prints for a parsed state.json object, judged at commit rev."""
+    result = _check(state, rev)
+    result.pop("stale_marked", None)
+    return result
+
+
+def marker_changes(state, rev):
+    """(to_mark, to_unmark): workstream spec IDs whose marker at rev disagrees with the evidence at rev."""
+    result = _check(state, rev)
+    if result["status"] != "OK":
+        return [], []
+    return result["unmarked_specs"], result["stale_marked"]
+
+
+def _check(state, rev):
     if not isinstance(state, dict):
         return {"status": "STATE_INVALID", "detail": "state.json is not a JSON object"}
     config = state.get("config") or {}
@@ -86,7 +100,7 @@ def check(state):
         return {"status": "NOT_LID"}
     root = _git(state["identity"]["worktree_path"], "rev-parse", "--show-toplevel").strip()
     base = (state.get("anchors") or {}).get("workstream_base_sha")
-    rev_range = f"{base}..HEAD" if base else "HEAD"
+    rev_range = f"{base}..{rev}" if base else rev
 
     is_merge = {}  # first-parent commit in range -> whether it is a merge
     for line in _git(root, "rev-list", "--first-parent", "--parents", rev_range).split("\n"):
@@ -96,14 +110,14 @@ def check(state):
     changed = set(_git(root, "log", "-z", "--first-parent", "--no-merges", "--name-only", "--format=",
                        rev_range).replace("\n", "").split("\0"))
 
-    specs = _spec_lines(root)
+    specs = _spec_lines(root, rev)
     defined = Counter(spec_id for spec_id, _, _ in specs)
     workstream = [(spec_id, marker) for spec_id, marker, origin in specs if is_merge.get(origin) is False]
     workstream_ids = {spec_id for spec_id, _ in workstream}
 
     patterns = config.get("test_patterns")
     cited, tagged, findings = set(), set(), []
-    for path, number, spec_id in _annotations(root):
+    for path, number, spec_id in _annotations(root, rev):
         cls = verify_gate.classify_path(path, patterns)
         if cls == "test":
             cited.add(spec_id)
@@ -122,10 +136,16 @@ def check(state):
         if spec_id not in tagged:
             findings.append(_finding("UNTAGGED", spec_id, f"no production file tags {spec_id}"))
 
+    duplicated = {spec_id for spec_id in workstream_ids if defined[spec_id] > 1}
+    proven = {spec_id for spec_id, marker in workstream
+              if marker != "D" and spec_id not in duplicated and spec_id in cited and spec_id in tagged}
+    unmarked = {spec_id for spec_id, marker in workstream if marker == " " and spec_id in proven}
+    stale = {spec_id for spec_id, marker in workstream
+             if marker == "x" and spec_id not in duplicated and spec_id not in proven}
     merged = {spec_id for spec_id, marker, origin in specs
               if is_merge.get(origin) and marker != "D" and spec_id not in workstream_ids and spec_id not in cited}
     return {"status": "OK", "workstream_specs": sorted(workstream_ids), "merged_specs": sorted(merged),
-            "findings": findings}
+            "unmarked_specs": sorted(unmarked), "findings": findings, "stale_marked": sorted(stale)}
 
 
 # @spec SPOKE-VER-LID-CLI-001, SPOKE-VER-LID-CLI-003

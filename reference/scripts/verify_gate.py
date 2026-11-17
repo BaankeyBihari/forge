@@ -232,6 +232,37 @@ def _human_findings(repo, rules, commit, parent, agent, path):
 
 # ---------------------------------------------------------------- commit checks
 
+SPEC_FILES = "docs/intent/**/*-specs.md"
+SPEC_LINE = re.compile(r"- \[[ xD]\] \*\*[A-Z0-9]+(?:-[A-Z0-9]+)*-[0-9]{3}\*\*:")
+FLIPS = {"- [ ]": "- [x]", "- [x]": "- [ ]"}
+
+
+# @spec GATE-BND-003
+def _marker_only(repo, parent, commit, path):
+    """Whether every hunk of the commit's change to path only flips spec markers between [ ] and [x]."""
+    if not repo.run("cat-file", "-e", f"{parent}:{path}", check=False).returncode == 0:
+        return False
+    if not repo.run("cat-file", "-e", f"{commit}:{path}", check=False).returncode == 0:
+        return False
+    hunks = []
+    for line in repo.out("diff", "-U0", "--no-renames", "--no-color", parent, commit, "--", path).splitlines():
+        if HUNK.match(line):
+            hunks.append(([], []))
+        elif hunks and line.startswith("-") and not line.startswith("---"):
+            hunks[-1][0].append(line[1:])
+        elif hunks and line.startswith("+") and not line.startswith("+++"):
+            hunks[-1][1].append(line[1:])
+    if not hunks:
+        return False
+    for removed, added in hunks:
+        if len(removed) != len(added):
+            return False
+        for old, new in zip(removed, added):
+            head = old[:5]
+            if not SPEC_LINE.match(old) or head not in FLIPS or new != FLIPS[head] + old[5:]:
+                return False
+    return True
+
 
 # @spec GATE-TRL-002, GATE-TRL-003, GATE-TRL-004, GATE-TRL-005
 def _check_trailers(repo, commit, trailers):
@@ -260,7 +291,7 @@ def _check_trailers(repo, commit, trailers):
 
 # @spec GATE-COMMIT-001, GATE-COMMIT-002, GATE-COMMIT-003, GATE-TRL-001, GATE-TRL-006, GATE-BND-001, GATE-BND-002
 # @spec GATE-HUM-001, GATE-HUM-005, GATE-HUM-008, GATE-HUM-009, GATE-HUM-010, GATE-APR-001, GATE-APR-002
-# @spec GATE-CLI-005
+# @spec GATE-CLI-005, GATE-HUM-011
 def check_commits(rev_range, state, cwd="."):
     """Check every Forge commit on the first-parent chain of rev_range ("A..B" or a single revision)."""
     repo = Repo(cwd)
@@ -285,9 +316,12 @@ def check_commits(rev_range, state, cwd="."):
                              commit).split("\n")
         paths = [p for p in paths if p]
         boundary_agent = agent or trailers["Forge-Agent"][0]
+        marker_paths = set()
+        if parents and boundary_agent in ("forge-qa", "forge-dev") and trailers["Forge-Mode"][-1:] in (["full"], ["repair"]):
+            marker_paths = {p for p in paths if matches(p, SPEC_FILES) and _marker_only(repo, parents[0], commit, p)}
         if boundary_agent in BOUNDARY:
             for path in paths:
-                if classify_path(path, patterns) != BOUNDARY[boundary_agent]:
+                if path not in marker_paths and classify_path(path, patterns) != BOUNDARY[boundary_agent]:
                     findings.append(_finding("BOUNDARY_VIOLATION", commit=commit, path=path,
                                              detail=f"{boundary_agent} may change {BOUNDARY[boundary_agent]} paths only"))
         if not parents or boundary_agent == "forge-planner":
@@ -295,7 +329,8 @@ def check_commits(rev_range, state, cwd="."):
         if rules.plan and repo.is_ancestor(commit, rules.plan):
             continue  # planning commit approved with the plan
         for path in paths:
-            findings += _human_findings(repo, rules, commit, parents[0], boundary_agent, path)
+            if path not in marker_paths:  # marker flips skip the human-line checks
+                findings += _human_findings(repo, rules, commit, parents[0], boundary_agent, path)
     return _result(findings)
 
 
