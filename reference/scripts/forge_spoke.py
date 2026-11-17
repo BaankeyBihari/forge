@@ -15,11 +15,13 @@ Prints one JSON object with a status and exits 0; a usage error exits 2 with the
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import lid_check  # noqa: E402
 import next_step  # noqa: E402
 import verify_gate  # noqa: E402
 from verify_gate import BOUNDARY, classify_path, matches  # noqa: E402
@@ -141,8 +143,70 @@ def invocation(state):
     return {"status": "OK", "invoke": lc.get("invoke"), "phase": lc.get("current_phase"), "state": state}
 
 
+def _git_in(repo, args, data):
+    proc = subprocess.run(["git", *args], cwd=repo.root, input=data, capture_output=True)
+    if proc.returncode != 0:
+        raise verify_gate.GitError(f"git {' '.join(args)}: {proc.stderr.decode(errors='replace').strip()}")
+    return proc.stdout.decode().strip()
+
+
+def _flip(lines, spec_id, marker):
+    """Set spec_id's leading marker in lines (keepends) to marker; False when no line carries the ID."""
+    for i, line in enumerate(lines):
+        m = lid_check.SPEC_LINE.match(line)
+        if m and m.group(2) == spec_id:
+            lines[i] = f"- [{marker}]" + line[5:]
+            return True
+    return False
+
+
+# @spec SPOKE-PROTO-MARK-001, SPOKE-PROTO-MARK-002, SPOKE-PROTO-MARK-003, SPOKE-PROTO-MARK-006
+# @spec SPOKE-PROTO-MARK-007
+def _sync_markers(state, repo):
+    """Flip workstream spec markers to match the evidence in HEAD plus the index.
+
+    Returns (marked, unmarked, saved) where saved maps each changed spec path to its index entry and
+    worktree bytes before the change, for restoring after a failed commit.
+    """
+    tree = repo.out("write-tree").strip()
+    parent = ["-p", "HEAD"] if repo.resolves("HEAD") else []
+    probe = repo.out("commit-tree", tree, *parent, "-m", "forge marker probe").strip()
+    to_mark, to_unmark = lid_check.marker_changes(state, probe)
+    wanted = {**{i: "x" for i in to_mark}, **{i: " " for i in to_unmark}}
+    saved = {}
+    if not wanted:
+        return [], [], saved
+    for path in repo.out("ls-files", "-z").split("\0"):
+        if not path or not matches(path, lid_check.SPEC_FILES):
+            continue
+        staged = repo.run("show", f":{path}").stdout.splitlines(keepends=True)
+        ids = [i for i in wanted if any(_flip([line], i, wanted[i]) for line in staged)]
+        if not ids:
+            continue
+        mode, sha = repo.out("ls-files", "-s", "--", path).split()[:2]
+        file = Path(repo.root) / path
+        before = file.read_bytes() if file.exists() else None
+        saved[path] = (mode, sha, before)
+        for i in ids:
+            _flip(staged, i, wanted[i])
+        blob = _git_in(repo, ["hash-object", "-w", "--stdin", "--path", path], "".join(staged).encode())
+        repo.run("update-index", "--cacheinfo", f"{mode},{blob},{path}")
+        if before is not None:
+            work = before.decode().splitlines(keepends=True)
+            if any([_flip(work, i, wanted[i]) for i in ids]):
+                file.write_bytes("".join(work).encode())
+    return sorted(to_mark), sorted(to_unmark), saved
+
+
+def _restore(repo, saved):
+    for path, (mode, sha, before) in saved.items():
+        repo.run("update-index", "--cacheinfo", f"{mode},{sha},{path}")
+        if before is not None:
+            (Path(repo.root) / path).write_bytes(before)
+
+
 # @spec SPOKE-PROTO-COMMIT-001, SPOKE-PROTO-COMMIT-002, SPOKE-PROTO-COMMIT-003, SPOKE-PROTO-COMMIT-004
-# @spec SPOKE-PROTO-COMMIT-005, SPOKE-PROTO-COMMIT-007
+# @spec SPOKE-PROTO-COMMIT-005, SPOKE-PROTO-COMMIT-007, SPOKE-PROTO-MARK-004, SPOKE-PROTO-MARK-005
 def commit(state, repo, message, stage):
     invoke = state["lifecycle"]["invoke"]
     agent = invoke.get("agent")
@@ -165,8 +229,18 @@ def commit(state, repo, message, stage):
     trailers = {"Forge-Agent": agent, "Forge-Stage": stage or invoke.get("stage"), "Forge-Mode": invoke.get("mode"),
                 "Forge-Input-SHA": invoke.get("base_sha")}
     args = [arg for key, value in trailers.items() for arg in ("--trailer", f"{key}: {value}")]
-    repo.run("commit", "-q", "-m", message, *args)
-    return {"status": "COMMITTED", "sha": repo.out("rev-parse", "HEAD").strip()}
+    marking = (agent in ("forge-qa", "forge-dev") and invoke.get("mode") in ("full", "repair")
+               and (state.get("config") or {}).get("repo_mode") == "LID")
+    marked, unmarked, saved = _sync_markers(state, repo) if marking else ([], [], {})
+    try:
+        repo.run("commit", "-q", "-m", message, *args)
+    except verify_gate.GitError:
+        _restore(repo, saved)
+        raise
+    result = {"status": "COMMITTED", "sha": repo.out("rev-parse", "HEAD").strip()}
+    if marking:
+        result.update(marked=marked, unmarked=unmarked)
+    return result
 
 
 # @spec SPOKE-PROTO-FIN-005, SPOKE-PROTO-FIN-006, SPOKE-PROTO-FIN-007, SPOKE-PROTO-FIN-008, SPOKE-PROTO-FIN-009
