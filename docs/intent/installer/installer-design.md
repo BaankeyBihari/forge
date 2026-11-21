@@ -22,18 +22,19 @@ Four rules shape it:
 
 ```text
 claude/installer.sh [--global | --project <repo>] [--plugin] [--preset <name>] [--models <file>]
-claude/installer.sh --uninstall [--global | --project <repo>]
+claude/installer.sh --uninstall [--global | --project <repo>] [--force]
 claude/installer.sh --vendor
 ```
 
 | Option | Meaning |
 |---|---|
-| `--global` | Install into `~/.claude/` (the default scope) |
+| `--global` | Install into the Claude Code configuration directory (the default scope) |
 | `--project <repo>` | Install into `<repo>/.claude/` |
 | `--plugin` | Install as a Claude Code plugin instead of plain files; global scope only |
 | `--preset <name>` | Model preset: `balanced`, `sonnet`, `opus`, `fable-opus`, `fable` |
 | `--models <file>` | JSON map from agent name to model, applied over the preset |
 | `--uninstall` | Remove the install at the given scope |
+| `--force` | With `--uninstall`, also remove installed files the user has edited |
 | `--vendor` | Clone every pin in `rev` into `.vendor/`; installs nothing |
 
 Allowed combinations:
@@ -41,20 +42,28 @@ Allowed combinations:
 | Form | May also take |
 |---|---|
 | Install (no `--uninstall`, no `--vendor`) | at most one of `--global`, `--project <repo>`; `--plugin` unless `--project` is given; `--preset`, `--models`, or both |
-| `--uninstall` | at most one of `--global`, `--project <repo>`; nothing else |
+| `--uninstall` | at most one of `--global`, `--project <repo>`; `--force` |
 | `--vendor` | nothing else |
 
-Any other combination, a repeated option, a missing option value, an unknown preset name, or an unknown option is a usage error.
+Any other combination, a repeated option, a missing option value, an unknown preset name, or an unknown option is a usage error: the installer prints `forge-install: USAGE: <message>` and the usage text to stderr and exits `2`, having read and written nothing.
 
 `--project <repo>` is resolved to its real path, which must be the root of a git repository's main worktree: `<repo>/.git` must be a directory. A linked worktree, a submodule, a subdirectory, or a path outside git refuses with `NOT_A_REPO_ROOT`. The install's key in the install record is `<real path>/.claude`.
 
-`--uninstall` and `--uninstall --global` act on the install keyed `~/.claude`, which is either the global plain-files install or the plugin, since only one of them can exist.
+`--uninstall` and `--uninstall --global` act on the install keyed `<config>`, which is either the global plain-files install or the plugin, since only one of them can exist.
+
+### Claude Code configuration directory
+
+`<config>` is the real path of `$CLAUDE_CONFIG_DIR` when that variable is set and non-empty, and of `~/.claude` otherwise: the directory Claude Code itself reads user settings, skills, agents, and plugins from. It is the global install's target and key, holds the global settings file, and holds `plugins/installed_plugins.json`. A project whose key equals `<config>` refuses with `INSTALL_OVERLAP`.
+
+### Git
+
+Every install and `--vendor` run needs the `git` command (else `GIT_MISSING`): the installer asks git whether a path is inside a working tree, whether a target is tracked, and what the checkout's state is.
 
 ### State directory
 
 The state directory is `$FORGE_HOME` when that variable is set while the installer runs, and `~/.forge` otherwise, resolved to its real path. Everything the installer writes that names the state directory uses this one value.
 
-A state directory inside a git working tree refuses with `STATE_DIR_IN_REPO`: workstream state must never appear in a repository, and Claude Code's worktree isolation refuses spoke writes into the main checkout.
+A state directory inside a git working tree (git reports the directory, or its nearest existing ancestor, as inside one) refuses with `STATE_DIR_IN_REPO`: workstream state must never appear in a repository, and Claude Code's worktree isolation refuses spoke writes into the main checkout.
 
 ## Source Tree
 
@@ -67,23 +76,23 @@ The installer reads only `claude/` and `rev`:
 | `claude/agents/forge-*.md` | Agent profile templates: name, description, tools, preloaded skills, a `model:` line, and the body |
 | `claude/hooks/guard_paths.py` | The guard's `PreToolUse` adapter |
 
-Copying follows every link, so each installed skill holds real files. Directories named `tests` or `__pycache__`, and every file or directory whose name starts with `.`, are not copied. `guard_paths.py` is copied into the installed Commander skill's `scripts/`, beside `guard_core.py`, and imports it from its own directory.
+The checkout is the directory containing `claude/install.py`. Each directory directly under `claude/skills/` is one skill of the same name. Copying follows every link, so each installed skill holds real files. At every depth, directories named `tests` or `__pycache__` and every file or directory whose name starts with `.` are not copied. `guard_paths.py` is copied into the installed Commander skill's `scripts/`, beside `guard_core.py`, and imports it from its own directory. A broken or cyclic link, a skill directory named `tests` or starting with `.`, or a `guard_paths.py` already present in the Commander skill's `scripts/` refuses with `SOURCE_INVALID`.
 
-The installer records the checkout's `HEAD` commit as `source_sha` (`null` when the checkout is not a git repository). When `claude/` or `reference/` has uncommitted changes, the install proceeds, records `source_dirty: true`, and prints a warning.
+The installer records the checkout's real path as `source` and its `HEAD` commit as `source_sha`. When `git status --porcelain` reports anything under `claude/` or `reference/` (untracked files included), the install proceeds, records `source_dirty: true`, and prints a warning. When the checkout is not a git repository, `source_sha` and `source_dirty` are `null`.
 
 ## Install Modes and Targets
 
 | | Plain files, global | Plain files, project | Plugin |
 |---|---|---|---|
-| Skills | `~/.claude/skills/forge*/` | `<repo>/.claude/skills/forge*/` | `<plugin>/skills/forge*/` |
-| Agents | `~/.claude/agents/forge-*.md` | `<repo>/.claude/agents/forge-*.md` | `<plugin>/agents/forge-*.md` |
+| Skills | `<config>/skills/forge*/` | `<repo>/.claude/skills/forge*/` | `<plugin>/skills/forge*/` |
+| Agents | `<config>/agents/forge-*.md` | `<repo>/.claude/agents/forge-*.md` | `<plugin>/agents/forge-*.md` |
 | Guard | `hooks:` in each agent's frontmatter | `hooks:` in each agent's frontmatter | `<plugin>/hooks/hooks.json` |
-| Settings file | `~/.claude/settings.json` | `<repo>/.claude/settings.local.json` | `~/.claude/settings.json` |
+| Settings file | `<config>/settings.json` | `<repo>/.claude/settings.local.json` | `<config>/settings.json` |
 | Hidden from git | — | each installed path listed in `.git/info/exclude` | — |
 
 `<plugin>` is `<state dir>/plugin/forge/`. Claude Code reads a plugin from a local-directory marketplace in place rather than copying it into its plugin cache, so the installer builds the plugin outside the checkout and that build is the installed copy.
 
-The top-level installed paths are each skill directory, each agent file, and, for the plugin, each file under `<state dir>/plugin/`.
+The top-level installed paths are each skill directory and each agent file, and, for the plugin, `<state dir>/plugin/`. Removing directories left empty never goes above a top-level installed path, so `skills/`, `agents/`, and `.claude/` are never removed.
 
 ### Plain files
 
@@ -97,11 +106,11 @@ hooks:
           command: FORGE_HOME='<state dir>' python3 '<skills>/forge/scripts/guard_paths.py'
 ```
 
-with no matcher, so every tool call of the agent is checked, and with both paths absolute and shell-quoted. Every profile gets it, Council personas included: a nested agent runs its own frontmatter hooks, not its parent's.
+with no matcher, so every tool call of the agent is checked, and with both paths absolute and quoted for the shell. A template that already has a `hooks:` block refuses with `TEMPLATE_INVALID`. Every profile gets it, Council personas included: a nested agent runs its own frontmatter hooks, not its parent's.
 
 The hook runs the `python3` found on the session's `PATH`. When that Python is older than 3.11, `guard_paths.py` blocks the call with a reason before importing anything else. When no `python3` is found, the hook fails without blocking, the guard records nothing, and the router's guard-ran check stops the workstream.
 
-Project scope writes only untracked files. A target, or `.claude/settings.local.json`, that git tracks refuses with `TRACKED_TARGET`. Each top-level installed path and `.claude/settings.local.json` get a line in `.git/info/exclude` (`/.claude/skills/forge/`, `/.claude/agents/forge-dev.md`, …) unless that exact line is already there.
+Project scope writes only untracked files. A planned file, or `.claude/settings.local.json`, that git tracks refuses with `TRACKED_TARGET`. Each top-level installed path and `.claude/settings.local.json` get a line in `.git/info/exclude` (`/.claude/skills/forge`, `/.claude/agents/forge-dev.md`, …) unless that exact line is already there. On a reinstall, lines the earlier install added stay recorded when still wanted and are removed when not.
 
 Claude Code skips frontmatter hooks in `-p` sessions and in folders whose workspace trust was not accepted. Every plain-files install ends by printing this, together with the note that the router stops any dispatch whose guard did not run.
 
@@ -127,6 +136,8 @@ The build is a local marketplace rooted at `<state dir>/plugin/`:
 Plugin mode needs the `claude` command on `PATH`; without it the install refuses with `CLAUDE_MISSING`. A marketplace named `forge-local` already registered at another directory refuses with `MARKETPLACE_CONFLICT`. After writing the build, the installer runs `claude plugin marketplace add <state dir>/plugin` (skipped when `forge-local` is registered at that directory) and `claude plugin install forge@forge-local`.
 
 In plugin mode Claude Code names the agents `forge:forge-<role>` and the Commander `/forge:forge` (plain `/forge` still works while no other skill takes it). The install record's `agent_prefix` is `forge:`.
+
+Until plugin mode is built, a `--plugin` install refuses with `PLUGIN_UNAVAILABLE` after its argument checks.
 
 Force-enabling the plugin in managed settings, so the guard runs under `allowManagedHooksOnly`, is an administrator's step outside the installer.
 
@@ -173,9 +184,9 @@ The installer adds to the scope's settings file, creating it when absent:
 
 `additionalDirectories` lets spokes read the state directory without prompts; the `Edit` rule lets them write their envelopes and memory without prompts, which `additionalDirectories` alone does not in the default permission mode. `env.FORGE_HOME` makes every Forge script in the session use the same state directory as the guard.
 
-A value is recorded as an addition only when the installer adds it: a list entry already present, or an `env.FORGE_HOME` already holding the same value, is left alone and not recorded. An `env.FORGE_HOME` holding a different value refuses with `FORGE_HOME_CONFLICT`, naming both values, unless the record shows the installer wrote that value, in which case it is replaced. On a reinstall, the earlier install's recorded additions stay recorded when still wanted; recorded additions no longer wanted (an earlier state directory) are removed. A settings file that is not a JSON object refuses with `SETTINGS_INVALID`.
+A value is recorded as an addition only when the installer adds it: a list entry already present, or an `env.FORGE_HOME` already holding the same value, is left alone and not recorded. An `env.FORGE_HOME` holding a different value refuses with `FORGE_HOME_CONFLICT`, naming both values, unless the record shows the installer wrote that value, in which case it is replaced. On a reinstall, the earlier install's recorded additions stay recorded when still wanted; recorded additions no longer wanted (an earlier state directory) are removed. A settings file that is not a JSON object, or whose `env` or `permissions` is not an object, or whose `permissions.allow` or `permissions.additionalDirectories` is not a list, refuses with `SETTINGS_INVALID`.
 
-The settings file is read at the moment it is changed and written back in place as two-space-indented JSON with key order kept, so a settings file that is a link to a dotfiles repository stays a link. When a run changes `~/.claude/settings.json`, it first copies the file to `~/.claude/settings.json.forge-backup-<YYYYMMDDTHHMMSSZ>`, once per run, adding `-2`, `-3`, … when that name exists.
+The settings file is read at the moment it is changed and written back in place as two-space-indented JSON with key order kept, so a settings file that is a link to a dotfiles repository stays a link. When a run changes `<config>/settings.json`, it first copies the file to `<config>/settings.json.forge-backup-<YYYYMMDDTHHMMSSZ>`, once per run, adding `-2`, `-3`, … when that name exists, and prints the backup's path. `.git/info/exclude` is also rewritten in place.
 
 ## Install Record
 
@@ -184,7 +195,7 @@ The install record is `~/.forge/install.json`, at that fixed path whatever the s
 ```json
 {
   "installs": {
-    "/abs/home/.claude": {"cli": "claude", "scope": "global", "...": "..."},
+    "/abs/config": {"cli": "claude", "scope": "global", "...": "..."},
     "/abs/repo/.claude": {
       "cli": "claude",
       "scope": "project",
@@ -199,7 +210,7 @@ The install record is `~/.forge/install.json`, at that fixed path whatever the s
       "settings_file": "/abs/repo/.claude/settings.local.json",
       "settings_created": true,
       "settings_added": {"env.FORGE_HOME": "...", "permissions.additionalDirectories": ["..."], "permissions.allow": ["..."]},
-      "exclude_added": ["/.claude/skills/forge/", "..."],
+      "exclude_added": ["/.claude/skills/forge", "..."],
       "backup": null,
       "complete": true
     }
@@ -207,14 +218,16 @@ The install record is `~/.forge/install.json`, at that fixed path whatever the s
 }
 ```
 
-Each install is keyed by the configuration directory it installs into: `~/.claude` for the global scope and the plugin, `<repo>/.claude` for a project. Keying by that directory rather than by the repository lets installs for different CLIs live side by side in one repository. `cli` names the CLI the install is for; `claude` is the only value the installer writes or accepts, and an entry with another value is left untouched. `scope` is `global`, `project`, or `plugin`. `repo` is the repository's real path, present only for a project install. `agent_prefix` is `""` for plain files and `forge:` for the plugin. `files` maps each installed file to the SHA-256 of the content the installer writes; the hashes are computed before writing, so the record holds them from the start. `backup` is the path of the run's settings backup, or `null`.
+Each install is keyed by the configuration directory it installs into: `<config>` for the global scope and the plugin, `<repo>/.claude` for a project. Keying by that directory rather than by the repository lets installs for different CLIs live side by side in one repository. `cli` names the CLI the install is for; `claude` is the only value the installer writes or accepts, and an entry with another value is left untouched. `scope` is `global`, `project`, or `plugin`. `repo` is the repository's real path for a project install and `null` otherwise. `source` is the checkout's real path. `agent_prefix` is `""` for plain files and `forge:` for the plugin. `files` maps each installed file's absolute path to the SHA-256 of the content the installer writes; the hashes are computed before writing, so the record holds them from the start. `exclude_added` is `[]` outside project scope. `backup` is the path of the latest settings backup a run of this install made, or `null`. On a reinstall the first record entry written holds the earlier entry's files, settings additions, and exclude lines together with the new ones, so a run that stops part way loses track of nothing; `settings_created` keeps its recorded value.
 
-A project entry whose `repo` no longer exists is ignored by every check and removed the next time the run writes the record, and the run prints its key. An entry whose repository exists but whose files were deleted by hand stays until `--uninstall --project <repo>` removes it.
+The record is written to `install.json.forge-tmp` and renamed into place, as two-space-indented JSON with a trailing newline and non-ASCII characters kept.
+
+A `claude` project entry whose `repo` no longer exists is ignored by every check and removed the next time the run writes the record, and the run prints its key. An entry whose repository exists but whose files were deleted by hand stays until `--uninstall --project <repo>` removes it.
 
 ## Install Sequence
 
 1. Parse the arguments.
-2. Take the install lock `~/.forge/install.lock`, created exclusively and holding the installer's process ID. A lock whose process is alive refuses with `INSTALL_BUSY`; a lock whose process is gone is replaced.
+2. Take the install lock `~/.forge/install.lock`, created exclusively and holding the installer's process ID. A lock whose process is alive, or that is empty or does not parse, refuses with `INSTALL_BUSY`, naming the lock's path, and is left in place. A lock whose process is gone is deleted and created again exclusively; when another run wins that race, this run refuses with `INSTALL_BUSY`.
 3. Run every check: scope and state directory, overlap, running workstreams, existing and edited files, tracked targets, templates and models, settings file, plugin pins, and for the plugin the `claude` command and marketplace.
 4. Write the record entry with `complete` false and the planned files with their hashes, settings additions, and exclude lines.
 5. Write each file to `.<name>.forge-tmp` in its target directory and rename it into place; then remove recorded files this install no longer produces, and directories left empty.
@@ -247,7 +260,7 @@ On a reinstall, a recorded file whose content no longer matches its recorded has
 
 ## Running Workstreams
 
-A reinstall or an uninstall refuses with `WORKSTREAM_ACTIVE` while any workstream lock (`state/<org>/<repo>/<workstream>/lock.json`) under the state directory of the affected install, or of the requested install, is held: its `host` is another machine, or its `holder_pid` is a live process on this one. Replacing the guard or the skills under a running workstream would change its rules mid-dispatch. The message names each workstream and tells the user to finish it, stop it with `/forge stop` and close the session, or wait.
+A reinstall or an uninstall refuses with `WORKSTREAM_ACTIVE` while any workstream lock (`state/<org>/<repo>/<workstream>/lock.json`) under the state directory of the affected install, or of the requested install, is held, whichever repository it belongs to: its `host` differs from this machine's host name (`socket.gethostname()`, as the workstream lock itself records it), its `holder_pid` is a live process on this machine, or it does not parse or lacks `host`. Replacing the guard or the skills under a running workstream would change its rules mid-dispatch. The message names each workstream and tells the user to finish it, stop it with `/forge stop` and close the session, or wait.
 
 ## Pins and Plugin Check
 
@@ -260,21 +273,21 @@ A reinstall or an uninstall refuses with `WORKSTREAM_ACTIVE` while any workstrea
 }
 ```
 
-Every pin has `repo` and `commit`. `plugin` names a Claude Code plugin ID and appears only for pins Forge needs installed; `required` true makes a missing plugin refuse the install. Pins without `plugin` are provenance only. A `rev` that does not parse or lacks a field refuses with `REV_INVALID`.
+`rev` sits at the checkout's root, and each pin's name is its key. Every pin has `repo` and `commit`. `plugin` names a Claude Code plugin ID and appears only for pins Forge needs installed; `required` true makes a missing plugin refuse the install. Pins without `plugin` are provenance only. A missing `rev`, one that does not parse, a pin lacking a field, or `required` true without `plugin` refuses with `REV_INVALID`.
 
-For every pin with `plugin`, the installer reads `~/.claude/plugins/installed_plugins.json` (`plugins.<id>` is a list of install entries, each with `scope` and `gitCommitSha`). An entry counts when its scope is `user`. No counting entry for a required plugin refuses with `PLUGIN_MISSING`; an entry whose `gitCommitSha` differs from the pin prints a warning naming both commits and the install continues. A missing or unreadable `installed_plugins.json` counts as no plugins installed.
+For every pin with `plugin`, the installer reads `<config>/plugins/installed_plugins.json` (`plugins.<id>` is a list of install entries, each with `scope` and `gitCommitSha`). An entry counts when its scope is `user`. No counting entry for a required plugin refuses with `PLUGIN_MISSING`; an entry whose `gitCommitSha` differs from the pin prints a warning naming both commits and the install continues. A missing or unreadable `installed_plugins.json` counts as no plugins installed.
 
 ## Uninstall
 
 `--uninstall` takes the install lock, refuses while a workstream runs, and acts on the record's install at the requested scope:
 
-1. Each recorded file whose content matches its recorded hash is removed; an absent file counts as removed; a file that changed is kept and named in the output. Directories left empty are removed.
+1. Each recorded file whose content matches its recorded hash is removed; an absent file counts as removed; a file that changed is kept and named in the output, unless `--force` is given, which removes it too. Directories left empty are removed.
 2. Plugin only: `claude plugin uninstall forge@forge-local` and `claude plugin marketplace remove forge-local` run.
 3. Each recorded settings addition still present with the recorded value is removed; a value the user changed or added is untouched. `env`, `permissions.allow`, `permissions.additionalDirectories`, and then `permissions` are removed when left empty. A settings file left as `{}` is removed when `settings_created` is true.
 4. Each recorded `.git/info/exclude` line is removed, except lines covering a kept file, which are named in the output for the user to remove once they deal with the file.
-5. The install is deleted from the record; the record file is deleted when no install is left.
+5. When no file was kept, the install is deleted from the record, and the record file is deleted when no install is left. When files were kept, the entry stays, listing only the kept files and the exclude lines covering them, and the run exits with `FILES_KEPT`; a later install at the same scope refuses with `FILES_EDITED` until the user moves or deletes them, or reruns `--uninstall --force`.
 
-A step that fails is reported and the remaining steps still run; the run then exits with `STEP_FAILED`, and the record keeps the entries whose removal failed so a rerun can finish. Backups are never restored: later changes to the settings file would be lost. Workstream state under the state directory is never touched. Uninstalling a scope with no record entry refuses with `NOT_INSTALLED`.
+A step that fails is reported and the remaining steps still run; the run then exits with `STEP_FAILED` (which takes precedence over `FILES_KEPT`), and the record keeps the entries whose removal failed so a rerun can finish. Backups are never restored: later changes to the settings file would be lost. Workstream state under the state directory is never touched. Uninstalling a scope with no record entry refuses with `NOT_INSTALLED`.
 
 ## Vendor
 
@@ -282,13 +295,13 @@ A step that fails is reported and the remaining steps still run; the run then ex
 
 ## Output and Exit Codes
 
-Each step prints one line. A successful run ends with one summary line naming the mode, scope, key, models choice, and number of files written. A refusal or failure prints `forge-install: <CODE>: <message>` to stderr. Warnings print and do not change the exit code.
+Each step prints one line. A successful install ends with a summary as its last line, naming the mode, scope, key, models choice (the preset name, followed by `+<models file>` when one was given, or `recorded`), and number of files the install holds. A refusal or failure prints `forge-install: <CODE>: <message>` to stderr. Warnings print and do not change the exit code.
 
 | Exit | Codes |
 |---|---|
 | `0` | success |
-| `1` | `PYTHON_TOO_OLD` (from `installer.sh`), `NOT_A_REPO_ROOT`, `STATE_DIR_IN_REPO`, `INSTALL_BUSY`, `WORKSTREAM_ACTIVE`, `INSTALL_OVERLAP`, `FILE_EXISTS`, `FILES_EDITED`, `TRACKED_TARGET`, `TEMPLATE_INVALID`, `MODELS_INVALID`, `SETTINGS_INVALID`, `FORGE_HOME_CONFLICT`, `REV_INVALID`, `PLUGIN_MISSING`, `CLAUDE_MISSING`, `MARKETPLACE_CONFLICT`, `NOT_INSTALLED`, `GIT_MISSING`, `STEP_FAILED`, `VENDOR_FAILED` |
-| `2` | `USAGE`, printed with the usage text; nothing is read or written |
+| `1` | `PYTHON_TOO_OLD` (from `installer.sh`), `NOT_A_REPO_ROOT`, `STATE_DIR_IN_REPO`, `INSTALL_BUSY`, `WORKSTREAM_ACTIVE`, `INSTALL_OVERLAP`, `FILE_EXISTS`, `FILES_EDITED`, `FILES_KEPT`, `TRACKED_TARGET`, `SOURCE_INVALID`, `TEMPLATE_INVALID`, `MODELS_INVALID`, `SETTINGS_INVALID`, `FORGE_HOME_CONFLICT`, `REV_INVALID`, `PLUGIN_MISSING`, `PLUGIN_UNAVAILABLE`, `CLAUDE_MISSING`, `MARKETPLACE_CONFLICT`, `NOT_INSTALLED`, `GIT_MISSING`, `STEP_FAILED`, `VENDOR_FAILED` |
+| `2` | `USAGE` |
 
 ## Decisions & Alternatives
 
@@ -308,7 +321,10 @@ Each step prints one line. A successful run ends with one summary line naming th
 | Rerun without model flags | Reuse the recorded models | Fall back to `balanced` | Rerunning to pick up checkout changes should not silently change what each agent runs on. |
 | `--models` with a preset | File applied over the preset, or over `balanced` when no preset is named; `default` covers unnamed agents | Mutually exclusive flags; file applied over the recorded models | One rule covers every combination, and the result does not depend on what an earlier run chose. |
 | State directory in sessions | Write `env.FORGE_HOME` into the scope's settings file | Rely on the default `~/.forge` | A non-default state directory chosen at install would otherwise reach the guard (through its command) but not the Commander's scripts. |
-| Uninstall of edited files | Keep and report files whose hash changed | Remove every recorded path | A changed file holds the user's edits; removing it loses work the record cannot restore. |
+| Uninstall of edited files | Keep and report them, keep their record entry, exit `FILES_KEPT`; `--force` removes them | Remove every recorded path; keep them and drop the entry with exit `0` | A changed file holds the user's edits; removing it loses work the record cannot restore. Keeping the entry stops a later install from treating the kept files as foreign, and a non-zero exit tells a script the uninstall is not finished. `--force` is the explicit way to clean up anyway. |
+| `--force` scope | Uninstall only | Also let a reinstall overwrite edited files | One destructive flag in one place; a user who wants a forced reinstall runs `--uninstall --force` first. |
+| Configuration directory | Honour `$CLAUDE_CONFIG_DIR`, else `~/.claude` | Always `~/.claude` | Claude Code reads its configuration from `$CLAUDE_CONFIG_DIR` when set; an install elsewhere would never load. |
+| Running workstreams that block a change | Every held lock under the install's state directory | Only workstreams of the affected repository | Simple and safe; matching workstreams to repositories needs state beyond the lock, for a rare case of shared state directories. |
 | Backup restore | Never | Restore the backup on uninstall | Restoring would discard every settings change made after the install. |
 | Overlapping installs | Refuse and name the `--uninstall` command | Replace the old install automatically | Removing another install is the user's call (*Stop over guess*). |
 | `rev` format | JSON | Line-based text | Parsed by the standard library with no format rules of Forge's own. |

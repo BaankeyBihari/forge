@@ -117,6 +117,8 @@ reference/                   # CLI-neutral
     forge-council/           # council orchestration + personas/<persona>.md charters
 claude/                      # Claude Code adapter
   installer.sh               # install (--global | --project), --plugin, --preset, --models, --uninstall, --vendor
+  install.py                 # the installer's work, called by installer.sh
+  tests/                     # pytest suite for install.py
   skills/forge/SKILL.md      # Commander (Hub)
   skills/forge/scripts -> ../../../reference/scripts
   skills/forge-*  -> ../../reference/skills/forge-*
