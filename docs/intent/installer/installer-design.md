@@ -209,7 +209,7 @@ The install record is `~/.forge/install.json`, at that fixed path whatever the s
 
 Each install is keyed by the configuration directory it installs into: `~/.claude` for the global scope and the plugin, `<repo>/.claude` for a project. Keying by that directory rather than by the repository lets installs for different CLIs live side by side in one repository. `cli` names the CLI the install is for; `claude` is the only value the installer writes or accepts, and an entry with another value is left untouched. `scope` is `global`, `project`, or `plugin`. `repo` is the repository's real path, present only for a project install. `agent_prefix` is `""` for plain files and `forge:` for the plugin. `files` maps each installed file to the SHA-256 of the content the installer writes; the hashes are computed before writing, so the record holds them from the start. `backup` is the path of the run's settings backup, or `null`.
 
-A project entry whose `repo` no longer exists is removed from the record at the start of every run, and the run prints its key. An entry whose repository exists but whose files were deleted by hand stays until `--uninstall --project <repo>` removes it.
+A project entry whose `repo` no longer exists is ignored by every check and removed the next time the run writes the record, and the run prints its key. An entry whose repository exists but whose files were deleted by hand stays until `--uninstall --project <repo>` removes it.
 
 ## Install Sequence
 
@@ -223,7 +223,7 @@ A project entry whose `repo` no longer exists is removed from the record at the 
 8. Add the `.git/info/exclude` lines.
 9. Rewrite the record entry with `complete` true, release the lock, and print the summary.
 
-A step after 4 that fails stops the run with `STEP_FAILED`, naming the step, and leaves the record entry with `complete` false. A rerun of the same install treats it as a reinstall and finishes it; `--uninstall` removes what it wrote. Leftover `.forge-tmp` files are removed by the next run.
+A step after 4 that fails stops the run with `STEP_FAILED`, naming the step, and leaves the record entry with `complete` false. A rerun of the same install treats it as a reinstall and finishes it; `--uninstall` removes what it wrote. Leftover `.forge-tmp` files are removed by the next run that writes or removes that install's files.
 
 ## Overlap Rules
 
