@@ -5,5 +5,25 @@ uv = "0.13"
 "pipx:nox" = "2026.10"
 
 [tasks.test]
-description = "Run the test suite on every supported Python (3.11 to 3.15); extra args go to nox, e.g. `mise run test -s tests-3.11`"
-run = "nox"
+description = "Run the test suite on Python 3.11 to 3.15 in parallel"
+depends = ["test:3.11", "test:3.12", "test:3.13", "test:3.14", "test:3.15"]
+
+[tasks."test:3.11"]
+description = "Run the test suite on Python 3.11; args are test paths, e.g. `mise run test:3.11 -- reference/scripts/tests/test_lid_check.py`"
+run = "nox -s tests-3.11 --"
+
+[tasks."test:3.12"]
+description = "Run the test suite on Python 3.12; args are test paths, e.g. `mise run test:3.12 -- reference/scripts/tests/test_lid_check.py`"
+run = "nox -s tests-3.12 --"
+
+[tasks."test:3.13"]
+description = "Run the test suite on Python 3.13; args are test paths, e.g. `mise run test:3.13 -- reference/scripts/tests/test_lid_check.py`"
+run = "nox -s tests-3.13 --"
+
+[tasks."test:3.14"]
+description = "Run the test suite on Python 3.14; args are test paths, e.g. `mise run test:3.14 -- reference/scripts/tests/test_lid_check.py`"
+run = "nox -s tests-3.14 --"
+
+[tasks."test:3.15"]
+description = "Run the test suite on Python 3.15; args are test paths, e.g. `mise run test:3.15 -- reference/scripts/tests/test_lid_check.py`"
+run = "nox -s tests-3.15 --"

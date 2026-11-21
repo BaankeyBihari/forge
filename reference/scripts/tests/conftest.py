@@ -19,6 +19,11 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parent.parent
 HOLDER_SESSION = "test-session"
 
+# Ignore the user's global and system git config, so their hooks (core.hooksPath) and
+# settings neither slow nor change the tests; each test repository sets its own identity.
+os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
+os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
+
 
 # --------------------------------------------------------------------------- git
 
