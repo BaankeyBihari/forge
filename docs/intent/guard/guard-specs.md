@@ -14,12 +14,12 @@ Design: `guard-design.md`. Implementation: `reference/scripts/guard_core.py` (de
 
 ## Guard record
 
-- [ ] **GUARD-REC-001**: While the active workstream's `lifecycle.dispatched` is set, when handling a guarded call, `guard_core.py` shall add the call's `agent_type` to the `agents` list of `envelopes/<dispatch_id>.guard.json` beside `state.json`, listing each agent once and creating the file and its directory when missing.
-- [ ] **GUARD-REC-002**: `guard_core.py` shall write the record per GUARD-REC-001 whether or not a later check blocks the call.
-- [ ] **GUARD-REC-003**: When writing the record, `guard_core.py` shall write a temporary file in the same directory and rename it over the record.
-- [ ] **GUARD-REC-004**: When the call's agent is already in the record's `agents` list, `guard_core.py` shall leave the record unchanged.
-- [ ] **GUARD-REC-005**: If the record is not a JSON object whose `agents` is a list of strings, then `guard_core.py` shall replace it with a record listing only the call's agent.
-- [ ] **GUARD-REC-006**: While reading and replacing the record, `guard_core.py` shall hold an exclusive `flock` on `envelopes/<dispatch_id>.guard.lock`.
+- [x] **GUARD-REC-001**: While the active workstream's `lifecycle.dispatched` is set, when handling a guarded call, `guard_core.py` shall add the call's `agent_type` to the `agents` list of `envelopes/<dispatch_id>.guard.json` beside `state.json`, listing each agent once and creating the file and its directory when missing.
+- [x] **GUARD-REC-002**: `guard_core.py` shall write the record per GUARD-REC-001 whether or not a later check blocks the call.
+- [x] **GUARD-REC-003**: When writing the record, `guard_core.py` shall write a temporary file in the same directory and rename it over the record.
+- [x] **GUARD-REC-004**: When the call's agent is already in the record's `agents` list, `guard_core.py` shall leave the record unchanged.
+- [x] **GUARD-REC-005**: If the record is not a JSON object whose `agents` is a list of strings, then `guard_core.py` shall replace it with a record listing only the call's agent.
+- [x] **GUARD-REC-006**: While reading and replacing the record, `guard_core.py` shall hold an exclusive `flock` on `envelopes/<dispatch_id>.guard.lock`.
 
 ## Kill switch
 
@@ -59,7 +59,7 @@ Design: `guard-design.md`. Implementation: `reference/scripts/guard_core.py` (de
 
 ## Order
 
-- [ ] **GUARD-ORDER-001**: `guard_core.py` shall run the active-workstream lookup, then the guard record, then the kill switch, then the `NO_ACTIVE_WORKSTREAM` block, then the duplicate-call check, then the write-target or command check, and report the first block.
+- [x] **GUARD-ORDER-001**: `guard_core.py` shall run the active-workstream lookup, then the guard record, then the kill switch, then the `NO_ACTIVE_WORKSTREAM` block, then the duplicate-call check, then the write-target or command check, and report the first block.
 
 ## Claude Code adapter
 
@@ -67,5 +67,5 @@ Design: `guard-design.md`. Implementation: `reference/scripts/guard_core.py` (de
 - [x] **GUARD-ADAPT-002**: `guard_paths.py` shall take the write target from `tool_input.file_path` for `Write` and `Edit`, and from `tool_input.notebook_path` for `NotebookEdit`.
 - [x] **GUARD-ADAPT-003**: When `guard_core.py` allows a call, `guard_paths.py` shall exit `0` with no output.
 - [x] **GUARD-ADAPT-004**: When `guard_core.py` blocks a call, `guard_paths.py` shall write the reason to stderr and exit `2`.
-- [ ] **GUARD-ADAPT-005**: If the Python running `guard_paths.py` is older than 3.11 and the call's `agent_type` starts with `forge-`, then `guard_paths.py` shall block the call with `PYTHON_TOO_OLD` in the reason before importing `guard_core.py`.
-- [ ] **GUARD-ADAPT-006**: `guard_paths.py` shall import `guard_core.py` from the directory containing `guard_paths.py`.
+- [x] **GUARD-ADAPT-005**: If the Python running `guard_paths.py` is older than 3.11 and the call's `agent_type` starts with `forge-`, then `guard_paths.py` shall block the call with `PYTHON_TOO_OLD` in the reason before importing `guard_core.py`.
+- [x] **GUARD-ADAPT-006**: `guard_paths.py` shall import `guard_core.py` from the directory containing `guard_paths.py`.

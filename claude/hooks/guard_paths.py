@@ -4,6 +4,8 @@
 Design: docs/intent/guard/guard-design.md (Adapter Contract).
 Reads the hook input on stdin, does nothing unless agent_type starts with "forge-",
 maps the call onto guard_core.decide, and blocks with exit 2 and a reason on stderr.
+guard_core.py is imported from this file's own directory, where the installer puts both.
+Everything before the version check runs on any python3.
 """
 
 import json
@@ -14,6 +16,7 @@ TARGET_FIELD = {"Write": "file_path", "Edit": "file_path", "NotebookEdit": "note
 
 
 # @spec GUARD-SCOPE-001, GUARD-SCOPE-002, GUARD-ADAPT-001, GUARD-ADAPT-002, GUARD-ADAPT-003, GUARD-ADAPT-004
+# @spec GUARD-ADAPT-005, GUARD-ADAPT-006
 def main():
     try:
         data = json.loads(sys.stdin.read())
@@ -24,8 +27,12 @@ def main():
     agent = data.get("agent_type")
     if not isinstance(agent, str) or not agent.startswith("forge-"):
         return 0
+    if sys.version_info < (3, 11):
+        print("Forge guard blocked this call (PYTHON_TOO_OLD): the python3 on PATH is "
+              f"{sys.version_info[0]}.{sys.version_info[1]}; Forge needs 3.11 or newer", file=sys.stderr)
+        return 2
     try:
-        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "reference" / "scripts"))
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
         import guard_core
 
         tool = data.get("tool_name")

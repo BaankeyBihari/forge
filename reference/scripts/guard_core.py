@@ -9,6 +9,7 @@ shell calls) and returns {"allow": bool, "code": str | None, "reason": str}.
 Each CLI adapter maps its own hook input onto this shape.
 """
 
+import fcntl
 import hashlib
 import json
 import os
@@ -75,6 +76,30 @@ def find_workstream(checkout, session_id):
         if _inside(checkout.root, _real((state.get("identity") or {}).get("worktree_path"))):
             return sd, state
     return matches[0] if matches else None
+
+
+# ------------------------------------------------------------- guard record
+
+
+# @spec GUARD-REC-001, GUARD-REC-003, GUARD-REC-004, GUARD-REC-005, GUARD-REC-006
+def record_guard(agent, sd, state):
+    """Adds agent to envelopes/<dispatch_id>.guard.json while a dispatch is out: evidence the guard ran."""
+    d = (state.get("lifecycle") or {}).get("dispatched")
+    if not d:
+        return
+    env = Path(sd) / "envelopes"
+    env.mkdir(parents=True, exist_ok=True)
+    path = env / f"{d.get('dispatch_id')}.guard.json"
+    with open(env / f"{d.get('dispatch_id')}.guard.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)  # released when the file closes
+        try:
+            agents = json.loads(path.read_text()).get("agents")
+        except (FileNotFoundError, ValueError, AttributeError):
+            agents = None
+        if not (isinstance(agents, list) and all(isinstance(a, str) for a in agents)):
+            agents = []
+        if agent not in agents:
+            resolve_state.write_json_atomic(path, {"agents": agents + [agent]})
 
 
 # ---------------------------------------------------------- circuit breaker
@@ -269,18 +294,20 @@ def check_command(agent, command, depth=0):
 # --------------------------------------------------------------------- entry
 
 
-# @spec GUARD-ORDER-001, GUARD-KILL-001, GUARD-WS-002
+# @spec GUARD-ORDER-001, GUARD-KILL-001, GUARD-WS-002, GUARD-REC-002
 def decide(call):
     agent = call.get("agent_type") or ""
     try:
         checkout = resolve_state.Checkout(call.get("cwd") or ".")
     except resolve_state.GitError:
         checkout = None
+    found = find_workstream(checkout, call.get("session_id")) if checkout else None
+    if found:
+        record_guard(agent, *found)  # before any block, so a blocked call still shows the guard ran
     if checkout:
         for root in (checkout.main_root(), checkout.root):
             if Path(root, ".STOP_FORGE").exists():
                 return block("KILL_SWITCH", f"{Path(root, '.STOP_FORGE')} exists; Forge agents are stopped")
-    found = find_workstream(checkout, call.get("session_id")) if checkout else None
     if not found:
         return block("NO_ACTIVE_WORKSTREAM", "no Forge workstream in this repository is held by this session")
     sd, state = found
