@@ -19,6 +19,7 @@ Design: `guard-design.md`. Implementation: `reference/scripts/guard_core.py` (de
 - [ ] **GUARD-REC-003**: When writing the record, `guard_core.py` shall write a temporary file in the same directory and rename it over the record.
 - [ ] **GUARD-REC-004**: When the call's agent is already in the record's `agents` list, `guard_core.py` shall leave the record unchanged.
 - [ ] **GUARD-REC-005**: If the record is not a JSON object whose `agents` is a list of strings, then `guard_core.py` shall replace it with a record listing only the call's agent.
+- [ ] **GUARD-REC-006**: While reading and replacing the record, `guard_core.py` shall hold an exclusive `flock` on `envelopes/<dispatch_id>.guard.lock`.
 
 ## Kill switch
 
@@ -58,7 +59,7 @@ Design: `guard-design.md`. Implementation: `reference/scripts/guard_core.py` (de
 
 ## Order
 
-- [ ] **GUARD-ORDER-001**: `guard_core.py` shall run the kill switch, then the active-workstream lookup, then the guard record, then the duplicate-call check, then the write-target or command check, and report the first block.
+- [ ] **GUARD-ORDER-001**: `guard_core.py` shall run the active-workstream lookup, then the guard record, then the kill switch, then the `NO_ACTIVE_WORKSTREAM` block, then the duplicate-call check, then the write-target or command check, and report the first block.
 
 ## Claude Code adapter
 
