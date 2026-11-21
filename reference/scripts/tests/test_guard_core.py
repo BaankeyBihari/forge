@@ -5,8 +5,10 @@ where call carries the adapter's mapped fields: agent_type, agent_id, session_id
 scratchpad_dir, tool_name, tool_input, and `target` (write tools) or `command` (Bash).
 """
 
+import fcntl
 import json
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -140,6 +142,84 @@ def test_other_envelope_writes_blocked(ctx, agent, name):
 # @spec GUARD-WRITE-009
 def test_no_envelope_write_without_dispatch(ctx):
     assert blocked(write(ctx, "forge-dev", ctx.sd / "envelopes" / "d-123.json"), "BOUNDARY_VIOLATION")
+
+
+# ----------------------------------------------------------------- guard record
+
+
+def agents(env, dispatch_id="d-123"):
+    return json.loads((env / f"{dispatch_id}.guard.json").read_text())["agents"]
+
+
+# @spec GUARD-REC-001
+def test_record_lists_each_guarded_agent_once(ctx):
+    env = dispatched(ctx, "forge-council")
+    ctx("forge-council", tool_name="Read")
+    ctx("forge-council-critic", tool_name="Read")
+    ctx("forge-council", tool_name="Grep")
+    assert agents(env) == ["forge-council", "forge-council-critic"]
+
+
+# @spec GUARD-REC-001
+def test_no_record_without_dispatch(ctx):
+    ctx("forge-dev", tool_name="Read")
+    assert not (ctx.sd / "envelopes").exists() or not list((ctx.sd / "envelopes").glob("*.guard.json"))
+
+
+# @spec GUARD-REC-002
+def test_blocked_calls_are_recorded(ctx):
+    env = dispatched(ctx, "forge-dev")
+    assert blocked(write(ctx, "forge-dev", ctx.ws["worktree"] / "tests/test_a.py"), "BOUNDARY_VIOLATION")
+    assert blocked(bash(ctx, "forge-qa", "git push"), "COMMAND_NOT_ALLOWED")
+    assert agents(env) == ["forge-dev", "forge-qa"]
+
+
+# @spec GUARD-REC-003
+def test_record_replaced_by_rename(ctx, monkeypatch):
+    env = dispatched(ctx, "forge-dev")
+    renames = []
+    real = os.replace
+    monkeypatch.setattr(os, "replace", lambda a, b: (renames.append((Path(a).parent, Path(b))), real(a, b))[1])
+    ctx("forge-dev", tool_name="Read")
+    assert (env, env / "d-123.guard.json") in renames
+    assert sorted(p.name for p in env.iterdir() if p.name.startswith(".")) == []
+
+
+# @spec GUARD-REC-004
+def test_listed_agent_leaves_record_untouched(ctx):
+    env = dispatched(ctx, "forge-dev")
+    ctx("forge-dev", tool_name="Read")
+    record = env / "d-123.guard.json"
+    os.utime(record, ns=(1_000_000_000, 1_000_000_000))
+    ctx("forge-dev", tool_name="Grep")
+    assert record.stat().st_mtime_ns == 1_000_000_000
+
+
+# @spec GUARD-REC-005
+@pytest.mark.parametrize("content", ["{not json", "[]", '{"agents": "forge-qa"}', '{"agents": [1]}', "{}"])
+def test_unreadable_record_is_replaced(ctx, content):
+    env = dispatched(ctx, "forge-dev")
+    env.mkdir(exist_ok=True)
+    (env / "d-123.guard.json").write_text(content)
+    assert ctx("forge-dev", tool_name="Read")["allow"] is True
+    assert agents(env) == ["forge-dev"]
+
+
+# @spec GUARD-REC-006
+def test_record_update_waits_for_the_lock(ctx):
+    env = dispatched(ctx, "forge-council")
+    env.mkdir(exist_ok=True)
+    with open(env / "d-123.guard.lock", "a") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        worker = threading.Thread(target=ctx, args=("forge-council",), kwargs={"tool_name": "Read"})
+        worker.start()
+        worker.join(0.5)
+        assert worker.is_alive()
+        assert not (env / "d-123.guard.json").exists()
+        fcntl.flock(held, fcntl.LOCK_UN)
+    worker.join(5)
+    assert not worker.is_alive()
+    assert agents(env) == ["forge-council"]
 
 
 # -------------------------------------------------------------- duplicate calls
@@ -430,6 +510,14 @@ def test_global_options_do_not_hide_allowed_commands(ctx):
 
 
 # ------------------------------------------------------------------------ order
+
+
+# @spec GUARD-ORDER-001
+def test_record_written_before_kill_switch(ctx):
+    env = dispatched(ctx, "forge-dev")
+    (ctx.ws["worktree"] / ".STOP_FORGE").write_text("")
+    assert blocked(ctx("forge-dev", tool_name="Read"), "KILL_SWITCH")
+    assert agents(env) == ["forge-dev"]
 
 
 # @spec GUARD-ORDER-001

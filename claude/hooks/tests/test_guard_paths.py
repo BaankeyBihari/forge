@@ -4,6 +4,8 @@ Reuses the reference suite's fixtures (temporary repo, FORGE_HOME, a created wor
 """
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -16,10 +18,18 @@ from conftest import HOLDER_SESSION, forge_home, repo, workstream  # noqa: E402,
 ADAPTER = ROOT / "claude/hooks/guard_paths.py"
 
 
-def hook(payload, raw=None):
-    assert ADAPTER.is_file(), "guard_paths.py is not implemented yet"
-    proc = subprocess.run([sys.executable, str(ADAPTER)], input=raw if raw is not None else json.dumps(payload),
-                          capture_output=True, text=True)
+SCRIPTS = ROOT / "reference/scripts"
+
+
+def hook(payload, raw=None, adapter=ADAPTER, argv=None, pythonpath=str(SCRIPTS)):
+    """Runs the adapter; from the checkout, guard_core is found through PYTHONPATH as if installed beside it."""
+    assert adapter.is_file(), "guard_paths.py is not implemented yet"
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    if pythonpath:
+        env["PYTHONPATH"] = pythonpath
+    proc = subprocess.run(argv or [sys.executable, str(adapter)],
+                          input=raw if raw is not None else json.dumps(payload),
+                          capture_output=True, text=True, env=env)
     return proc
 
 
@@ -103,3 +113,46 @@ def test_session_and_scratchpad_mapped(workstream):
     assert proc.returncode == 0
     proc = hook(event(workstream, "forge-verifier", "Read", {"file_path": "x"}, session_id="stranger"))
     assert proc.returncode == 2 and "NO_ACTIVE_WORKSTREAM" in proc.stderr
+
+
+OLD_PYTHON = """
+import runpy, sys
+sys.version_info = (3, 10, 9, "final", 0)
+try:
+    runpy.run_path(sys.argv[1], run_name="__main__")
+except SystemExit as e:
+    print("imported" if "guard_core" in sys.modules else "not-imported")
+    raise
+"""
+
+
+# @spec GUARD-ADAPT-005
+def test_old_python_blocks_forge_calls_before_import(workstream):
+    payload = event(workstream, "forge-verifier", "Read", {"file_path": "n.txt"})
+    proc = hook(payload, argv=[sys.executable, "-c", OLD_PYTHON, str(ADAPTER)])
+    assert proc.returncode == 2
+    assert "PYTHON_TOO_OLD" in proc.stderr
+    assert proc.stdout.strip() == "not-imported"
+
+
+# @spec GUARD-ADAPT-005
+def test_old_python_leaves_non_forge_calls_alone(workstream):
+    payload = event(workstream, None, "Bash", {"command": "git push --force"})
+    proc = hook(payload, argv=[sys.executable, "-c", OLD_PYTHON, str(ADAPTER)])
+    assert (proc.returncode, proc.stderr) == (0, "")
+
+
+# @spec GUARD-ADAPT-006
+def test_imports_guard_core_from_its_own_directory(workstream, tmp_path):
+    scripts = tmp_path / "skills" / "forge" / "scripts"
+    scripts.mkdir(parents=True)
+    shutil.copy(ADAPTER, scripts)
+    for f in SCRIPTS.glob("*.py"):
+        shutil.copy(f, scripts)
+    decoy = tmp_path / "skills" / "reference" / "scripts"
+    decoy.mkdir(parents=True)
+    (decoy / "guard_core.py").write_text('raise RuntimeError("decoy guard_core imported")\n')
+    payload = event(workstream, "forge-dev", "Write", {"file_path": str(workstream["worktree"] / "src/a.py"),
+                                                       "content": "x"})
+    proc = hook(payload, adapter=scripts / "guard_paths.py", pythonpath=None)
+    assert (proc.returncode, proc.stderr) == (0, "")
