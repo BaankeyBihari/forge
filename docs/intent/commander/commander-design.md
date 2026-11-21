@@ -194,6 +194,8 @@ forge_hub.py envelope --state PATH [--discard]
 
 When the router stops with `ENVELOPE_INVALID`, or `envelope` returns `ENVELOPE_UNREADABLE`, the dispatch is still outstanding and the file would be rejected again. The Commander shows the reason and asks whether to retry. On retry it runs `envelope --discard`, which renames the file to `<dispatch_id>.rejected-<YYYYMMDDTHHMMSSZ>.json` and returns `DISCARDED` (or `ENVELOPE_MISSING` when there is no file), then routes with no event, so the spoke runs again and writes a fresh envelope.
 
+When the router stops with `GUARD_INACTIVE`, the spoke ran without the guard, so its envelope cannot be trusted and a retry under the same conditions fails again. The Commander shows the `detail`, which names the likely causes, and asks the user to fix the one that applies before retrying. On retry it discards the envelope and routes with no event, as for a bad envelope.
+
 ### Pauses
 
 Pauses fall into three groups:

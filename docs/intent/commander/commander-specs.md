@@ -108,6 +108,7 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 - [D] **CMD-LOOP-004**: When a dispatched subagent returns, the Commander shall run `forge_hub.py envelope` and route with `--event <event_path>` on `OK`, or with no event on `NO_DISPATCH`.
 - [D] **CMD-LOOP-005**: When `envelope` returns `ENVELOPE_MISSING`, the Commander shall tell the user and, on retry, route with no event.
 - [D] **CMD-LOOP-006**: When `envelope` returns `ENVELOPE_UNREADABLE` or the router stops with `ENVELOPE_INVALID`, the Commander shall show the reason and, on retry, run `forge_hub.py envelope --discard` and route with no event.
+- [D] **CMD-LOOP-009**: When the router stops with `GUARD_INACTIVE`, the Commander shall show the `detail`, ask the user to fix the cause, and, on retry, run `forge_hub.py envelope --discard` and route with no event.
 - [D] **CMD-LOOP-007**: When the router returns `stop`, the Commander shall report the status and detail and end the loop.
 - [D] **CMD-LOOP-008**: When the router returns `close` or `done`, the Commander shall close the workstream per CMD-CLOSE-001.
 - [D] **CMD-LOOP-010**: When the router returns `mode_set` and CMD-SW-003 does not apply, the Commander shall report the new mode and then, when a subagent it started has not returned, wait for it and pick up its envelope per CMD-LOOP-004; otherwise it shall route with a `start` event when the phase is `INIT` and with no event in any other phase.
