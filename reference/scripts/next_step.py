@@ -372,6 +372,21 @@ def validate_envelope(ctx, env):
     return None
 
 
+# @spec ROUTE-ENV-015, ROUTE-ENV-016
+def guard_inactive(ctx, d):
+    """None when the dispatch's guard record lists the dispatched agent; otherwise the stop's detail."""
+    path = ctx.sd / "envelopes" / f"{d['dispatch_id']}.guard.json"
+    try:
+        agents = json.loads(path.read_text()).get("agents")
+    except (OSError, ValueError, AttributeError):
+        agents = None
+    if isinstance(agents, list) and d["agent"] in agents:
+        return None
+    return (f"the guard did not run for {d['agent']}: {path} does not list it. Known causes: a -p session, "
+            "a folder whose workspace trust was not accepted, a managed policy that allows only managed hooks, "
+            "or no python3 on PATH")
+
+
 def record_commits(ctx, env):
     """Mark the spoke's own commits as accounted for; anything else in or after its range is drift."""
     d = ctx.lc["dispatched"]
@@ -399,6 +414,11 @@ def record_scope(ctx, env):
 # @spec ROUTE-BUILD-032, ROUTE-PR-002, ROUTE-PR-003, ROUTE-BLK-005, ROUTE-BLK-006, ROUTE-BLK-016, ROUTE-HC-001
 # @spec ROUTE-BLK-018, ROUTE-BLK-024, ROUTE-BUILD-034, ROUTE-BUILD-035, ROUTE-ENV-013
 def apply_result(ctx, env):
+    d = ctx.lc.get("dispatched")
+    if d and env.get("dispatch_id") == d["dispatch_id"] and env.get("agent") == d["agent"]:
+        inactive = guard_inactive(ctx, d)
+        if inactive:
+            return stop("GUARD_INACTIVE", inactive, write=False)
     problem = validate_envelope(ctx, env)
     if problem:
         return stop("ENVELOPE_INVALID", problem, write=False)
