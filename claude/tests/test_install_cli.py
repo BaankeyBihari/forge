@@ -14,8 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from conftest import (LID_COMMIT, LID_PLUGIN, base_env, build_checkout, config_key, git, init_repo,
-                      read_record, record_path, run_installer, write_installed_plugins, write_rev)
+from install_fixtures import (LID_COMMIT, LID_PLUGIN, base_env, build_checkout, config_key, git, init_repo,
+                              read_record, record_path, run_installer, write_installed_plugins, write_rev)
+from install_fixtures import checkout, home, install, repo  # noqa: F401  (fixtures)
 
 REAL_PYTHON = os.path.realpath(sys.executable)
 

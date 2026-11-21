@@ -28,7 +28,7 @@ Forge is built with linked-intent development: start at `docs/high-level-design.
 ## Tests
 
 ```bash
-uvx pytest reference/scripts/tests claude/hooks/tests -q   # quick run, one interpreter
+uvx pytest reference/scripts/tests claude/hooks/tests claude/tests -q   # quick run, one interpreter
 mise install                                               # python 3.11 to 3.15, uv, nox
 mise run test                                              # full suite on every version, in parallel
 mise run test:3.11                                         # one version; add `-- <test paths>` for a subset

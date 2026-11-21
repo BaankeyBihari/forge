@@ -13,7 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import LID_COMMIT, LID_PLUGIN, config_key, git, init_repo, read_record, write_installed_plugins
+from install_fixtures import LID_COMMIT, LID_PLUGIN, config_key, git, init_repo, read_record, write_installed_plugins
+from install_fixtures import checkout, home, install, repo  # noqa: F401  (fixtures)
 
 PRESETS = ["balanced", "sonnet", "opus", "fable-opus", "fable"]
 TOP = ["opus", "sonnet", "opus", "fable", "fable"]

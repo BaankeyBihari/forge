@@ -1,0 +1,8 @@
+{
+  "linked-intent-dev": {
+    "repo": "https://github.com/jszmajda/lid",
+    "commit": "9679360f382b5c265da073c4e06badd3afcca7d0",
+    "plugin": "linked-intent-dev@jszmajda-lid",
+    "required": true
+  }
+}

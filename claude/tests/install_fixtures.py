@@ -5,6 +5,9 @@ claude/ and reference/ trees, with the repository's links recreated and a `rev`)
 its claude/installer.sh with HOME, CLAUDE_CONFIG_DIR and FORGE_HOME pointed into tmp_path,
 so nothing touches the user's real ~/.claude, ~/.forge or repositories.
 
+Test modules import the fixtures they use by name (a second conftest.py would collide with
+reference/scripts/tests/conftest.py when both suites run together).
+
 Run with: uvx pytest claude/tests
 """
 

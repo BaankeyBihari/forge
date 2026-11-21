@@ -16,8 +16,9 @@ from pathlib import Path
 
 import pytest
 
-from conftest import LID_COMMIT, LID_PLUGIN, git, init_repo, read_record, record_path, \
+from install_fixtures import LID_COMMIT, LID_PLUGIN, git, init_repo, read_record, record_path, \
     config_key, write_installed_plugins, write_rev
+from install_fixtures import checkout, home, install, repo  # noqa: F401  (fixtures)
 
 needs_non_root = pytest.mark.skipif(os.geteuid() == 0, reason="permission bits do not bind root")
 
@@ -240,6 +241,16 @@ def test_busy_lock_refuses_and_stays(install, home, content):
     assert str(lock) in proc.stderr or os.path.realpath(lock) in proc.stderr
     assert lock.read_text() == text
     assert not record_path(home).exists()
+
+
+# @spec INST-SEQ-001, INST-SEQ-003
+def test_stale_lock_replaced_and_run_continues(install, home):
+    lock = home / ".forge/install.lock"
+    lock.parent.mkdir(parents=True)
+    lock.write_text(json.dumps({"pid": dead_pid()}))
+    ok(install())
+    assert not lock.exists()
+    assert gkey(home) in read_record(home)["installs"]
 
 
 # @spec INST-SEQ-004
@@ -893,3 +904,29 @@ def test_refused_reinstall_changes_no_file_and_drops_its_lock(install, home):
     assert_refused(install(), "FILES_EDITED")
     assert snapshot(home) == before
     assert not (home / ".forge/install.lock").exists()
+
+
+@pytest.mark.parametrize("content", ["{nope", "[]", '{"installs": []}'])
+# @spec INST-REC-008
+def test_unreadable_record_refused_and_left_unchanged(install, home, content):
+    record_path(home).parent.mkdir(parents=True)
+    record_path(home).write_text(content)
+    assert_refused(install(), "RECORD_INVALID")
+    assert record_path(home).read_text() == content
+
+
+# @spec INST-SRC-008
+def test_missing_forge_skill_refused(install, checkout):
+    import shutil
+    shutil.rmtree(checkout / "claude/skills/forge")
+    assert_refused(install(), "SOURCE_INVALID")
+
+
+# @spec INST-OUT-004
+def test_progress_on_stdout_warnings_on_stderr(install, home):
+    other = "b" * 40
+    write_installed_plugins(home / ".claude", {LID_PLUGIN: [{"scope": "user", "gitCommitSha": other}]})
+    proc = ok(install())
+    assert re.search(r"^forge-install: warning: .*" + other, proc.stderr, re.M), proc.stderr
+    assert "warning" not in proc.stdout
+    assert proc.stdout.strip() and all(line.startswith("forge-install: ") for line in proc.stdout.splitlines())

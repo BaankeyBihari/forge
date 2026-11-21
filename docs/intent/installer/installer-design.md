@@ -76,7 +76,7 @@ The installer reads only `claude/` and `rev`:
 | `claude/agents/forge-*.md` | Agent profile templates: name, description, tools, preloaded skills, a `model:` line, and the body |
 | `claude/hooks/guard_paths.py` | The guard's `PreToolUse` adapter |
 
-The checkout is the directory containing `claude/install.py`. Each directory directly under `claude/skills/` is one skill of the same name. Copying follows every link, so each installed skill holds real files. At every depth, directories named `tests` or `__pycache__` and every file or directory whose name starts with `.` are not copied. `guard_paths.py` is copied into the installed Commander skill's `scripts/`, beside `guard_core.py`, and imports it from its own directory. A broken or cyclic link, a skill directory named `tests` or starting with `.`, or a `guard_paths.py` already present in the Commander skill's `scripts/` refuses with `SOURCE_INVALID`.
+The checkout is the directory containing `claude/install.py`. Each directory directly under `claude/skills/` is one skill of the same name. Copying follows every link, so each installed skill holds real files. At every depth, directories named `tests` or `__pycache__` and every file or directory whose name starts with `.` are not copied. `guard_paths.py` is copied into the installed Commander skill's `scripts/`, beside `guard_core.py`, and imports it from its own directory. A broken or cyclic link, a skill directory named `tests` or starting with `.`, a missing `claude/skills/forge/`, or a `guard_paths.py` already present in the Commander skill's `scripts/` refuses with `SOURCE_INVALID`.
 
 The installer records the checkout's real path as `source` and its `HEAD` commit as `source_sha`. When `git status --porcelain` reports anything under `claude/` or `reference/` (untracked files included), the install proceeds, records `source_dirty: true`, and prints a warning. When the checkout is not a git repository, `source_sha` and `source_dirty` are `null`.
 
@@ -103,10 +103,10 @@ hooks:
   PreToolUse:
     - hooks:
         - type: command
-          command: FORGE_HOME='<state dir>' python3 '<skills>/forge/scripts/guard_paths.py'
+          command: FORGE_HOME=<state dir> python3 <skills>/forge/scripts/guard_paths.py
 ```
 
-with no matcher, so every tool call of the agent is checked, and with both paths absolute and quoted for the shell. A template that already has a `hooks:` block refuses with `TEMPLATE_INVALID`. Every profile gets it, Council personas included: a nested agent runs its own frontmatter hooks, not its parent's.
+with no matcher, so every tool call of the agent is checked, and with both paths absolute and each quoted by `shlex.quote`, so a path with no special characters stays bare. A template that already has a `hooks:` block refuses with `TEMPLATE_INVALID`. Every profile gets it, Council personas included: a nested agent runs its own frontmatter hooks, not its parent's.
 
 The hook runs the `python3` found on the session's `PATH`. When that Python is older than 3.11, `guard_paths.py` blocks the call with a reason before importing anything else. When no `python3` is found, the hook fails without blocking, the guard records nothing, and the router's guard-ran check stops the workstream.
 
@@ -137,7 +137,7 @@ Plugin mode needs the `claude` command on `PATH`; without it the install refuses
 
 In plugin mode Claude Code names the agents `forge:forge-<role>` and the Commander `/forge:forge` (plain `/forge` still works while no other skill takes it). The install record's `agent_prefix` is `forge:`.
 
-Until plugin mode is built, a `--plugin` install refuses with `PLUGIN_UNAVAILABLE` after its argument checks.
+Until plugin mode is built, a `--plugin` install refuses with `PLUGIN_UNAVAILABLE` after its argument checks and before any other check.
 
 Force-enabling the plugin in managed settings, so the guard runs under `allowManagedHooksOnly`, is an administrator's step outside the installer.
 
@@ -220,14 +220,14 @@ The install record is `~/.forge/install.json`, at that fixed path whatever the s
 
 Each install is keyed by the configuration directory it installs into: `<config>` for the global scope and the plugin, `<repo>/.claude` for a project. Keying by that directory rather than by the repository lets installs for different CLIs live side by side in one repository. `cli` names the CLI the install is for; `claude` is the only value the installer writes or accepts, and an entry with another value is left untouched. `scope` is `global`, `project`, or `plugin`. `repo` is the repository's real path for a project install and `null` otherwise. `source` is the checkout's real path. `agent_prefix` is `""` for plain files and `forge:` for the plugin. `files` maps each installed file's absolute path to the SHA-256 of the content the installer writes; the hashes are computed before writing, so the record holds them from the start. `exclude_added` is `[]` outside project scope. `backup` is the path of the latest settings backup a run of this install made, or `null`. On a reinstall the first record entry written holds the earlier entry's files, settings additions, and exclude lines together with the new ones, so a run that stops part way loses track of nothing; `settings_created` keeps its recorded value.
 
-The record is written to `install.json.forge-tmp` and renamed into place, as two-space-indented JSON with a trailing newline and non-ASCII characters kept.
+The record is written to `install.json.forge-tmp` and renamed into place, as two-space-indented JSON with a trailing newline and non-ASCII characters kept. A record that cannot be read, does not parse, or has no `installs` object refuses with `RECORD_INVALID`; the installer never repairs or replaces it.
 
 A `claude` project entry whose `repo` no longer exists is ignored by every check and removed the next time the run writes the record, and the run prints its key. An entry whose repository exists but whose files were deleted by hand stays until `--uninstall --project <repo>` removes it.
 
 ## Install Sequence
 
 1. Parse the arguments.
-2. Take the install lock `~/.forge/install.lock`, created exclusively and holding the installer's process ID. A lock whose process is alive, or that is empty or does not parse, refuses with `INSTALL_BUSY`, naming the lock's path, and is left in place. A lock whose process is gone is deleted and created again exclusively; when another run wins that race, this run refuses with `INSTALL_BUSY`.
+2. Take the install lock `~/.forge/install.lock`, created exclusively and holding `{"pid": <process ID>}`. A lock whose process is alive, or that is empty or does not parse, refuses with `INSTALL_BUSY`, naming the lock's path, and is left in place. A lock whose process is gone is deleted and created again exclusively; when another run wins that race, this run refuses with `INSTALL_BUSY`.
 3. Run every check: scope and state directory, overlap, running workstreams, existing and edited files, tracked targets, templates and models, settings file, plugin pins, and for the plugin the `claude` command and marketplace.
 4. Write the record entry with `complete` false and the planned files with their hashes, settings additions, and exclude lines.
 5. Write each file to `.<name>.forge-tmp` in its target directory and rename it into place; then remove recorded files this install no longer produces, and directories left empty.
@@ -295,12 +295,12 @@ A step that fails is reported and the remaining steps still run; the run then ex
 
 ## Output and Exit Codes
 
-Each step prints one line. A successful install ends with a summary as its last line, naming the mode, scope, key, models choice (the preset name, followed by `+<models file>` when one was given, or `recorded`), and number of files the install holds. A refusal or failure prints `forge-install: <CODE>: <message>` to stderr. Warnings print and do not change the exit code.
+Each step prints one line to stdout. A successful install ends with `forge-install: installed <plain|plugin> <scope> <key> models=<choice> files=<n>` as its last stdout line, where `<choice>` is the preset name, followed by `+<models file>` when one was given, or `recorded`. A refusal or failure prints `forge-install: <CODE>: <message>` to stderr. Warnings print to stderr as `forge-install: warning: <message>` and do not change the exit code.
 
 | Exit | Codes |
 |---|---|
 | `0` | success |
-| `1` | `PYTHON_TOO_OLD` (from `installer.sh`), `NOT_A_REPO_ROOT`, `STATE_DIR_IN_REPO`, `INSTALL_BUSY`, `WORKSTREAM_ACTIVE`, `INSTALL_OVERLAP`, `FILE_EXISTS`, `FILES_EDITED`, `FILES_KEPT`, `TRACKED_TARGET`, `SOURCE_INVALID`, `TEMPLATE_INVALID`, `MODELS_INVALID`, `SETTINGS_INVALID`, `FORGE_HOME_CONFLICT`, `REV_INVALID`, `PLUGIN_MISSING`, `PLUGIN_UNAVAILABLE`, `CLAUDE_MISSING`, `MARKETPLACE_CONFLICT`, `NOT_INSTALLED`, `GIT_MISSING`, `STEP_FAILED`, `VENDOR_FAILED` |
+| `1` | `PYTHON_TOO_OLD` (from `installer.sh`), `NOT_A_REPO_ROOT`, `STATE_DIR_IN_REPO`, `INSTALL_BUSY`, `WORKSTREAM_ACTIVE`, `INSTALL_OVERLAP`, `RECORD_INVALID`, `FILE_EXISTS`, `FILES_EDITED`, `FILES_KEPT`, `TRACKED_TARGET`, `SOURCE_INVALID`, `TEMPLATE_INVALID`, `MODELS_INVALID`, `SETTINGS_INVALID`, `FORGE_HOME_CONFLICT`, `REV_INVALID`, `PLUGIN_MISSING`, `PLUGIN_UNAVAILABLE`, `CLAUDE_MISSING`, `MARKETPLACE_CONFLICT`, `NOT_INSTALLED`, `GIT_MISSING`, `STEP_FAILED`, `VENDOR_FAILED` |
 | `2` | `USAGE` |
 
 ## Decisions & Alternatives
