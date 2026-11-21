@@ -1,0 +1,9 @@
+[tools]
+# First entry is the default `python`; the rest let nox find every supported interpreter.
+python = ["3.15", "3.14", "3.13", "3.12", "3.11"]
+uv = "0.13"
+"pipx:nox" = "2026.10"
+
+[tasks.test]
+description = "Run the test suite on every supported Python (3.11 to 3.15); extra args go to nox, e.g. `mise run test -s tests-3.11`"
+run = "nox"
