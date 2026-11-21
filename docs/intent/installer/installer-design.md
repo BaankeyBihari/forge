@@ -46,9 +46,9 @@ Allowed combinations:
 
 Any other combination, a repeated option, a missing option value, an unknown preset name, or an unknown option is a usage error.
 
-`--project <repo>` is resolved to its real path, which must be the root of a git repository's main worktree: `<repo>/.git` must be a directory. A linked worktree, a submodule, a subdirectory, or a path outside git refuses with `NOT_A_REPO_ROOT`. The real path is the install's `root`.
+`--project <repo>` is resolved to its real path, which must be the root of a git repository's main worktree: `<repo>/.git` must be a directory. A linked worktree, a submodule, a subdirectory, or a path outside git refuses with `NOT_A_REPO_ROOT`. The install's key in the install record is `<real path>/.claude`.
 
-`--uninstall` and `--uninstall --global` act on the install whose root is `~/.claude`, which is either the global plain-files install or the plugin, since only one of them can exist.
+`--uninstall` and `--uninstall --global` act on the install keyed `~/.claude`, which is either the global plain-files install or the plugin, since only one of them can exist.
 
 ### State directory
 
@@ -183,11 +183,12 @@ The install record is `~/.forge/install.json`, at that fixed path whatever the s
 
 ```json
 {
-  "mode": "plain",
-  "installs": [
-    {
+  "installs": {
+    "/abs/home/.claude": {"cli": "claude", "scope": "global", "...": "..."},
+    "/abs/repo/.claude": {
+      "cli": "claude",
       "scope": "project",
-      "root": "/abs/repo",
+      "repo": "/abs/repo",
       "state_dir": "/abs/state",
       "source": "/abs/forge-checkout",
       "source_sha": "<checkout HEAD>",
@@ -202,11 +203,13 @@ The install record is `~/.forge/install.json`, at that fixed path whatever the s
       "backup": null,
       "complete": true
     }
-  ]
+  }
 }
 ```
 
-`mode` is `plain` or `plugin`. `scope` is `global`, `project`, or `plugin`; `root` is `~/.claude` for the global scope and the plugin, the repository root for a project. `agent_prefix` is `""` for plain files and `forge:` for the plugin. `files` maps each installed file to the SHA-256 of the content the installer writes; the hashes are computed before writing, so the record holds them from the start. `backup` is the path of the run's settings backup, or `null`.
+Each install is keyed by the configuration directory it installs into: `~/.claude` for the global scope and the plugin, `<repo>/.claude` for a project. Keying by that directory rather than by the repository lets installs for different CLIs live side by side in one repository. `cli` names the CLI the install is for; `claude` is the only value the installer writes or accepts, and an entry with another value is left untouched. `scope` is `global`, `project`, or `plugin`. `repo` is the repository's real path, present only for a project install. `agent_prefix` is `""` for plain files and `forge:` for the plugin. `files` maps each installed file to the SHA-256 of the content the installer writes; the hashes are computed before writing, so the record holds them from the start. `backup` is the path of the run's settings backup, or `null`.
+
+A project entry whose `repo` no longer exists is removed from the record at the start of every run, and the run prints its key. An entry whose repository exists but whose files were deleted by hand stays until `--uninstall --project <repo>` removes it.
 
 ## Install Sequence
 
@@ -224,12 +227,12 @@ A step after 4 that fails stops the run with `STEP_FAILED`, naming the step, and
 
 ## Overlap Rules
 
-The installer compares the requested install with the record:
+The installer compares the requested install with the record's entries whose `cli` is `claude`; installs for other CLIs never overlap a Claude Code install:
 
 | Existing | Requested | Result |
 |---|---|---|
 | none | any | install |
-| the same scope and root | same | reinstall in place |
+| the same scope and key | same | reinstall in place |
 | plain, global | plain, project | refused: the global install already serves every repository |
 | plain, project (any repository) | plain, global | refused, naming the project installs |
 | plain, project in repository A | plain, project in repository B | install (repositories do not share `.claude/`) |
@@ -279,7 +282,7 @@ A step that fails is reported and the remaining steps still run; the run then ex
 
 ## Output and Exit Codes
 
-Each step prints one line. A successful run ends with one summary line naming the mode, scope, root, models choice, and number of files written. A refusal or failure prints `forge-install: <CODE>: <message>` to stderr. Warnings print and do not change the exit code.
+Each step prints one line. A successful run ends with one summary line naming the mode, scope, key, models choice, and number of files written. A refusal or failure prints `forge-install: <CODE>: <message>` to stderr. Warnings print and do not change the exit code.
 
 | Exit | Codes |
 |---|---|
@@ -294,7 +297,8 @@ Each step prints one line. A successful run ends with one summary line naming th
 | Implementation | `installer.sh` hands off to stdlib-Python `install.py` | All in shell | JSON merges of settings files, profile generation, and hashing are fragile in shell without `jq`; Python matches every other Forge script and is tested with pytest. |
 | Plugin location | Build a local marketplace under the state directory and install from it | Marketplace inside the checkout; `--plugin-dir` | Claude Code reads a local-directory plugin in place, so a marketplace in the checkout would make the install depend on the checkout and run edits nobody reinstalled. `--plugin-dir` lasts one session. |
 | Plugin scope | Global (user) only | Project or local plugin scope | A project-scoped plugin is recorded in the tracked `.claude/settings.json`; a per-repository trial install is what plain-files project scope is for. |
-| Install record location | Fixed `~/.forge/install.json` | Under the state directory; `~/.claude/forge-install.json` | The overlap rules need every install in one place; a record under the state directory splits into one per state directory and lets a project install sit over a global one. Keeping it beside Forge's default state keeps Forge files out of Claude Code's configuration directory. |
+| Install record location | Fixed `~/.forge/install.json` | Under the state directory; `~/.claude/forge-install.json`; a record inside each project repository | The overlap rules need every install in one place; a record under the state directory splits into one per state directory and lets a project install sit over a global one, and a record inside each repository is invisible to a global install. Keeping it beside Forge's default state keeps Forge files out of Claude Code's configuration directory and out of repositories. |
+| Install record shape | One entry per configuration directory, each naming its `cli` | A list of installs; entries keyed by repository | A repository can hold installs for several CLIs, each in its own configuration directory, so that directory is the unique key; `cli` limits the overlap rules to installs of the same CLI. |
 | Edited files on reinstall | Refuse and name them | Overwrite, keeping `<file>.forge-edited`; overwrite silently | The user's edits are never lost or moved behind their back; uninstall follows the same rule. |
 | Guard interpreter | `python3` from the session's `PATH`; the adapter blocks on Python older than 3.11 | Absolute path of the interpreter the installer checked | An absolute path breaks when a version manager removes that interpreter. A missing `python3` cannot block the call, but the router's guard-ran check stops the workstream. |
 | Changing an install under a running workstream | Refuse while any workstream lock is held | Warn and continue | Replacing the guard or skills mid-dispatch changes a running spoke's rules (*Stop over guess*). |
