@@ -87,7 +87,6 @@ The `forge-memory` skill loads and saves each agent's episodic notes (decisions,
 - **Repo-wide knowledge management.** Forge memory is scoped to a workstream and disposed of at closeout. Forge does not promote notes beyond the workstream.
 - **Prompt-behavior evaluation suites.** Correctness of the deterministic scripts is tested; behavioral evals of spoke prompts are out of scope.
 - **Jira and other non-GitHub trackers.** Scout and reporter work with GitHub (issues, PRs, Actions) through `gh` only.
-- **Plugin packaging.** Forge installs by symlink, not as a Claude Code plugin.
 - **Bootstrapping linked-intent development.** A repository is planned with LID only when it already has LID structure; otherwise Forge plans with a `PLAN.md`. Adding LID to a repository is the user's job, with their own tools.
 - **Autonomous recovery from ambiguous state.** Forge does not guess its way out of drift, dirty trees, or contested locks.
 
@@ -117,12 +116,12 @@ reference/                   # CLI-neutral
     forge-reviewer/ forge-scout/ forge-publisher/ forge-reporter/
     forge-council/           # council orchestration + personas/<persona>.md charters
 claude/                      # Claude Code adapter
-  installer.sh               # install, --uninstall, --vendor
+  installer.sh               # install (--global | --project), --plugin, --preset, --models, --uninstall, --vendor
   skills/forge/SKILL.md      # Commander (Hub)
   skills/forge/scripts -> ../../../reference/scripts
   skills/forge-*  -> ../../reference/skills/forge-*
-  agents/forge-*.md          # subagent profiles: model alias, tool limits, preloaded skills
-  hooks/guard_paths.py       # PreToolUse adapter: reads agent_type, calls guard_core
+  agents/forge-*.md          # subagent profiles: tool limits, preloaded skills; the installer adds model and guard
+  hooks/guard_paths.py       # PreToolUse adapter: reads agent_type, calls guard_core (installed beside it)
 docs/                        # Forge's own LID design tree
 ```
 
@@ -166,7 +165,16 @@ Every mode still stops for publishing, for changes to human-authored code beyond
 
 ### Installation
 
-`claude/installer.sh` symlinks `claude/skills/*` into `~/.claude/skills/` and `claude/agents/*` into `~/.claude/agents/`, and merges the guard hook into `~/.claude/settings.json` after backing it up; `--uninstall` reverses all three. It reads `rev` and compares each pinned Claude Code plugin against the `gitCommitSha` recorded in `~/.claude/plugins/installed_plugins.json`: a missing required plugin fails the install, a commit mismatch warns. `--vendor` clones every pinned dependency at its pinned commit into a gitignored `.vendor/`, which backs a sandboxed Claude Code session for trying Forge without touching the user's real configuration.
+`claude/installer.sh` installs Forge from the `claude/` tree, copying files with every link resolved, so an install never depends on the checkout staying in place and never runs edits nobody reinstalled. Links inside the repository only assemble each CLI's layout from `reference/`. Rerunning the installer picks up changes. It has two modes, and one machine uses one of them:
+
+- **Plain files** (default). Skills are copied into `~/.claude/skills/` (`--global`, the default) or `<repo>/.claude/skills/` (`--project <repo>`). Agents are written as generated profiles carrying their model and a `PreToolUse` guard hook in their frontmatter, so the guard runs only inside Forge agents, once per call, Council personas included. `guard_paths.py` is copied into the Commander skill's `scripts/` beside `guard_core.py`. Project scope writes `.claude/settings.local.json` and lists every installed file in `.git/info/exclude`, touching no tracked file; one repository uses one scope.
+- **Plugin** (`--plugin`). The installer builds a Claude Code plugin from the same tree: the same skills and generated agents, with the guard as a plugin-wide `PreToolUse` hook, because Claude Code ignores frontmatter hooks in plugin agents. Claude Code names plugin agents `forge:forge-<role>`, so the Commander and Council dispatch those names and the guard accepts them. An organization can force-enable the plugin in managed settings, the one way the guard runs under a policy that allows managed hooks only.
+
+In both modes the installer sets each agent's model from a preset — `balanced` (the default), `sonnet`, `opus`, `fable-opus`, or `fable` — or from `--models FILE`, a JSON map from agent name to model with an optional `default`. It grants the state directory with `permissions.additionalDirectories` and an `Edit` allow rule for it, in the scope's settings file (`~/.claude/settings.json`, backed up first, for the global scope and the plugin; `settings.local.json` for a project). It records what it wrote in a manifest, and `--uninstall` removes exactly that. It refuses to install in a second mode or scope over an existing install: two guards on one call trip the duplicate-call circuit breaker.
+
+A guard can be absent without any error: Claude Code skips agent frontmatter hooks in `-p` sessions and in folders whose workspace trust was not accepted, and a managed policy (`allowManagedHooksOnly`, `strictPluginOnlyCustomization`) blocks every hook except managed ones and those of force-enabled plugins. The guard therefore records each call it checks against the dispatch it serves, and the router refuses a spoke's result when the dispatch has no record, stopping with `GUARD_INACTIVE`.
+
+The installer reads `rev` and compares each pinned Claude Code plugin against the `gitCommitSha` recorded in `~/.claude/plugins/installed_plugins.json`: a missing required plugin fails the install, a commit mismatch warns. `--vendor` clones every pinned dependency at its pinned commit into a gitignored `.vendor/`, which backs a sandboxed Claude Code session for trying Forge without touching the user's real configuration.
 
 ### Dependencies
 
@@ -181,21 +189,23 @@ Every mode still stops for publishing, for changes to human-authored code beyond
 | Human-authored code is identified per line by `git blame` plus the `Forge-Agent` trailer | Per file (any file a human commit touched); explicit ownership markers in code | Per-line attribution is computed from git, needs nothing from the user, and protects exactly what the human wrote. Per-file is so coarse it blocks agents from files they share with the user; markers depend on the user remembering to add them. |
 | Workstream state is JSON | YAML with PyYAML | Every script runs on the Python standard library with no install step. |
 | Council is one subagent that fans out to personas | The Hub dispatches each persona directly | Keeps raw persona output out of the main session; the Hub still owns user sign-off and the recorded ruling. |
+| The router checks that the guard ran for every dispatch | Trust that the installed guard runs; the verifier checks it at its own phases | Claude Code skips hooks silently in several cases. A script check on every result catches all of them, the verifier's own dispatches and the spokes after `VERIFY_FINAL` included. |
 | Guard identifies the acting agent from the hook input's `agent_type` | An environment variable set per agent | Claude Code reports the subagent name to hooks; an environment variable cannot be set per subagent. |
 | One worktree per workstream, created by Forge | The user creates branches; work in the main checkout | A worktree isolates each change, lets several run in parallel, and lets Forge move the session between workstreams without touching any checkout. |
-| Install by symlink with a settings backup | Claude Code plugin | Plugin component paths must stay inside the plugin directory, which conflicts with linking shared content from `reference/`. Symlinks also keep the `/forge` name unprefixed. |
+| Install by copying from `claude/`, as plain files or as a plugin | Symlinks into the checkout; plain files only; plugin only | A copy keeps working when the checkout moves and runs only what was installed. Plain files keep the guard in each agent's frontmatter, scoped to Forge agents; a plugin cannot, but it is the only install a managed hooks-only policy can allow. |
 | Skills, agents, and personas are all named `forge-*`; the Hub is `/forge` | Unprefixed role names | Role names like `dev` and `qa` collide with other installed skills and agents. |
 | Pacing is one named mode per workstream, switchable at any time | Separate settings for planning cadence, build flow, and council auto-apply; modes combined per workstream | One name per workstream is easier to choose and to read in the resume brief than a combination; the router derives every pause from it, so there is no second setting to drift. |
-| Model choice uses Claude Code aliases (`opus`, `sonnet`, `haiku`) in agent profiles | Pinned model IDs | Aliases track current models without editing every agent profile. |
+| Each agent's model is set at install, from a named preset or a file | Fixed aliases in each profile; the router picks a model per dispatch | An agent profile's `model:` overrides the session's model, so the install decides what each agent runs on, and the user trades cost against quality per install. Routing and Council stay free of model choice. |
 
 ## Success Metrics
 
 - The pytest suite covers every row of the routing table, every role × path combination in the guard, the publish gate, drift detection (fast-forward, rewind, dirty tree), SSH and HTTPS remotes, linked worktrees, and per-line human-code attribution — and passes.
 - A full workstream can be run in the vendored sandbox from `/forge` to publish without manual state edits.
-- **Falsification signals:** an agent commit lands that edits a test from `forge-dev`, or modifies human-authored lines without a recorded approval, and `verify_gate.py` passes it; a publish succeeds with `HEAD` differing from either pass SHA; a resume brief names the wrong phase or next step; any file under `~/.forge/` appears in the repo.
+- **Falsification signals:** a spoke's result is accepted although its guard never ran; an agent commit lands that edits a test from `forge-dev`, or modifies human-authored lines without a recorded approval, and `verify_gate.py` passes it; a publish succeeds with `HEAD` differing from either pass SHA; a resume brief names the wrong phase or next step; any file under `~/.forge/` appears in the repo.
 
 ## References
 
 - `docs/notes.md` — original blueprint for Forge across four CLIs.
 - Linked-intent development (`linked-intent-dev` plugin) — the planner's methodology.
-- Claude Code subagents and hooks documentation — subagent nesting, `agent_type` in hook input, per-agent tool limits.
+- Claude Code subagents and hooks documentation — subagent nesting, `agent_type` in hook input, per-agent tool limits, frontmatter hooks and when they are skipped.
+- Claude Code settings and plugins references — `allowManagedHooksOnly`, `strictPluginOnlyCustomization`, force-enabled plugins, plugin component namespacing.
