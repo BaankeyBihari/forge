@@ -106,6 +106,8 @@ A `result` event is accepted only when all of these hold; otherwise the router r
 - For an agent that does not commit (`forge-verifier`, `forge-reviewer`, `forge-scout`, `forge-council`, `forge-reporter`, `forge-publisher`), `head_sha` equals the dispatch's `base_sha`.
 - For a committing agent, every first-parent commit between `base_sha` and `head_sha` carries `Forge-Agent` equal to the dispatched agent. Any other commit in that range is drift (see *Drift and Dirty Trees*), not an envelope error: the envelope is applied, then the drift is handled.
 
+Once `dispatch_id` and `agent` match, and before the other checks, the router reads the guard record `envelopes/<dispatch_id>.guard.json` beside `state.json` (guard design). When the file is missing, is not a JSON object whose `agents` is a list, or does not list the dispatched agent, the guard did not run for that spoke, and the router returns `stop` with `GUARD_INACTIVE` and changes nothing. The `detail` names the record's path and the known causes: a `-p` session, a folder whose workspace trust was not accepted, a managed policy that allows only managed hooks, and no `python3` on `PATH`. The dispatch stays outstanding. Once the guard runs again, the Commander discards the envelope and starts the spoke again with the stored invocation; any commits the unguarded spoke made stay, and the commit gate at `VERIFY_FINAL` checks them like every other Forge commit.
+
 ## Lifecycle State
 
 The router owns these `lifecycle` fields:
@@ -388,6 +390,7 @@ When the workstream directory holds `task.md` (the user's task description, writ
 | Where merged specs reach the user | Named in the `publish_approval` question, computed by the router | The Commander relays each spoke's summary; a separate pause | The router already runs scripted checks and the user already answers this pause; a summary relay would have a model copy IDs, and a pause of its own would interrupt every workstream a merge touched. |
 | Empty-route ruling on a blocker raised in `REPAIR` | Re-run the interrupted repair item with the delta added to its notes | Jump to `resume_phase` | Jumping skips the interrupted item, which then stays in the queue unrun; re-running it keeps every queued repair. |
 | Commit gate range | `workstream_base_sha..HEAD`, with planning commits exempt from the human-code check | `plan_base_sha..HEAD`; a separate gate run at plan approval | Starting at `plan_base_sha` leaves the planner's commits unchecked for trailers and boundaries. One range at one call site covers every Forge commit; the exemption reflects that the user approved the planning commits with the plan. |
+| Guard-ran check | Refuse a result whose dispatch's guard record lacks the dispatched agent, with `GUARD_INACTIVE`, before the other envelope checks | Trust the installed guard; check at the verifier's phases only; report `ENVELOPE_INVALID` | Claude Code skips hooks silently in several cases, and a script check on every result catches all of them. Checking it first stops the Commander from offering an envelope retry that cannot fix an inactive guard; a code of its own names the real cause. |
 | Envelope `head_sha` | `HEAD` or an ancestor of it; later commits are drift | Must equal `HEAD` | A user who commits while a spoke runs would otherwise make every envelope invalid; treating the extra commits as drift sends them through reconciliation instead. |
 | Approval `base_sha` | The escalating envelope's `head_sha` | The dispatch's `base_sha` | The spoke may commit before escalating; the line ranges it reports refer to its own `head_sha`. |
 | Repair mechanism | One `REPAIR` phase draining `repair_queue`, then `resume_phase` | A dedicated repair phase per blocker kind | Every blocker resolves the same way — run some fixes, then resume — so one mechanism covers them all. |
@@ -416,3 +419,4 @@ When the workstream directory holds `task.md` (the user's task description, writ
 - `docs/high-level-design.md` — scripts own routing; tenets *Scripts over prompts*, *Stop over guess*.
 - Workstream state design (`docs/intent/workstream-state/`) — wake, drift kinds, `stale_shas`, `close`.
 - Gates design (`docs/intent/gates/`) — the commit gate the router runs at `VERIFY_FINAL` and the approval semantics it enforces.
+- Guard design (`docs/intent/guard/`) — the per-dispatch guard record the guard-ran check reads.
