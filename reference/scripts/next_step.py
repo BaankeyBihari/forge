@@ -493,7 +493,9 @@ def apply_result(ctx, env):
         return goto("REPORT", mode="draft")
     if status == "MERGE_READY":
         return pause("manual_merge", phase)
-    if status in ("MERGE_BLOCKED", "PUBLISH_REFUSED"):
+    if status == "PUBLISH_REFUSED":
+        return publish_approval(ctx, phase, refused=escalation.get("details") or env.get("summary", ""))
+    if status == "MERGE_BLOCKED":
         return stop(status, escalation.get("details") or env.get("summary", ""))
     if status == "CI_GREEN":
         return close()
@@ -562,17 +564,21 @@ def gate_failed(ctx, phase, errors):
                  "Approve them, or reject to stop?")
 
 
-# @spec ROUTE-BUILD-039, ROUTE-BUILD-040, ROUTE-BUILD-042
-def publish_approval(ctx, phase):
+# @spec ROUTE-BUILD-039, ROUTE-BUILD-040, ROUTE-BUILD-042, ROUTE-BUILD-043, ROUTE-BUILD-045, ROUTE-BUILD-046
+def publish_approval(ctx, phase, refused=None):
     result = lid_check.check(ctx.state) if ctx.lid else {}
     payload, question = {}, PAUSES["publish_approval"][1]
+    if ctx.git("remote", "get-url", "origin", check=False).returncode != 0:
+        payload["no_origin"] = True
+        question += "\nThis repository has no origin remote: push is unavailable."
     for key, line in (("merged_specs", "Merged specs nobody in this workstream implements: "),
                       ("unmarked_specs", "Specs tested and tagged but still marked [ ]: ")):
         if result.get(key):
             payload[key] = result[key]
             question += "\n" + line + ", ".join(result[key])
-    if not payload:
-        return pause("publish_approval", phase)
+    if refused:
+        payload["refused"] = refused
+        question += "\nThe publisher refused: " + refused
     return pause("publish_approval", phase, payload, question=question)
 
 
@@ -599,6 +605,8 @@ def apply_user(ctx, event):
         return stop("EVENT_INVALID", f"{decision} is not an option of {kind}", write=False)
     if kind == "publish_approval" and decision == "approve" and option not in ("push", "merge"):
         return stop("EVENT_INVALID", "approve needs option push or merge", write=False)
+    if kind == "publish_approval" and option == "push" and payload.get("no_origin"):  # @spec ROUTE-BUILD-044
+        return stop("EVENT_INVALID", "push needs an origin remote", write=False)
     phase = ctx.lc["current_phase"]
     if kind == "council_signoff" and decision == "approve":
         blocker = next(b for b in ctx.state["blockers"] if b["id"] == payload["blocker_id"])
@@ -625,8 +633,7 @@ def apply_user(ctx, event):
         return goto(payload["next"], **user)
     if kind == "publish_approval":
         if decision == "hold":
-            return pause("publish_approval", phase, {k: v for k, v in payload.items() if not k.startswith("_")},
-                         question=payload.get("_question"))
+            return publish_approval(ctx, phase)
         return goto("PUBLISH", mode=option, **user)
     if kind == "manual_merge":
         base = ctx.state["identity"].get("base_branch")

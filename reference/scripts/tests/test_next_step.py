@@ -25,6 +25,7 @@ from conftest import (
     holder_args,
     read_state,
     run_script,
+    set_origin,
     write_state,
 )
 
@@ -116,6 +117,7 @@ class Router:
 
 @pytest.fixture
 def r(workstream):
+    set_origin(workstream["repo"], "https://example.com/demo.git")  # publish_approval offers push only with an origin
     return Router(workstream)
 
 
@@ -1482,11 +1484,115 @@ def test_merge_ready_and_manual_merge(r):
 
 
 # @spec ROUTE-BUILD-026
-@pytest.mark.parametrize("status", ["MERGE_BLOCKED", "PUBLISH_REFUSED"])
-def test_publish_failures_stop(r, status):
+def test_merge_blocked_stops(r):
     at_publish(r, "merge")
-    decision = r.result(status, publish_target="merge", escalation={"details": "conflict in c.txt"})
-    assert stops(decision, status) and "c.txt" in decision["detail"]
+    decision = r.result("MERGE_BLOCKED", publish_target="merge", escalation={"details": "conflict in c.txt"})
+    assert stops(decision, "MERGE_BLOCKED") and "c.txt" in decision["detail"]
+
+
+def remove_origin(r):
+    git(r.ws["repo"], "remote", "remove", "origin")
+
+
+def refused_publish(r, target="push", details="push rejected: non-fast-forward"):
+    at_publish(r, target)
+    return r.result("PUBLISH_REFUSED", publish_target=target, escalation={"details": details})
+
+
+# @spec ROUTE-BUILD-043
+def test_publish_approval_without_origin_marks_no_origin(r):
+    remove_origin(r)
+    decision = at_publish_approval(r)
+    assert pauses(decision, "publish_approval")
+    assert publish_payload(r).get("no_origin") is True
+    lines = decision["question"].splitlines()
+    assert lines[0] == DEFAULT_PUBLISH_QUESTION and len(lines) > 1 and "push" in lines[1]
+
+
+# @spec ROUTE-BUILD-043
+def test_publish_approval_with_origin_leaves_no_origin_out(r):
+    decision = at_publish_approval(r)
+    assert "no_origin" not in publish_payload(r) and decision["question"] == DEFAULT_PUBLISH_QUESTION
+
+
+# @spec ROUTE-BUILD-043, ROUTE-BUILD-022
+def test_hold_recomputes_no_origin(r):
+    remove_origin(r)
+    at_publish_approval(r)
+    set_origin(r.ws["repo"], "https://example.com/demo.git")
+    decision = r.user("hold")
+    assert pauses(decision, "publish_approval")
+    assert "no_origin" not in publish_payload(r) and decision["question"] == DEFAULT_PUBLISH_QUESTION
+
+
+# @spec ROUTE-BUILD-043, ROUTE-BUILD-022
+def test_hold_marks_no_origin_after_origin_removed(r):
+    at_publish_approval(r)
+    remove_origin(r)
+    decision = r.user("hold")
+    assert pauses(decision, "publish_approval") and publish_payload(r).get("no_origin") is True
+
+
+# @spec ROUTE-BUILD-044
+def test_push_at_no_origin_pause_is_invalid(r):
+    remove_origin(r)
+    at_publish_approval(r)
+    decision = r.user("approve", option="push")
+    assert stops(decision, "EVENT_INVALID") and "push needs an origin remote" in decision["detail"]
+    assert r.state()["lifecycle"]["awaiting"]["kind"] == "publish_approval"
+
+
+# @spec ROUTE-BUILD-044
+def test_push_at_no_origin_pause_decides_from_stored_payload(r):
+    remove_origin(r)
+    at_publish_approval(r)
+    set_origin(r.ws["repo"], "https://example.com/demo.git")
+    assert stops(r.user("approve", option="push"), "EVENT_INVALID")
+
+
+# @spec ROUTE-BUILD-044, ROUTE-BUILD-022
+def test_merge_at_no_origin_pause_dispatches_publisher(r):
+    remove_origin(r)
+    at_publish_approval(r)
+    assert dispatches(r.user("approve", option="merge"), "forge-publisher", "merge")
+
+
+# @spec ROUTE-BUILD-045
+def test_publish_refused_returns_to_publish_approval(r):
+    decision = refused_publish(r)
+    assert pauses(decision, "publish_approval")
+    assert publish_payload(r).get("refused") == "push rejected: non-fast-forward"
+    assert "push rejected: non-fast-forward" in decision["question"]
+
+
+# @spec ROUTE-BUILD-045, ROUTE-BUILD-043
+def test_publish_refused_without_origin_offers_merge_only_again(r):
+    remove_origin(r)
+    at_publish_approval(r)
+    r.user("approve", option="merge")
+    decision = r.result("PUBLISH_REFUSED", publish_target="merge", escalation={"details": "no origin"})
+    assert pauses(decision, "publish_approval") and publish_payload(r).get("no_origin") is True
+    assert dispatches(r.user("approve", option="merge"), "forge-publisher", "merge")
+
+
+# @spec ROUTE-BUILD-046
+def test_hold_after_refusal_drops_refused(r):
+    refused_publish(r)
+    decision = r.user("hold")
+    assert pauses(decision, "publish_approval")
+    assert "refused" not in publish_payload(r) and decision["question"] == DEFAULT_PUBLISH_QUESTION
+
+
+# @spec ROUTE-BUILD-039, ROUTE-BUILD-042, ROUTE-BUILD-045
+def test_refused_pause_lists_merged_and_unmarked_specs_again(r):
+    set_mode(r, repo_mode="LID")
+    commit_unmarked_spec(r)
+    review_after_merge_from_main(r, ["- [ ] **B-001**: from main."])
+    r.user("approve", option="push")
+    decision = r.result("PUBLISH_REFUSED", publish_target="push", escalation={"details": "rejected"})
+    payload = publish_payload(r)
+    assert (payload.get("merged_specs"), payload.get("unmarked_specs")) == (["B-001"], ["A-001"])
+    assert "A-001" in decision["question"] and "B-001" in decision["question"] and "rejected" in decision["question"]
 
 
 def at_report(r):

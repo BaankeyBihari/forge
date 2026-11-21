@@ -202,7 +202,8 @@ Pauses fall into three groups:
 |---|---|---|
 | Questions | `plan_approval`, `council_signoff`, `findings_signoff`, `human_code_approval`, `publish_approval`, `report_approval`, `ci_none`, `dirty_tree`, `attempt_limit` | Asks with `AskUserQuestion`, then routes the answer |
 | Outside work | `edit_window`, `manual_merge` | Shows the question and what to do (edit and commit; merge the branch), then ends its turn. A later message saying the work is done, or `/forge`, answers it; any other message is handled normally and the pause stays |
-| Not yet | Any pause that routing an answer returns again with the same kind (`publish_approval` after `hold`; `manual_merge` before the merge) | Shows the router's question and ends its turn |
+| Not yet | Any pause that routing an answer returns again with the same kind (`publish_approval` after `hold`, which carries no `refused`; `manual_merge` before the merge), except `publish_approval` whose payload has `refused` | Shows the router's question and ends its turn |
+| Refused publish | `publish_approval` whose payload has `refused` (the publisher's reason) | Asks it like any `publish_approval`, showing the reason; the choices follow the pause's `no_origin` |
 
 Each answer becomes an event built by the script, not typed by the model:
 
@@ -214,7 +215,7 @@ forge_hub.py answer --state PATH --decision DECISION [--option OPTION] [--notes-
 
 | Pause | How the answer is gathered |
 |---|---|
-| `publish_approval` | Three choices: approve and push, approve and merge, hold; approve carries `option` `push` or `merge` |
+| `publish_approval` | Three choices: approve and push, approve and merge, hold; approve carries `option` `push` or `merge`. When the pause's payload has `no_origin`, two: approve and merge, hold |
 | `council_signoff` | The ruling's decision matrix (its `matrix_ref` file) is shown; approve carries the chosen option's label; reject asks for notes. When the options do not fit the question tool, the matrix is shown as text and the choice asked in prose |
 | `plan_approval`, `report_approval` | `revise` asks for notes |
 | `human_code_approval` | The paths and line ranges are shown; reject asks for notes |

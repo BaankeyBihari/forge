@@ -135,9 +135,11 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 
 - [D] **CMD-PAUSE-001**: When the router pauses with `plan_approval`, `council_signoff`, `findings_signoff`, `human_code_approval`, `publish_approval`, `report_approval`, `ci_none`, `dirty_tree`, or `attempt_limit`, the Commander shall ask the user with `AskUserQuestion` and route the answer.
 - [D] **CMD-PAUSE-002**: When the router pauses with `edit_window` or `manual_merge`, the Commander shall show the question and what the user should do, and end its turn without asking.
-- [D] **CMD-PAUSE-003**: When routing an answer returns a pause of the same kind, the Commander shall show the router's question and end its turn.
+- [D] **CMD-PAUSE-003**: When routing an answer returns a pause of the same kind, other than a `publish_approval` whose payload has `refused`, the Commander shall show the router's question and end its turn.
 - [D] **CMD-PAUSE-004**: The Commander shall route every answer as the event written by `forge_hub.py answer`, writing any notes to a file with the file-write tool and passing it as `--notes-file`.
-- [D] **CMD-PAUSE-005**: When presenting `publish_approval`, the Commander shall offer approve and push, approve and merge, and hold, sending `approve` with `option` `push` or `merge` for the first two.
+- [D] **CMD-PAUSE-005**: When presenting `publish_approval`, the Commander shall, unless CMD-PAUSE-010 applies, offer approve and push, approve and merge, and hold, sending `approve` with `option` `push` or `merge` for the first two.
+- [D] **CMD-PAUSE-010**: When presenting a `publish_approval` whose payload has `no_origin`, the Commander shall offer two choices, approve and merge, and hold, and not approve and push.
+- [D] **CMD-PAUSE-011**: When the router pauses `publish_approval` with `refused` in the payload, the Commander shall show the router's question, which carries the refusal reason, and ask the user per CMD-PAUSE-005 and CMD-PAUSE-010 instead of ending its turn.
 - [D] **CMD-PAUSE-006**: When presenting `council_signoff`, the Commander shall show the ruling's decision matrix and send `approve` with the chosen option's label, asking for notes on `reject`.
 - [D] **CMD-PAUSE-007**: When the user answers `revise` to `plan_approval` or `report_approval`, or `reject` to `human_code_approval` or `council_signoff`, the Commander shall ask for notes before routing the answer.
 - [D] **CMD-PAUSE-008**: When the user answers `dirty_tree` with `checkpoint`, the Commander shall commit every change as `wip(user): partial implementation` with no Forge trailers; with `stash`, it shall run `git stash push --include-untracked`; and when the git command fails, it shall report git's message and ask again without routing.

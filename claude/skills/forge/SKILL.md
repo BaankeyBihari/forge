@@ -134,7 +134,7 @@ Write your result envelope to <state dir>/envelopes/<invoke.dispatch_id>.json.
 
 **Outside work** — `edit_window`, `manual_merge`: show `question` and what to do (make edits and commit them; merge the branch into its base yourself). Do not ask. End your turn. A later message saying the work is done, or `/forge`, answers it with `continue` or `done`; any other message is handled normally and the pause stays.
 
-**Not yet** — when routing an answer returns a pause of the same kind (`publish_approval` after `hold`; `manual_merge` before the merge): show the router's `question` and end your turn.
+**Not yet** — when routing an answer returns a pause of the same kind (`publish_approval` after `hold`; `manual_merge` before the merge): show the router's `question` and end your turn. Exception: a `publish_approval` whose payload has `refused` is a new question (the publisher refused); its `question` already carries the reason, so ask it as usual.
 
 **Every answer** goes through the script; never write event JSON yourself:
 
@@ -147,7 +147,7 @@ Write the user's notes to a file in the session scratchpad with your file-write 
 <!-- @spec CMD-PAUSE-005, CMD-PAUSE-006, CMD-PAUSE-007, CMD-PAUSE-008, CMD-PAUSE-009 -->
 | Pause | How to ask |
 |---|---|
-| `publish_approval` | Three choices: approve and push (`approve`, `--option push`), approve and merge (`approve`, `--option merge`), hold (`hold`) |
+| `publish_approval` | Three choices: approve and push (`approve`, `--option push`), approve and merge (`approve`, `--option merge`), hold (`hold`). When the payload has `no_origin`, only approve and merge, and hold |
 | `council_signoff` | Show the decision matrix from the ruling's `matrix_ref` file. Approve sends `approve` with `--option <chosen option's label>`. Reject asks for notes. When the options do not fit `AskUserQuestion`, show the matrix as text and ask in prose |
 | `plan_approval`, `report_approval` | `revise` asks for notes first |
 | `human_code_approval` | Show the paths and line ranges. `reject` asks for notes first |
