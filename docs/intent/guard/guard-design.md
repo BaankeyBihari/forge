@@ -12,9 +12,9 @@ The gate checks commits after they exist; the guard stops a Forge agent's tool c
 The guard splits into two parts:
 
 - **`guard_core.py`** (`reference/scripts/`) — a CLI-neutral decision function: given the acting agent, the kind of call, the paths or command involved, and the session, return allow or block with a reason.
-- **`guard_paths.py`** (`claude/hooks/`) — the Claude Code `PreToolUse` adapter: read the hook input, translate it into a guard call, and report a block the way Claude Code expects.
+- **`guard_paths.py`** (`claude/hooks/`) — the Claude Code `PreToolUse` adapter: read the hook input, translate it into a guard call, and report a block the way Claude Code expects. The installer copies it into the Commander skill's `scripts/` directory beside `guard_core.py`.
 
-The hook is installed in the user's global settings, so it fires on every tool call in every Claude Code session on the machine. Its first duty is to do nothing at all unless the caller is a Forge agent.
+The installer registers the hook in every Forge agent profile's frontmatter for a plain-files install, and as one plugin-wide hook for the plugin, where it fires on every tool call of every session that has the plugin enabled. Either way, its first duty is to do nothing at all unless the caller is a Forge agent.
 
 The guard is best effort for shell commands. Write tools name their target path, so path rules on them are exact. A shell command can write anywhere in ways no parser fully understands, so the guard checks only the git and GitHub commands that publish, rewrite history, or act externally; anything a shell command does to files is caught afterward by the router's HEAD checks and the gate.
 
@@ -30,9 +30,17 @@ Path rules depend on the workstream: its repository root, its test patterns, and
 
 A guarded call with no matching workstream is blocked with `NO_ACTIVE_WORKSTREAM`: a Forge agent running outside a workstream the Hub owns has no rules the guard can apply.
 
+## Guard Record
+
+Claude Code can skip the hook without any error: in `-p` sessions, in folders whose workspace trust was not accepted, and under a managed policy that allows only managed hooks. The guard therefore leaves evidence that it ran, and the router refuses a spoke's result when the evidence is missing (`GUARD_INACTIVE`, router design).
+
+When the workstream's `lifecycle.dispatched` is set, every guarded call adds its `agent_type` to `envelopes/<dispatch_id>.guard.json` beside `state.json`, as `{"agents": ["forge-dev", ...]}` with each agent listed once. The record is written whether or not a later check blocks the call: it shows that the guard ran, not that the call was allowed. The file is replaced through a temporary file and a rename, so a reader never sees it half written. A call whose agent is already listed leaves the file untouched.
+
+Every spoke makes at least one tool call per dispatch, since it writes its result envelope with a file-write tool, so a dispatch whose agent is missing from the record had no guard.
+
 ## Checks
 
-Checks run in this order — kill switch, active-workstream lookup, circuit breaker, then the write-target or command check — and the first block wins.
+Checks run in this order — kill switch, active-workstream lookup, guard record, circuit breaker, then the write-target or command check — and the first block wins.
 
 ### 1. Kill switch
 
@@ -101,13 +109,20 @@ Read tools, search tools, and other calls pass after checks 1 and 2.
 
 On allow it exits `0` with no output. On block it writes the reason to stderr and exits `2`, which blocks the call and shows the reason to the agent.
 
-The installer registers the adapter once under `PreToolUse` with no matcher, so every tool is covered by the kill switch and circuit breaker.
+The hook runs whichever `python3` is first on the session's `PATH`, which need not be the one that ran the installer. For a call by a Forge agent, when that Python is older than 3.11, the adapter blocks the call with `PYTHON_TOO_OLD` before importing `guard_core.py`. The scope check before it uses nothing newer than the oldest `python3` a machine is likely to have.
+
+The adapter imports `guard_core.py` from its own directory, where the installer places both.
+
+The installer registers the adapter under `PreToolUse` with no matcher, so every tool is covered by the kill switch and circuit breaker.
 
 ## Decisions & Alternatives
 
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
-| Who is guarded | Only `agent_type` starting with `forge-` | Every session | The hook is global; guarding the user's own sessions would break their normal work. |
+| Who is guarded | Only `agent_type` starting with `forge-` | Every session | The plugin's hook fires in every session; guarding the user's own sessions would break their normal work. Frontmatter hooks fire only in Forge agents, and the check costs nothing there. |
+| Evidence the guard ran | Each guarded call adds its agent to `envelopes/<dispatch_id>.guard.json` | A field in `state.json`; a bare marker file; a log of every call | `state.json` has one writer, the router. A list of agents lets the router check that the dispatched agent itself was guarded, not just some nested agent. A per-call log grows without bound for no extra check. |
+| Python too old | Block Forge agents' calls with `PYTHON_TOO_OLD` | Let the import fail and block as an internal error; allow the call | A named reason tells the user what to fix; allowing would run the agent unguarded. |
+| Finding `guard_core.py` | The adapter's own directory | A path into the Forge checkout | An install never depends on the checkout staying in place. |
 | Failure mode | Block on internal error, for Forge agents only; unparseable input passes | Allow on error; block unparseable input | A guard that fails open removes every rule exactly when something is wrong. Input that cannot be parsed cannot be attributed to a Forge agent, and blocking it would stop the user's own sessions over a harness bug. |
 | Finding the workstream | Match the hook's `session_id` to the lock's `holder_session` | `FORGE_WORKSTREAM` environment variable; current branch | The lock already records the owning session; environment variables cannot be set per subagent, and the branch does not identify an explicitly named workstream. |
 | Circuit-breaker rule | Four identical calls in a row by one agent | Four identical calls in total | Agents legitimately repeat calls like `git status` across a task; consecutive repeats are the loop signal. |
@@ -124,6 +139,7 @@ The installer registers the adapter once under `PreToolUse` with no matcher, so 
 
 ### Deferred
 1. The workstream lookup assumes a subagent's hook input carries the Hub's `session_id`, the same value the Hub reads from its environment and stores as `holder_session`. The first test of the adapter confirms this against a real session; if it does not hold, the lookup key changes before any other guard work lands.
+2. Plugin agents report `agent_type` as `forge:forge-<role>`. The scope check and every per-agent rule accept that form once the plugin probe confirms it (installer design, plugin mode).
 
 ## References
 
