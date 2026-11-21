@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,8 @@ LID_PLUGIN = "linked-intent-dev@jszmajda-lid"
 
 os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
 os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
+# The default core.excludesFile ($XDG_CONFIG_HOME/git/ignore) is read even with GIT_CONFIG_GLOBAL unset.
+os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="forge-test-xdg-")
 
 
 def git(cwd, *args, check=True):
