@@ -261,6 +261,15 @@ def write_state(path, state):
     Path(path).write_text(json.dumps(state, indent=2))
 
 
+def write_guard_record(state_path, dispatched, agents=None):
+    """Writes envelopes/<dispatch_id>.guard.json as the guard would, listing the dispatched agent by default."""
+    env = Path(state_path).parent / "envelopes"
+    env.mkdir(exist_ok=True)
+    path = env / f"{dispatched['dispatch_id']}.guard.json"
+    path.write_text(json.dumps({"agents": [dispatched["agent"]] if agents is None else agents}))
+    return path
+
+
 @pytest.fixture
 def workstream(repo, forge_home):
     """A build workstream created with `resolve_state.py new --name demo`.

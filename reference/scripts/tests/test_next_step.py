@@ -26,6 +26,7 @@ from conftest import (
     read_state,
     run_script,
     set_origin,
+    write_guard_record,
     write_state,
 )
 
@@ -71,6 +72,7 @@ class Router:
 
     def result(self, status, head_sha=None, **fields):
         d = self.state()["lifecycle"]["dispatched"]
+        write_guard_record(self.sp, d)
         envelope = {"dispatch_id": d["dispatch_id"], "agent": d["agent"], "status": status,
                     "head_sha": head_sha or head(self.wt), "files_touched": [], "summary": "done", **fields}
         return self.run({"type": "result", "envelope": envelope})
@@ -809,6 +811,76 @@ def test_wrong_dispatch_id_or_agent(r):
             "head_sha": head(r.wt), "files_touched": [], "summary": "s"}
     unchanged_stop(r, lambda: r.run({"type": "result", "envelope": {**base, "dispatch_id": "nope"}}))
     unchanged_stop(r, lambda: r.run({"type": "result", "envelope": {**base, "agent": "forge-dev"}}))
+
+
+def guard_record(r):
+    d = r.state()["lifecycle"]["dispatched"]
+    return r.sd / "envelopes" / f"{d['dispatch_id']}.guard.json"
+
+
+def unguarded_result(r, status="READY_FOR_QA"):
+    d = r.state()["lifecycle"]["dispatched"]
+    return r.run({"type": "result", "envelope": {"dispatch_id": d["dispatch_id"], "agent": d["agent"],
+                                                 "status": status, "head_sha": head(r.wt),
+                                                 "files_touched": [], "summary": "s"}})
+
+
+# @spec ROUTE-ENV-015
+def test_missing_guard_record_stops(r):
+    r.start()
+    unchanged_stop(r, lambda: unguarded_result(r), "GUARD_INACTIVE")
+    assert r.state()["lifecycle"]["dispatched"] is not None
+
+
+# @spec ROUTE-ENV-015
+@pytest.mark.parametrize("content", ["{not json", "[]", "{}", '{"agents": "forge-scout"}'])
+def test_unreadable_guard_record_stops(r, content):
+    r.start()
+    path = guard_record(r)
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(content)
+    unchanged_stop(r, lambda: unguarded_result(r), "GUARD_INACTIVE")
+
+
+# @spec ROUTE-ENV-015
+def test_guard_record_without_dispatched_agent_stops(r):
+    r.start()
+    write_guard_record(r.sp, r.state()["lifecycle"]["dispatched"], agents=["forge-council-critic", "forge-dev"])
+    unchanged_stop(r, lambda: unguarded_result(r), "GUARD_INACTIVE")
+
+
+# @spec ROUTE-ENV-015
+def test_guard_check_before_other_envelope_checks(r):
+    r.start()
+    unchanged_stop(r, lambda: unguarded_result(r, status="TESTS_COMMITTED"), "GUARD_INACTIVE")
+
+
+# @spec ROUTE-ENV-015
+def test_dispatch_match_before_guard_check(r):
+    r.start()
+    d = r.state()["lifecycle"]["dispatched"]
+    env = {"dispatch_id": "nope", "agent": d["agent"], "status": "READY_FOR_QA", "head_sha": head(r.wt),
+           "files_touched": [], "summary": "s"}
+    unchanged_stop(r, lambda: r.run({"type": "result", "envelope": env}))
+
+
+# @spec ROUTE-ENV-015
+def test_dry_run_guard_check(r):
+    r.start()
+    assert stops(r.run({"type": "result", "envelope": {
+        **{k: r.state()["lifecycle"]["dispatched"][k] for k in ("dispatch_id", "agent")},
+        "status": "READY_FOR_QA", "head_sha": head(r.wt), "files_touched": [], "summary": "s"}}, "--dry-run"),
+        "GUARD_INACTIVE")
+
+
+# @spec ROUTE-ENV-016
+def test_guard_inactive_detail_names_record_and_causes(r):
+    r.start()
+    path = guard_record(r)
+    detail = unguarded_result(r)["detail"]
+    assert str(path) in detail
+    for cause in ["-p", "workspace trust", "managed", "python3"]:
+        assert cause in detail, cause
 
 
 # @spec ROUTE-ENV-002

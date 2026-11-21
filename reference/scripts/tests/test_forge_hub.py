@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import HOLDER_SESSION, holder_args, load_module, read_state, run_script, write_state
+from conftest import HOLDER_SESSION, holder_args, load_module, read_state, run_script, write_guard_record, write_state
 
 
 def hub(*args, cwd):
@@ -400,6 +400,7 @@ def test_next_step_for_pause(workstream):
     d = read_state(workstream["state_path"])["lifecycle"]["dispatched"]
     head_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=workstream["worktree"], capture_output=True,
                               text=True).stdout.strip()
+    write_guard_record(workstream["state_path"], d)
     paused = route(workstream, {"type": "result", "envelope": {
         "dispatch_id": d["dispatch_id"], "agent": d["agent"], "status": "READY_FOR_QA", "head_sha": head_sha,
         "files_touched": [], "summary": "s", "scope": {"assigned": ["src/**"]}}})
