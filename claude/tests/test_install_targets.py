@@ -297,7 +297,7 @@ def test_project_install_skips_exclude_line_already_present(install, checkout, h
 def test_plain_install_prints_frontmatter_hook_caveat(install):
     proc = ok(install())
     out = proc.stdout + proc.stderr
-    assert "-p" in out and "trust" in out.lower() and "guard" in out.lower(), out
+    assert "-p" in out and "trust" in out.lower() and "guard" in out.lower() and "project agents" in out, out
 
 
 # @spec INST-PLAIN-008

@@ -40,7 +40,8 @@ ROWS = {"forge-planner": "top", "forge-reviewer": "top",
         "forge-qa": "mid", "forge-dev": "mid", "forge-verifier": "mid", "forge-council": "mid",
         "forge-scout": "low", "forge-publisher": "low", "forge-reporter": "low"}
 
-NOTICE = ("Note: Claude Code skips agent frontmatter hooks in -p sessions and in folders whose workspace "
+NOTICE = ("Note: Claude Code skips the frontmatter hooks of project agents (.claude/agents/) in -p sessions "
+          "and in folders whose workspace "
           "trust was not accepted; the Forge router stops any dispatch whose guard did not run.")
 
 

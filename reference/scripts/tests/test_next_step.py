@@ -879,7 +879,7 @@ def test_guard_inactive_detail_names_record_and_causes(r):
     path = guard_record(r)
     detail = unguarded_result(r)["detail"]
     assert str(path) in detail
-    for cause in ["-p", "workspace trust", "managed", "python3"]:
+    for cause in ["project-scope install", "-p", "workspace trust", "managed", "python3"]:
         assert cause in detail, cause
 
 

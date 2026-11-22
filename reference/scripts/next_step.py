@@ -382,8 +382,8 @@ def guard_inactive(ctx, d):
         agents = None
     if isinstance(agents, list) and d["agent"] in agents:
         return None
-    return (f"the guard did not run for {d['agent']}: {path} does not list it. Known causes: a -p session, "
-            "a folder whose workspace trust was not accepted, a managed policy that allows only managed hooks, "
+    return (f"the guard did not run for {d['agent']}: {path} does not list it. Known causes: a project-scope "
+            "install in a -p session or in a folder whose workspace trust was not accepted, a managed policy that allows only managed hooks, "
             "or no python3 on PATH")
 
 

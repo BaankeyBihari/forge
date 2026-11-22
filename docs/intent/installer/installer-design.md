@@ -112,7 +112,7 @@ The hook runs the `python3` found on the session's `PATH`. When that Python is o
 
 Project scope writes only untracked files. A planned file, or `.claude/settings.local.json`, that git tracks refuses with `TRACKED_TARGET`. Each top-level installed path and `.claude/settings.local.json` get a line in `.git/info/exclude` (`/.claude/skills/forge`, `/.claude/agents/forge-dev.md`, …) unless that exact line is already there. On a reinstall, lines the earlier install added stay recorded when still wanted and are removed when not.
 
-Claude Code skips frontmatter hooks in `-p` sessions and in folders whose workspace trust was not accepted. Every plain-files install ends by printing this, together with the note that the router stops any dispatch whose guard did not run.
+Claude Code skips the frontmatter hooks of project agents (`<repo>/.claude/agents/`) in `-p` sessions and in folders whose workspace trust was not accepted; the frontmatter hooks of user agents (`~/.claude/agents/`) run in both. Every plain-files install ends by printing this, together with the note that the router stops any dispatch whose guard did not run.
 
 ### Plugin
 
@@ -337,10 +337,11 @@ Each step prints one line to stdout. A successful install ends with `forge-insta
 2. ✅ `additionalDirectories` plus an `Edit` allow rule lets spokes write the state directory without prompts (sandbox run 1).
 3. ✅ A session started in the main checkout keeps the project install's skills, agents, and settings after entering a Forge worktree (sandbox runs 1 to 3).
 4. ✅ Claude Code accepts `fable` as a profile model alias, and reads a plugin from a local-directory marketplace in place, picking up edits at the next session start or `/reload-plugins` (sub-agents and plugin marketplace documentation).
+5. ✅ Plugin hooks fire under `-p`: they merge with settings-file hooks, which run in `-p` sessions (Claude Code hooks and permissions documentation).
 
 ### Deferred
 
-1. Plugin mode, before it is built: whether plugin hooks fire under `-p`; what `agent_type` a plugin agent reports (`forge:forge-dev` is expected); whether preloaded `skills:` in a plugin agent resolve bare names; how the guard, the Commander, and the Council learn the agent prefix; and how the installer reads an existing `forge-local` registration and its directory. A second sandbox probe answers these.
+1. Plugin mode, before it is built: what `agent_type` a plugin agent reports (`forge:forge-dev` is expected); whether preloaded `skills:` in a plugin agent resolve bare names; how the guard, the Commander, and the Council learn the agent prefix; and how the installer reads an existing `forge-local` registration and its directory. A second sandbox probe answers these.
 2. How a project-scope plugin install appears in `installed_plugins.json`. Until then only `user` entries count for the plugin check, so a project install with `linked-intent-dev` installed only for that project refuses.
 3. Repository URLs and commits for the provenance pins (BMAD, Obra Superpowers, memoir-skill) in `rev`.
 4. Whether a session started directly inside a Forge worktree loads the main checkout's untracked project install and `settings.local.json`.
