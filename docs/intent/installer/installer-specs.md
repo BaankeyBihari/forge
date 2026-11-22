@@ -6,7 +6,7 @@ Design: `installer-design.md`. Implementation: `claude/installer.sh` (entry poin
 
 ## Entry point
 
-- [x] **INST-CLI-001**: When `claude/installer.sh` runs and `python3` is missing or older than 3.11, the installer shall print `forge-install: PYTHON_TOO_OLD: <message>` to stderr and exit `1` without running `install.py`.
+- [ ] **INST-CLI-001**: When `claude/installer.sh` runs and `python3` is missing or older than 3.11, the installer shall print `forge-installer: PYTHON_TOO_OLD: <message>` to stderr and exit `1` without running `install.py`.
 - [x] **INST-CLI-002**: When `claude/installer.sh` runs with `python3` 3.11 or newer, the installer shall run `claude/install.py` with the same arguments and exit with its exit code.
 
 ## Command line
@@ -16,7 +16,7 @@ Design: `installer-design.md`. Implementation: `claude/installer.sh` (entry poin
 - [x] **INST-CLI-005**: If a `--uninstall` run is given `--plugin`, `--preset`, `--models`, or `--vendor`, or both `--global` and `--project`, then the installer shall exit `2` with `USAGE`.
 - [x] **INST-CLI-006**: If a `--vendor` run is given any other option, then the installer shall exit `2` with `USAGE`.
 - [x] **INST-CLI-007**: If the arguments contain an unknown option, a bare word, an `--option=value` form, a repeated option, an option whose value is missing or starts with `--`, or a `--preset` value other than `balanced`, `sonnet`, `opus`, `fable-opus`, or `fable`, then the installer shall exit `2` with `USAGE`.
-- [x] **INST-CLI-008**: When the installer exits with `USAGE`, it shall print `forge-install: USAGE: <message>` and the usage text to stderr and shall have written no file.
+- [ ] **INST-CLI-008**: When the installer exits with `USAGE`, it shall print `forge-installer: USAGE: <message>` and the usage text to stderr and shall have written no file.
 - [x] **INST-CLI-009**: When given `--project <repo>`, the installer shall resolve `<repo>` to its real path and use `<real path>/.claude` as the install's key in the install record.
 - [x] **INST-CLI-010**: If the real path of an install's `--project` argument has no `.git` directory directly inside it, then the installer shall refuse with `NOT_A_REPO_ROOT`.
 - [x] **INST-CLI-011**: When `--uninstall` is given without `--project`, the installer shall act on the install keyed by the Claude Code configuration directory (INST-CLI-013).
@@ -54,6 +54,7 @@ Design: `installer-design.md`. Implementation: `claude/installer.sh` (entry poin
 - [x] **INST-PLAIN-008**: When removing directories left empty, the installer shall remove none above a top-level installed path.
 - [x] **INST-PLAIN-009**: When a project reinstall runs, the installer shall keep in `exclude_added` the earlier install's lines still wanted and remove from `.git/info/exclude` and the record those no longer wanted.
 - [x] **INST-PLAIN-010**: When changing `.git/info/exclude`, the installer shall rewrite it in place.
+- [ ] **INST-PLAIN-011**: When removing directories left empty, the installer shall count a directory whose only entry is a `__pycache__` directory, not a link, as left empty and remove it together with that `__pycache__` and everything in it.
 
 ## Plugin
 
@@ -168,7 +169,7 @@ Design: `installer-design.md`. Implementation: `claude/installer.sh` (entry poin
 
 ## Output
 
-- [x] **INST-OUT-001**: When a refusal or failure ends a run, the installer shall print `forge-install: <CODE>: <message>` to stderr and exit `1`.
-- [x] **INST-OUT-002**: When an install succeeds, the installer shall exit `0` with, as its last stdout line, `forge-install: installed <plain|plugin> <scope> <key> models=<choice> files=<n>`, where `<choice>` is the preset name, followed by `+<models file>` when one was given, or `recorded`, and `<n>` is the number of files the install holds.
+- [ ] **INST-OUT-001**: When a refusal or failure ends a run, the installer shall print `forge-installer: <CODE>: <message>` to stderr and exit `1`.
+- [ ] **INST-OUT-002**: When an install succeeds, the installer shall exit `0` with, as its last stdout line, `forge-installer: installed <plain|plugin> <scope> <key> models=<choice> files=<n>`, where `<choice>` is the preset name, followed by `+<models file>` when one was given, or `recorded`, and `<n>` is the number of files the install holds.
 - [x] **INST-OUT-003**: If a refusal occurs, then the installer shall leave every file and directory as it was before the run, except that it may have created `~/.forge/` and shall remove an install lock this run created.
-- [x] **INST-OUT-004**: The installer shall print progress lines and notices to stdout, and warnings to stderr as `forge-install: warning: <message>`.
+- [ ] **INST-OUT-004**: The installer shall print progress lines and notices to stdout, each starting with `forge-installer: `, and warnings to stderr as `forge-installer: warning: <message>`.
