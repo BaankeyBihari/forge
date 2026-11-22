@@ -45,7 +45,7 @@ Allowed combinations:
 | `--uninstall` | at most one of `--global`, `--project <repo>`; `--force` |
 | `--vendor` | nothing else |
 
-Any other combination, a repeated option, a missing option value, an unknown preset name, or an unknown option is a usage error: the installer prints `forge-install: USAGE: <message>` and the usage text to stderr and exits `2`, having read and written nothing.
+Any other combination, a repeated option, a missing option value, an unknown preset name, or an unknown option is a usage error: the installer prints `forge-installer: USAGE: <message>` and the usage text to stderr and exits `2`, having read and written nothing.
 
 `--project <repo>` is resolved to its real path, which must be the root of a git repository's main worktree: `<repo>/.git` must be a directory. A linked worktree, a submodule, a subdirectory, or a path outside git refuses with `NOT_A_REPO_ROOT`. The install's key in the install record is `<real path>/.claude`.
 
@@ -94,7 +94,7 @@ The installer records the checkout's real path as `source` and its `HEAD` commit
 
 `<plugin>` is `<state dir>/plugin/forge/`. Claude Code runs a plugin from a local-directory marketplace in place: its hooks run from, and `${CLAUDE_PLUGIN_ROOT}` points at, the marketplace's directory, even though `claude plugin install` also copies the plugin into Claude Code's plugin cache. The installer therefore builds the plugin outside the checkout, and that build is the installed copy.
 
-The top-level installed paths are each skill directory and each agent file, and, for the plugin, `<state dir>/plugin/`. Removing directories left empty never goes above a top-level installed path, so `skills/`, `agents/`, and `.claude/` are never removed.
+The top-level installed paths are each skill directory and each agent file, and, for the plugin, `<state dir>/plugin/`. Removing directories left empty never goes above a top-level installed path, so `skills/`, `agents/`, and `.claude/` are never removed. Python writes a `__pycache__` directory beside the installed scripts when they run, so a directory holding nothing but `__pycache__` counts as left empty and is removed together with that cache.
 
 ### Plain files
 
@@ -298,7 +298,7 @@ A step that fails is reported and the remaining steps still run; the run then ex
 
 ## Output and Exit Codes
 
-Each step prints one line to stdout. A successful install ends with `forge-install: installed <plain|plugin> <scope> <key> models=<choice> files=<n>` as its last stdout line, where `<choice>` is the preset name, followed by `+<models file>` when one was given, or `recorded`. A refusal or failure prints `forge-install: <CODE>: <message>` to stderr. Warnings print to stderr as `forge-install: warning: <message>` and do not change the exit code.
+Each step prints one line to stdout, every line starting with `forge-installer: `. A successful install ends with `forge-installer: installed <plain|plugin> <scope> <key> models=<choice> files=<n>` as its last stdout line, where `<choice>` is the preset name, followed by `+<models file>` when one was given, or `recorded`. A refusal or failure prints `forge-installer: <CODE>: <message>` to stderr. Warnings print to stderr as `forge-installer: warning: <message>` and do not change the exit code.
 
 | Exit | Codes |
 |---|---|
@@ -321,6 +321,7 @@ Each step prints one line to stdout. A successful install ends with `forge-insta
 | Changing an install under a running workstream | Refuse while any workstream lock is held | Warn and continue | Replacing the guard or skills mid-dispatch changes a running spoke's rules (*Stop over guess*). |
 | State directory inside a git working tree | Refuse | Allow; refuse only inside the target repository | Workstream state must never appear in a repository, and worktree isolation refuses spoke writes into a main checkout. A user whose home directory is a git working tree sets `FORGE_HOME` outside it. |
 | Write order | All checks, then the record with planned hashes, files, plugin commands, settings, exclude lines | Roll back on failure; write the record last | A record with planned hashes lets a rerun or uninstall recognize every file the run wrote; rollback adds a second path that can itself fail midway. Settings are changed after the `claude` commands, which write the same file. |
+| Python bytecode caches | A directory holding only `__pycache__` counts as left empty and is removed with it | Remove each recorded script's own `__pycache__/<name>.*.pyc` only; stop Python writing caches (`sys.dont_write_bytecode` in every script, or `PYTHONDONTWRITEBYTECODE` in the settings file) | The cache is derived from installed files and never holds the user's work. Matching per script misses caches of scripts an earlier version installed under another name. Stopping the writes needs a line in every entry script and misses scripts started another way, and the settings variable would change every Python run in the user's sessions. |
 | Settings write | In place, read at the moment of change | Write a temp file and rename | Renaming would replace a settings file that links into a dotfiles repository. |
 | Rerun without model flags | Reuse the recorded models | Fall back to `balanced` | Rerunning to pick up checkout changes should not silently change what each agent runs on. |
 | `--models` with a preset | File applied over the preset, or over `balanced` when no preset is named; `default` covers unnamed agents | Mutually exclusive flags; file applied over the recorded models | One rule covers every combination, and the result does not depend on what an earlier run chose. |
