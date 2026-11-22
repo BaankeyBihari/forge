@@ -104,6 +104,7 @@ The new branch is `<type>/<slug>` and the workstream is that branch's slug (`<ty
 - `STATE_EXISTS` when the workstream slug already has state;
 - `BRANCH_EXISTS` when the new branch name already exists (unless adopting it with `--branch`);
 - `BASE_CONFIRM_REQUIRED` or `BRANCH_CHECKED_OUT` as above;
+- `NO_COMMITS` for an idea or triage workstream in a repository with no commits, where there is nothing to detach a worktree at;
 - `GH_FAILED` with `gh`'s message when an issue or pull request cannot be read.
 
 On success it returns `CREATED` with the identity and `worktree_path`.
@@ -203,6 +204,7 @@ Bare repositories and submodule-specific behavior are not supported; the script 
 | Non-default base | Refused without `--base-confirmed` | Hub prompt asks before choosing a base | *Scripts over prompts*: the script guarantees stacking never happens unconfirmed. |
 | Review worktree | Detached at the pull request head | No worktree; diff only | The reviewer can read whole files and run the tests, and every workstream has the same shape. |
 | Idea and triage worktree | Detached at the default branch | A new branch; no worktree, reading the main checkout | Neither flow commits, so a branch would be left empty; reading the main checkout would see the user's uncommitted edits and whatever branch is checked out there. |
+| Reading an issue for naming | `gh issue view` in the script, per tracker | A command template in the tracker index entry; the scout reads the issue before the workstream exists | An MCP tracker cannot be read by any script, so a template would cover only some trackers; the scout writes into workstream state, which does not exist yet. |
 | One issue, one open workstream | `DUPLICATE` across flows, so a triage and a build workstream never track the same issue at once | Allow a triage beside a build workstream for the same issue | Two open workstreams on one issue could both post to it. Promoting closes the triage workstream before the build workstream is created, so the rule never blocks it. |
 | Local repository naming | `local/<project-slug>` from the project directory name | Name from the local remote's path | The project directory is the name the user knows the repository by; a local remote's path is often a bare mirror with an unrelated name. |
 | Explicit workstream names | Validated, never sanitized | Sanitize like branch names | A name the user types should address exactly one workstream; sanitizing could silently map a typo onto another one. |
