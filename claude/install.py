@@ -56,11 +56,11 @@ class Refuse(Exception):
 
 
 def say(message):
-    print(f"forge-install: {message}")
+    print(f"forge-installer: {message}")
 
 
 def warn(message):
-    print(f"forge-install: warning: {message}", file=sys.stderr)
+    print(f"forge-installer: warning: {message}", file=sys.stderr)
 
 
 def sha(data):
@@ -534,11 +534,15 @@ def write_file(path, data, mode):
     os.replace(tmp, path)
 
 
-# @spec INST-PLAIN-008
+# @spec INST-PLAIN-008, INST-PLAIN-011
 def prune(path, top):
-    """Remove directories left empty from path's parent up to top, never above it."""
+    """Remove directories left empty from path's parent up to top, never above it.
+    A directory holding only a __pycache__ directory (Python's bytecode cache) counts as empty."""
     d, top = Path(path).parent, Path(top)
     while d == top or top in d.parents:
+        cache = d / "__pycache__"
+        if cache.is_dir() and not cache.is_symlink() and [e.name for e in d.iterdir()] == ["__pycache__"]:
+            shutil.rmtree(cache)
         try:
             d.rmdir()
         except OSError:
@@ -928,7 +932,7 @@ def main(argv):
     try:
         opts = parse(argv)
     except Usage as e:
-        print(f"forge-install: USAGE: {e}\n{USAGE}", file=sys.stderr)
+        print(f"forge-installer: USAGE: {e}\n{USAGE}", file=sys.stderr)
         return 2
     try:
         with install_lock():
@@ -938,7 +942,7 @@ def main(argv):
                 return uninstall(opts)
             return install(opts)
     except Refuse as e:
-        print(f"forge-install: {e.code}: {e}", file=sys.stderr)
+        print(f"forge-installer: {e.code}: {e}", file=sys.stderr)
         return 1
 
 
