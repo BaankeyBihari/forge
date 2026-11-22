@@ -92,8 +92,8 @@ The profile's body is short: "You are `forge-<role>`. Follow the `forge-spoke` s
 
 ## Open Questions & Future Decisions
 
-### Unverified
-1. Whether a subagent's preloaded skill can resolve `scripts/` beside its own `SKILL.md` the way the Commander uses `${CLAUDE_SKILL_DIR}`. The sandbox run checks it; the fallback is an absolute path written into the agent profile by the installer.
+### Resolved
+1. ✅ A subagent's preloaded skill finds `scripts/` beside its own `SKILL.md`: Claude Code shows the skill's base directory when it preloads the skill, and spokes run `forge_spoke.py` from there by absolute path, for project skills and for plugin skills alike (sandbox runs 1 to 4, second sandbox probe).
 
 ### Deferred
 1. Bootstrapping LID in a repository that has none is not part of Forge; the user does it with their own tools before starting a workstream.
