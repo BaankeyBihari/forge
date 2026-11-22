@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "reference/scripts/tests"))
 
@@ -156,3 +158,30 @@ def test_imports_guard_core_from_its_own_directory(workstream, tmp_path):
                                                        "content": "x"})
     proc = hook(payload, adapter=scripts / "guard_paths.py", pythonpath=None)
     assert (proc.returncode, proc.stderr) == (0, "")
+
+
+# @spec GUARD-SCOPE-001
+def test_plugin_agent_names_are_guarded(workstream):
+    proc = hook(event(workstream, "forge:forge-dev", "Bash", {"command": "git push"}))
+    assert proc.returncode == 2 and "COMMAND_NOT_ALLOWED" in proc.stderr
+
+
+# @spec GUARD-SCOPE-001
+@pytest.mark.parametrize("agent", ["forge:other", "forge:", "forgex-dev", "other:forge-dev"])
+def test_other_prefixed_names_untouched(workstream, agent):
+    (workstream["worktree"] / ".STOP_FORGE").write_text("")
+    proc = hook(event(workstream, agent, "Bash", {"command": "git push --force"}))
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", ""), agent
+
+
+# @spec GUARD-SCOPE-003
+def test_plugin_prefix_stripped_before_rules_and_record(workstream):
+    state = json.loads(workstream["state_path"].read_text())
+    state["lifecycle"]["dispatched"] = {"dispatch_id": "d-1", "agent": "forge-dev", "mode": "full",
+                                        "base_sha": "0" * 40}
+    workstream["state_path"].write_text(json.dumps(state))
+    target = workstream["worktree"] / "src/a.py"
+    proc = hook(event(workstream, "forge:forge-dev", "Write", {"file_path": str(target), "content": "x"}))
+    assert (proc.returncode, proc.stderr) == (0, "")
+    record = workstream["state_path"].parent / "envelopes" / "d-1.guard.json"
+    assert json.loads(record.read_text()) == {"agents": ["forge-dev"]}

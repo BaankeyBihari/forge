@@ -64,7 +64,7 @@ def seed_record(home, installs):
 def entry(scope, key_dir, repo=None, **extra):
     base = {"cli": "claude", "scope": scope, "repo": str(repo) if repo else None,
             "state_dir": str(key_dir / "state"), "source": "/nowhere", "source_sha": None,
-            "source_dirty": None, "agent_prefix": "forge:" if scope == "plugin" else "",
+            "source_dirty": None, "version": "2026.11.1", "agent_prefix": "forge:" if scope == "plugin" else "",
             "models": {}, "files": {}, "settings_file": str(key_dir / "settings.json"),
             "settings_created": False, "settings_added": {}, "exclude_added": [],
             "backup": None, "complete": True}
@@ -146,7 +146,7 @@ def test_project_install_keyed_by_repo_dot_claude(install, home, repo):
     assert list(read_record(home)["installs"]) == [pkey(repo)]
 
 
-REC_FIELDS = {"cli", "scope", "repo", "state_dir", "source", "source_sha", "source_dirty", "agent_prefix",
+REC_FIELDS = {"cli", "scope", "repo", "state_dir", "source", "source_sha", "source_dirty", "version", "agent_prefix",
               "models", "files", "settings_file", "settings_created", "settings_added", "exclude_added",
               "backup", "complete"}
 
@@ -159,6 +159,7 @@ def test_global_record_entry_fields(install, home):
     assert (e["cli"], e["scope"], e["repo"], e["exclude_added"], e["complete"]) == \
         ("claude", "global", None, [], True)
     assert e["state_dir"] == default_state(home)
+    assert set(e) == REC_FIELDS
 
 
 # @spec INST-REC-003

@@ -11,6 +11,7 @@ ASSUMPTIONS about shapes the specs leave open:
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from conftest import (
+    SCRIPTS,
     commit,
     forge_trailers,
     git,
@@ -605,6 +607,63 @@ def test_outstanding_dispatch_is_returned_again(r):
     assert r.state()["lifecycle"]["invoke"] == first["invoke"]
     again = r.run()
     assert again["invoke"] == first["invoke"]
+
+
+def copied_router(tmp_path, prefix_file=None):
+    """A copy of reference/scripts, optionally with forge_install.json holding prefix_file."""
+    scripts = tmp_path / "installed-scripts"
+    scripts.mkdir()
+    for f in SCRIPTS.glob("*.py"):
+        shutil.copy(f, scripts)
+    if prefix_file is not None:
+        (scripts / "forge_install.json").write_text(prefix_file)
+    return scripts
+
+
+def run_copy(r, scripts, event=None):
+    args = ["--workstream", r.ws["slug"], *holder_args()]
+    if event is not None:
+        args += ["--event", "-"]
+    proc = subprocess.run([sys.executable, str(scripts / "next_step.py"), *args], cwd=r.wt,
+                          input=json.dumps(event) if event is not None else None, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+# @spec ROUTE-DISP-010
+def test_dispatch_without_install_file_has_bare_name(r):
+    inv = r.start()["invoke"]
+    assert (inv["agent_prefix"], inv["dispatch_as"]) == ("", inv["agent"])
+    assert r.state()["lifecycle"]["invoke"]["dispatch_as"] == inv["agent"]
+
+
+# @spec ROUTE-DISP-010
+def test_dispatch_with_plugin_prefix(r, tmp_path):
+    scripts = copied_router(tmp_path, '{"agent_prefix": "forge:"}\n')
+    inv = run_copy(r, scripts, {"type": "start"})["invoke"]
+    assert inv["agent_prefix"] == "forge:"
+    assert inv["dispatch_as"] == "forge:" + inv["agent"] and inv["agent"].startswith("forge-")
+    assert r.state()["lifecycle"]["dispatched"]["agent"] == inv["agent"]
+
+
+# @spec ROUTE-DISP-011
+@pytest.mark.parametrize("content", ["{bad", "[]", "{}", '{"agent_prefix": 1}'])
+def test_unreadable_install_file_stops(r, tmp_path, content):
+    scripts = copied_router(tmp_path, content)
+    before = r.sp.read_bytes()
+    decision = run_copy(r, scripts, {"type": "start"})
+    assert stops(decision, "INSTALL_INVALID")
+    assert str(scripts / "forge_install.json") in decision["detail"]
+    assert r.sp.read_bytes() == before
+
+
+# @spec ROUTE-REDO-002
+def test_redispatch_refreshes_prefix_only(r, tmp_path):
+    scripts = copied_router(tmp_path)
+    first = run_copy(r, scripts, {"type": "start"})["invoke"]
+    (scripts / "forge_install.json").write_text('{"agent_prefix": "forge:"}\n')
+    again = run_copy(r, scripts)["invoke"]
+    assert again == {**first, "agent_prefix": "forge:", "dispatch_as": "forge:" + first["agent"]}
 
 
 # @spec ROUTE-REDO-003

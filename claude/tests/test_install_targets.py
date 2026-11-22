@@ -1,5 +1,5 @@
-"""Tests for the installer's plain-files targets, the plugin refusal, agent profiles and models,
-and settings (docs/intent/installer/installer-specs.md: INST-PLAIN, INST-PLUG-009, INST-MODEL,
+"""Tests for the installer's plain-files targets, agent profiles and models,
+and settings (docs/intent/installer/installer-specs.md: INST-PLAIN, INST-PLUG-009 (plain side), INST-MODEL,
 INST-SET). Black box: each test runs claude/installer.sh and inspects what it wrote.
 """
 
@@ -342,18 +342,10 @@ def test_exclude_file_link_stays_link(install, repo, tmp_path):
     assert "/.claude/skills/forge" in target.read_text().splitlines()
 
 
-# --- plugin ------------------------------------------------------------------------------
-
 # @spec INST-PLUG-009
-def test_plugin_install_refused_as_unavailable(install):
-    refused(install("--plugin"), "PLUGIN_UNAVAILABLE")
-
-
-# @spec INST-PLUG-009
-def test_plugin_argument_errors_precede_unavailable(install, repo):
-    proc = install("--plugin", "--project", repo)
-    assert proc.returncode == 2 and "forge-install: USAGE:" in proc.stderr, proc.stderr
-    assert "PLUGIN_UNAVAILABLE" not in proc.stderr
+def test_plain_install_writes_no_forge_install_json(install, home):
+    ok(install())
+    assert not (global_config(home) / "skills/forge/scripts/forge_install.json").exists()
 
 
 # --- agent profiles and models -----------------------------------------------------------

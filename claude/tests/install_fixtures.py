@@ -23,6 +23,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 LID_COMMIT = "9679360f382b5c265da073c4e06badd3afcca7d0"
 LID_PLUGIN = "linked-intent-dev@jszmajda-lid"
+VERSION = "2026.11.1"
 
 os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
 os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
@@ -79,6 +80,7 @@ def build_checkout(path, rev=None):
     for skill in sorted((path / "reference/skills").iterdir()):
         (path / "claude/skills" / skill.name).symlink_to(f"../../reference/skills/{skill.name}")
     write_rev(path, rev)
+    (path / "VERSION").write_text(VERSION + "\n")
     init_repo(path, files={})
     return path
 
@@ -150,6 +152,87 @@ def read_record(home):
 
 def config_key(path):
     return os.path.realpath(path)
+
+
+FAKE_CLAUDE = r"""#!/usr/bin/env python3
+# Fake `claude` for the installer tests: logs argv to $FAKE_CLAUDE_LOG and imitates the
+# `claude plugin` subcommands the installer runs, editing the files Claude Code 2.1.330 edits.
+import json, os, sys
+from pathlib import Path
+
+args = sys.argv[1:]
+with open(os.environ["FAKE_CLAUDE_LOG"], "a") as f:
+    f.write(json.dumps(args) + "\n")
+fail = os.environ.get("FAKE_CLAUDE_FAIL")
+if fail and fail in " ".join(args):
+    print("fake failure", file=sys.stderr)
+    sys.exit(1)
+cfg = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+plugins = cfg / "plugins"
+plugins.mkdir(parents=True, exist_ok=True)
+
+
+def load(path, default):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return default
+
+
+def save(path, data):
+    path.write_text(json.dumps(data, indent=2))
+
+
+known_path, installed_path, settings_path = (plugins / "known_marketplaces.json",
+                                             plugins / "installed_plugins.json", cfg / "settings.json")
+known, installed = load(known_path, {}), load(installed_path, {"version": 2, "plugins": {}})
+settings = load(settings_path, {})
+if args[:3] == ["plugin", "marketplace", "add"]:
+    where = os.path.realpath(args[3])
+    name = json.loads(Path(where, ".claude-plugin/marketplace.json").read_text())["name"]
+    known[name] = {"source": {"source": "directory", "path": where}, "installLocation": where}
+    settings.setdefault("extraKnownMarketplaces", {})[name] = {"source": {"source": "directory", "path": where}}
+elif args[:2] == ["plugin", "install"]:
+    installed["plugins"][args[2]] = [{"scope": "user", "installPath": "/cache", "version": "x"}]
+    settings.setdefault("enabledPlugins", {})[args[2]] = True
+elif args[:2] == ["plugin", "uninstall"]:
+    if args[2] not in installed["plugins"]:
+        print("not found in installed plugins", file=sys.stderr)
+        sys.exit(1)
+    del installed["plugins"][args[2]]
+    settings.get("enabledPlugins", {}).pop(args[2], None)
+elif args[:3] == ["plugin", "marketplace", "remove"]:
+    if args[3] not in known:
+        print("Marketplace not found", file=sys.stderr)
+        sys.exit(1)
+    del known[args[3]]
+    settings.get("extraKnownMarketplaces", {}).pop(args[3], None)
+else:
+    sys.exit(3)
+save(known_path, known)
+save(installed_path, installed)
+save(settings_path, settings)
+"""
+
+
+def tool_path(bin_dir, with_claude=True):
+    """A PATH holding only bash, python3, git, and (unless with_claude is false) the fake claude."""
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    for tool in ("bash", "python3", "git"):
+        link = bin_dir / tool
+        if not link.exists():
+            link.symlink_to(shutil.which(tool))
+    fake = bin_dir / "claude"
+    if with_claude:
+        fake.write_text(FAKE_CLAUDE)
+        fake.chmod(0o755)
+    elif fake.exists():
+        fake.unlink()
+    return str(bin_dir)
+
+
+def claude_calls(log):
+    return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
 
 
 @pytest.fixture
