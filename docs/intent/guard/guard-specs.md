@@ -4,7 +4,8 @@ Design: `guard-design.md`. Implementation: `reference/scripts/guard_core.py` (de
 
 ## Scope
 
-- [x] **GUARD-SCOPE-001**: When the hook input does not parse as a JSON object, has no `agent_type`, or an `agent_type` not starting with `forge-`, `guard_paths.py` shall exit `0` with no output without running any check.
+- [ ] **GUARD-SCOPE-001**: When the hook input does not parse as a JSON object, has no `agent_type`, or an `agent_type` starting with neither `forge-` nor `forge:forge-`, `guard_paths.py` shall exit `0` with no output without running any check.
+- [ ] **GUARD-SCOPE-003**: When a guarded call's `agent_type` starts with `forge:`, `guard_paths.py` shall remove that prefix before passing `agent_type` to `guard_core.py`.
 - [x] **GUARD-SCOPE-002**: If an internal error occurs while checking a call whose `agent_type` starts with `forge-`, then `guard_paths.py` shall block the call with the error as the reason.
 
 ## Active workstream

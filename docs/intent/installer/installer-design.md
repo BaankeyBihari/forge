@@ -139,8 +139,6 @@ In plugin mode Claude Code names the agents `forge:forge-<role>` and the Command
 
 The build also writes `<plugin>/skills/forge/scripts/forge_install.json` holding `{"agent_prefix": "forge:"}`. The router reads it from its own directory and names every dispatch with it (router design); a plain-files install writes no such file, and the prefix is empty. A `forge_install.json` already present in the Commander skill's source `scripts/` refuses with `SOURCE_INVALID`. The install record's `agent_prefix` is `forge:`.
 
-Until plugin mode is built, a `--plugin` install refuses with `PLUGIN_UNAVAILABLE` after its argument checks and before any other check.
-
 Force-enabling the plugin in managed settings, so the guard runs under `allowManagedHooksOnly`, is an administrator's step outside the installer.
 
 ## Agent Profiles and Models
@@ -302,7 +300,7 @@ Each step prints one line to stdout. A successful install ends with `forge-insta
 | Exit | Codes |
 |---|---|
 | `0` | success |
-| `1` | `PYTHON_TOO_OLD` (from `installer.sh`), `NOT_A_REPO_ROOT`, `STATE_DIR_IN_REPO`, `INSTALL_BUSY`, `WORKSTREAM_ACTIVE`, `INSTALL_OVERLAP`, `RECORD_INVALID`, `FILE_EXISTS`, `FILES_EDITED`, `FILES_KEPT`, `TRACKED_TARGET`, `SOURCE_INVALID`, `TEMPLATE_INVALID`, `MODELS_INVALID`, `SETTINGS_INVALID`, `FORGE_HOME_CONFLICT`, `REV_INVALID`, `PLUGIN_MISSING`, `PLUGIN_UNAVAILABLE`, `CLAUDE_MISSING`, `MARKETPLACE_CONFLICT`, `NOT_INSTALLED`, `GIT_MISSING`, `STEP_FAILED`, `VENDOR_FAILED` |
+| `1` | `PYTHON_TOO_OLD` (from `installer.sh`), `NOT_A_REPO_ROOT`, `STATE_DIR_IN_REPO`, `INSTALL_BUSY`, `WORKSTREAM_ACTIVE`, `INSTALL_OVERLAP`, `RECORD_INVALID`, `FILE_EXISTS`, `FILES_EDITED`, `FILES_KEPT`, `TRACKED_TARGET`, `SOURCE_INVALID`, `TEMPLATE_INVALID`, `MODELS_INVALID`, `SETTINGS_INVALID`, `FORGE_HOME_CONFLICT`, `REV_INVALID`, `PLUGIN_MISSING`, `CLAUDE_MISSING`, `MARKETPLACE_CONFLICT`, `NOT_INSTALLED`, `GIT_MISSING`, `STEP_FAILED`, `VENDOR_FAILED` |
 | `2` | `USAGE` |
 
 ## Decisions & Alternatives

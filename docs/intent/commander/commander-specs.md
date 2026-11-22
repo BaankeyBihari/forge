@@ -104,7 +104,7 @@ Specs in the sections from *Identity* onward describe the Commander skill's proc
 
 - [D] **CMD-LOOP-001**: While routing, the Commander shall call `next_step.py` with at most one event and act on each decision until a decision ends the loop.
 - [D] **CMD-LOOP-002**: When the router stops with `KILL_SWITCH`, the Commander shall name the files in its `detail`, say that `/forge resume` clears them, and end the loop.
-- [D] **CMD-LOOP-003**: When the router returns `dispatch`, the Commander shall start the subagent named by `invoke.agent` with a prompt giving only the `dispatch_id`, the `state_path`, and the envelope path `<state dir>/envelopes/<dispatch_id>.json`.
+- [D] **CMD-LOOP-003**: When the router returns `dispatch`, the Commander shall start the subagent named by `invoke.dispatch_as` with a prompt giving only the `dispatch_id`, the `state_path`, and the envelope path `<state dir>/envelopes/<dispatch_id>.json`.
 - [D] **CMD-LOOP-004**: When a dispatched subagent returns, the Commander shall run `forge_hub.py envelope` and route with `--event <event_path>` on `OK`, or with no event on `NO_DISPATCH`.
 - [D] **CMD-LOOP-005**: When `envelope` returns `ENVELOPE_MISSING`, the Commander shall tell the user and, on retry, route with no event.
 - [D] **CMD-LOOP-006**: When `envelope` returns `ENVELOPE_UNREADABLE` or the router stops with `ENVELOPE_INVALID`, the Commander shall show the reason and, on retry, run `forge_hub.py envelope --discard` and route with no event.

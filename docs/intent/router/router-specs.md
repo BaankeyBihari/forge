@@ -45,6 +45,8 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 - [x] **ROUTE-DISP-007**: When dispatching `forge-verifier`, `next_step.py` shall set `assigned_scope` to `scope_manifest.assigned`.
 - [x] **ROUTE-DISP-008**: When re-dispatching the same phase while applying a `revise` answer, a `reject` answer, or an `approve` answer to a spoke's `human_code_approval`, `next_step.py` shall set `context_refs` to the replaced dispatch's `lifecycle.invoke.context_refs` followed by any new entries not already in it, except for `forge-reporter`, whose `context_refs` follow ROUTE-BUILD-033.
 - [x] **ROUTE-DISP-009**: While the workstream's state directory holds `task.md`, when `next_step.py` dispatches `forge-planner`, or `forge-reviewer` in `REVIEW_INTERNAL`, it shall put the absolute path of `task.md` first in the invocation envelope's `context_refs` and list it nowhere else in them.
+- [ ] **ROUTE-DISP-010**: When `next_step.py` dispatches an agent, the invocation envelope shall also carry `agent_prefix`, read from `forge_install.json` in the directory containing `next_step.py` (`""` when that file does not exist), and `dispatch_as`, equal to `agent_prefix` followed by `agent`.
+- [ ] **ROUTE-DISP-011**: If `forge_install.json` in the directory containing `next_step.py` exists but is not a JSON object whose `agent_prefix` is a string, then `next_step.py` shall return `stop` with `INSTALL_INVALID`, naming the file, and change no state.
 
 ## Result envelopes
 

@@ -2,7 +2,7 @@
 
 Design: `installer-design.md`. Implementation: `claude/installer.sh` (entry point), `claude/install.py` (everything else).
 
-"The installer" below means `claude/installer.sh` together with `claude/install.py`. Plugin-mode specs are marked `[D]`: the plugin is built after a second sandbox probe confirms how Claude Code runs plugin hooks and names plugin agents (design, Deferred 1).
+"The installer" below means `claude/installer.sh` together with `claude/install.py`.
 
 ## Entry point
 
@@ -38,7 +38,7 @@ Design: `installer-design.md`. Implementation: `claude/installer.sh` (entry poin
 - [x] **INST-SRC-005**: The installer shall record the checkout's real path as `source` and its `HEAD` commit as `source_sha`, with `source_sha` `null` when the checkout is not a git repository.
 - [x] **INST-SRC-006**: While `git status --porcelain` reports any path under the checkout's `claude/` or `reference/`, untracked paths included, the installer shall record `source_dirty` true and print a warning, and shall still install; otherwise it shall record `source_dirty` false, or `null` when the checkout is not a git repository.
 - [x] **INST-SRC-007**: The installer shall take as the checkout the directory containing `claude/install.py`.
-- [x] **INST-SRC-008**: If a link under `claude/skills/` is broken or cyclic, a directory directly under `claude/skills/` is named `tests` or starts with `.`, `claude/skills/forge/` is missing, or the Commander skill's source `scripts/` already holds a `guard_paths.py`, then the installer shall refuse with `SOURCE_INVALID`.
+- [ ] **INST-SRC-008**: If a link under `claude/skills/` is broken or cyclic, a directory directly under `claude/skills/` is named `tests` or starts with `.`, `claude/skills/forge/` is missing, or the Commander skill's source `scripts/` already holds a `guard_paths.py` or a `forge_install.json`, then the installer shall refuse with `SOURCE_INVALID`.
 
 ## Plain-files targets
 
@@ -55,15 +55,15 @@ Design: `installer-design.md`. Implementation: `claude/installer.sh` (entry poin
 
 ## Plugin
 
-- [D] **INST-PLUG-001**: Where the install is the plugin, the installer shall write the plugin to `<state dir>/plugin/forge/` and a marketplace file `<state dir>/plugin/.claude-plugin/marketplace.json` naming marketplace `forge-local` with one plugin `forge` at source `./forge`.
-- [D] **INST-PLUG-002**: Where the install is the plugin, the installer shall write `<state dir>/plugin/forge/.claude-plugin/plugin.json` holding `{"name": "forge"}` with no `version`.
-- [D] **INST-PLUG-003**: Where the install is the plugin, the installer shall write `<state dir>/plugin/forge/hooks/hooks.json` registering one `PreToolUse` command hook, no matcher, whose command is `FORGE_HOME='<state dir>' python3 "${CLAUDE_PLUGIN_ROOT}"/skills/forge/scripts/guard_paths.py`.
-- [D] **INST-PLUG-004**: Where the install is the plugin, the installer shall write generated agent profiles without a `hooks:` block.
-- [D] **INST-PLUG-005**: If a plugin install runs without a `claude` command on `PATH`, then the installer shall refuse with `CLAUDE_MISSING`.
-- [D] **INST-PLUG-006**: If a marketplace named `forge-local` is registered at a directory other than `<state dir>/plugin`, then the installer shall refuse a plugin install with `MARKETPLACE_CONFLICT`.
-- [D] **INST-PLUG-007**: When a plugin install has written its files, the installer shall run `claude plugin marketplace add <state dir>/plugin` unless `forge-local` is registered at that directory, then `claude plugin install forge@forge-local`.
-- [D] **INST-PLUG-008**: Where the install is the plugin, the installer shall record `agent_prefix` `forge:`; where it is plain files, `""`.
-- [x] **INST-PLUG-009**: While plugin mode is not built, the installer shall refuse a `--plugin` install that passes its argument checks with `PLUGIN_UNAVAILABLE`, before any other check.
+- [ ] **INST-PLUG-001**: Where the install is the plugin, the installer shall write the plugin to `<state dir>/plugin/forge/` and a marketplace file `<state dir>/plugin/.claude-plugin/marketplace.json` naming marketplace `forge-local` with one plugin `forge` at source `./forge`.
+- [ ] **INST-PLUG-002**: Where the install is the plugin, the installer shall write `<state dir>/plugin/forge/.claude-plugin/plugin.json` holding `{"name": "forge"}` with no `version`.
+- [ ] **INST-PLUG-003**: Where the install is the plugin, the installer shall write `<state dir>/plugin/forge/hooks/hooks.json` registering one `PreToolUse` command hook, no matcher, whose command is `FORGE_HOME='<state dir>' python3 "${CLAUDE_PLUGIN_ROOT}"/skills/forge/scripts/guard_paths.py`.
+- [ ] **INST-PLUG-004**: Where the install is the plugin, the installer shall write generated agent profiles without a `hooks:` block.
+- [ ] **INST-PLUG-005**: If a plugin install runs without a `claude` command on `PATH`, then the installer shall refuse with `CLAUDE_MISSING`.
+- [ ] **INST-PLUG-006**: If `<config>/plugins/known_marketplaces.json` has a `forge-local` entry whose `installLocation` is a directory other than `<state dir>/plugin`, then the installer shall refuse a plugin install with `MARKETPLACE_CONFLICT`.
+- [ ] **INST-PLUG-007**: When a plugin install has written its files, the installer shall run `claude plugin marketplace add <state dir>/plugin` unless `<config>/plugins/known_marketplaces.json` has a `forge-local` entry whose `installLocation` is `<state dir>/plugin`, then `claude plugin install forge@forge-local`.
+- [ ] **INST-PLUG-008**: Where the install is the plugin, the installer shall record `agent_prefix` `forge:`; where it is plain files, `""`.
+- [ ] **INST-PLUG-009**: Where the install is the plugin, the installer shall write `<state dir>/plugin/forge/skills/forge/scripts/forge_install.json` holding `{"agent_prefix": "forge:"}`; where it is plain files, it shall write no `forge_install.json`.
 
 ## Agent profiles and models
 
@@ -148,7 +148,7 @@ Design: `installer-design.md`. Implementation: `claude/installer.sh` (entry poin
 - [x] **INST-UNI-001**: If `--uninstall` finds no record entry for the requested key, then the installer shall refuse with `NOT_INSTALLED`.
 - [x] **INST-UNI-002**: When uninstalling, the installer shall take the install lock and apply INST-RUN-001 before removing anything.
 - [x] **INST-UNI-003**: When uninstalling, the installer shall remove each recorded file whose content matches its recorded hash, treat an absent recorded file as removed, and keep a file whose content changed, naming it in the output, unless `--force` is given, in which case it shall remove that file too; it shall then remove directories left empty.
-- [D] **INST-UNI-004**: When uninstalling the plugin, the installer shall run `claude plugin uninstall forge@forge-local` and `claude plugin marketplace remove forge-local`, and remove `<state dir>/plugin/`.
+- [ ] **INST-UNI-004**: When uninstalling the plugin, the installer shall run `claude plugin uninstall forge@forge-local` and `claude plugin marketplace remove forge-local`, and remove `<state dir>/plugin/`.
 - [x] **INST-UNI-005**: When uninstalling, the installer shall remove each recorded `settings_added` value still present with the recorded value, and leave every other value untouched.
 - [x] **INST-UNI-006**: When uninstalling leaves `env`, `permissions.allow`, `permissions.additionalDirectories`, or then `permissions` empty in the settings file, the installer shall remove that key.
 - [x] **INST-UNI-007**: When uninstalling leaves the settings file as `{}` and `settings_created` is true, the installer shall delete the settings file.
