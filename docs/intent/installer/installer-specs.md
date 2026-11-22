@@ -38,6 +38,8 @@ Design: `installer-design.md`. Implementation: `claude/installer.sh` (entry poin
 - [x] **INST-SRC-005**: The installer shall record the checkout's real path as `source` and its `HEAD` commit as `source_sha`, with `source_sha` `null` when the checkout is not a git repository.
 - [x] **INST-SRC-006**: While `git status --porcelain` reports any path under the checkout's `claude/` or `reference/`, untracked paths included, the installer shall record `source_dirty` true and print a warning, and shall still install; otherwise it shall record `source_dirty` false, or `null` when the checkout is not a git repository.
 - [x] **INST-SRC-007**: The installer shall take as the checkout the directory containing `claude/install.py`.
+- [ ] **INST-SRC-009**: The installer shall read Forge's version from `VERSION` at the checkout's root and record it as `version`.
+- [ ] **INST-SRC-010**: If `VERSION` at the checkout's root is missing or, apart from one trailing newline, does not match `^[0-9]{4}\.([1-9]|1[0-2])\.[1-9][0-9]*$`, then the installer shall refuse with `SOURCE_INVALID`.
 - [ ] **INST-SRC-008**: If a link under `claude/skills/` is broken or cyclic, a directory directly under `claude/skills/` is named `tests` or starts with `.`, `claude/skills/forge/` is missing, or the Commander skill's source `scripts/` already holds a `guard_paths.py` or a `forge_install.json`, then the installer shall refuse with `SOURCE_INVALID`.
 
 ## Plain-files targets
@@ -56,7 +58,7 @@ Design: `installer-design.md`. Implementation: `claude/installer.sh` (entry poin
 ## Plugin
 
 - [ ] **INST-PLUG-001**: Where the install is the plugin, the installer shall write the plugin to `<state dir>/plugin/forge/` and a marketplace file `<state dir>/plugin/.claude-plugin/marketplace.json` naming marketplace `forge-local` with one plugin `forge` at source `./forge`.
-- [ ] **INST-PLUG-002**: Where the install is the plugin, the installer shall write `<state dir>/plugin/forge/.claude-plugin/plugin.json` holding `{"name": "forge"}` with no `version`.
+- [ ] **INST-PLUG-002**: Where the install is the plugin, the installer shall write `<state dir>/plugin/forge/.claude-plugin/plugin.json` holding `{"name": "forge", "version": <version>}`, `<version>` being the version read per INST-SRC-009.
 - [ ] **INST-PLUG-003**: Where the install is the plugin, the installer shall write `<state dir>/plugin/forge/hooks/hooks.json` registering one `PreToolUse` command hook, no matcher, whose command is `FORGE_HOME=<state dir> python3 "${CLAUDE_PLUGIN_ROOT}"/skills/forge/scripts/guard_paths.py` with the state directory quoted by `shlex.quote`.
 - [ ] **INST-PLUG-004**: Where the install is the plugin, the installer shall write generated agent profiles without a `hooks:` block.
 - [ ] **INST-PLUG-005**: If a plugin install runs without a `claude` command on `PATH`, then the installer shall refuse with `CLAUDE_MISSING`.
@@ -97,7 +99,7 @@ Design: `installer-design.md`. Implementation: `claude/installer.sh` (entry poin
 
 - [x] **INST-REC-001**: The installer shall keep the install record at `~/.forge/install.json` whatever the state directory is.
 - [x] **INST-REC-002**: The installer shall store each install in the record's `installs` object under the key of its configuration directory: the Claude Code configuration directory (INST-CLI-013) for a global or plugin install, `<repo>/.claude` for a project install.
-- [x] **INST-REC-003**: The installer shall write each install it makes with exactly these fields: `cli` `claude`, `scope` (`global`, `project`, or `plugin`), `repo` (the repository's real path, `null` outside project scope), `state_dir`, `source`, `source_sha`, `source_dirty`, `agent_prefix`, `models`, `files`, `settings_file`, `settings_created`, `settings_added`, `exclude_added` (`[]` outside project scope), `backup` (`null` until a backup is made), and `complete`.
+- [ ] **INST-REC-003**: The installer shall write each install it makes with exactly these fields: `cli` `claude`, `scope` (`global`, `project`, or `plugin`), `repo` (the repository's real path, `null` outside project scope), `state_dir`, `source`, `source_sha`, `source_dirty`, `version`, `agent_prefix`, `models`, `files`, `settings_file`, `settings_created`, `settings_added`, `exclude_added` (`[]` outside project scope), `backup` (`null` until a backup is made), and `complete`.
 - [x] **INST-REC-004**: The installer shall record under `files` every file it installs, keyed by absolute path and mapped to the SHA-256 of the content it writes there.
 - [x] **INST-REC-005**: The installer shall leave every record entry whose `cli` is not `claude` unchanged.
 - [x] **INST-REC-006**: When a run finds a record entry with `cli` `claude` and `scope` `project` whose `repo` does not exist, the installer shall ignore that entry in its checks, remove it from the record when the run next writes the record, and print its key.

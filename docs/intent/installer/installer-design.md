@@ -67,7 +67,7 @@ A state directory inside a git working tree (git reports the directory, or its n
 
 ## Source Tree
 
-The installer reads only `claude/` and `rev`:
+The installer reads only `claude/`, `rev`, and `VERSION`:
 
 | Source | What it is |
 |---|---|
@@ -77,6 +77,8 @@ The installer reads only `claude/` and `rev`:
 | `claude/hooks/guard_paths.py` | The guard's `PreToolUse` adapter |
 
 The checkout is the directory containing `claude/install.py`. Each directory directly under `claude/skills/` is one skill of the same name. Copying follows every link, so each installed skill holds real files. At every depth, directories named `tests` or `__pycache__` and every file or directory whose name starts with `.` are not copied. `guard_paths.py` is copied into the installed Commander skill's `scripts/`, beside `guard_core.py`, and imports it from its own directory. A broken or cyclic link, a skill directory named `tests` or starting with `.`, a missing `claude/skills/forge/`, or a `guard_paths.py` already present in the Commander skill's `scripts/` refuses with `SOURCE_INVALID`.
+
+`VERSION` at the checkout's root holds Forge's version as one line `yyyy.m.count`: the year, the month without a leading zero, and the release's count within that month starting at `1`, so `2026.11.1` is the first release of November 2026. It is bumped by hand at each release. A missing `VERSION`, or one whose content apart from a trailing newline does not match that form, refuses with `SOURCE_INVALID`. The installer records the version as `version` and writes it into the plugin's `plugin.json`.
 
 The installer records the checkout's real path as `source` and its `HEAD` commit as `source_sha`. When `git status --porcelain` reports anything under `claude/` or `reference/` (untracked files included), the install proceeds, records `source_dirty: true`, and prints a warning. When the checkout is not a git repository, `source_sha` and `source_dirty` are `null`.
 
@@ -123,12 +125,12 @@ The build is a local marketplace rooted at `<state dir>/plugin/`:
   .claude-plugin/marketplace.json   # {"name": "forge-local", "owner": {"name": "Forge"},
                                     #  "plugins": [{"name": "forge", "source": "./forge"}]}
   forge/
-    .claude-plugin/plugin.json      # {"name": "forge"}
+    .claude-plugin/plugin.json      # {"name": "forge", "version": "<VERSION>"}
     skills/  agents/
     hooks/hooks.json
 ```
 
-`plugin.json` sets no `version`, so Claude Code loads the build as it is on disk at each session start or `/reload-plugins`.
+`plugin.json` carries Forge's `version`. Claude Code loads a local-directory plugin as it is on disk at each session start or `/reload-plugins`, whatever its version says, so a rebuild needs no version bump to take effect.
 
 `hooks.json` registers the guard once under `PreToolUse` with no matcher:
 `FORGE_HOME=<state dir> python3 "${CLAUDE_PLUGIN_ROOT}"/skills/forge/scripts/guard_paths.py`, the state directory quoted by `shlex.quote` as in plain files. Generated profiles carry no `hooks:` block, since Claude Code ignores it in plugin agents.
@@ -204,6 +206,7 @@ The install record is `~/.forge/install.json`, at that fixed path whatever the s
       "source": "/abs/forge-checkout",
       "source_sha": "<checkout HEAD>",
       "source_dirty": false,
+      "version": "2026.11.1",
       "agent_prefix": "",
       "models": {"forge-planner": "opus", "...": "..."},
       "files": {"/abs/repo/.claude/agents/forge-dev.md": "<sha256>", "...": "..."},
@@ -328,6 +331,7 @@ Each step prints one line to stdout. A successful install ends with `forge-insta
 | Running workstreams that block a change | Every held lock under the install's state directory | Only workstreams of the affected repository | Simple and safe; matching workstreams to repositories needs state beyond the lock, for a rare case of shared state directories. |
 | Backup restore | Never | Restore the backup on uninstall | Restoring would discard every settings change made after the install. |
 | Overlapping installs | Refuse and name the `--uninstall` command | Replace the old install automatically | Removing another install is the user's call (*Stop over guess*). |
+| Version source | `VERSION` at the checkout root, bumped by hand | The latest `vYYYY.M.N` git tag; computed from the commit date and a count of that month's commits | A file works outside git and in a dirty checkout and is read with no tooling; computing it would make every commit a version. |
 | `rev` format | JSON | Line-based text | Parsed by the standard library with no format rules of Forge's own. |
 
 ## Open Questions & Future Decisions

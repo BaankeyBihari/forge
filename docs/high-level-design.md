@@ -103,6 +103,7 @@ The `forge-memory` skill loads and saves each agent's episodic notes (decisions,
 
 ```text
 rev                          # upstream pins: one entry per dependency, a main-branch commit
+VERSION                      # Forge's version, yyyy.m.count (2026.11.1 is the first release of November 2026)
 reference/                   # CLI-neutral
   scripts/                   # resolve_state.py, next_step.py, verify_gate.py, guard_core.py,
                              # forge_memory.py, forge_hub.py, forge_spoke.py, lid_check.py
