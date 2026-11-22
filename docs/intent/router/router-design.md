@@ -32,7 +32,7 @@ The optional event is one JSON object:
 | `user` | The user answered a pause | `awaiting` (the pause kind being answered), `decision`, optional `option`, optional `notes` |
 | `mode` | The user switched the workstream's mode | `mode`, one of the six workstream modes |
 
-With no event, the router re-derives the decision from state: a pending pause is returned again, an outstanding dispatch returns the stored invocation envelope (`lifecycle.invoke`) unchanged, and drift or a dirty tree is handled as described below. At `INIT` a no-event call stops with `NOT_STARTED`, because only a `start` event begins routing; at `DONE` it returns `done`. This makes calling the router after a crash or on resume always safe.
+With no event, the router re-derives the decision from state: a pending pause is returned again, an outstanding dispatch returns the stored invocation envelope (`lifecycle.invoke`) unchanged except for `agent_prefix` and `dispatch_as`, which describe the current install and are read again, and drift or a dirty tree is handled as described below. At `INIT` a no-event call stops with `NOT_STARTED`, because only a `start` event begins routing; at `DONE` it returns `done`. This makes calling the router after a crash or on resume always safe.
 
 `--dry-run` computes the decision without writing state. The Hub uses it to build the resume brief's next step.
 

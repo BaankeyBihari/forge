@@ -30,7 +30,7 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 ## Re-derivation
 
 - [x] **ROUTE-REDO-001**: When called with no event while `lifecycle.awaiting` is set, `next_step.py` shall return the same pause again.
-- [x] **ROUTE-REDO-002**: When called with no event while `lifecycle.dispatched` is set, no drift is reported, and ROUTE-DRIFT-008 does not apply, `next_step.py` shall return the invocation envelope stored in `lifecycle.invoke` again, unchanged.
+- [ ] **ROUTE-REDO-002**: When called with no event while `lifecycle.dispatched` is set, no drift is reported, and ROUTE-DRIFT-008 does not apply, `next_step.py` shall return the invocation envelope stored in `lifecycle.invoke` again, unchanged except for `agent_prefix` and `dispatch_as`, which it shall set per ROUTE-DISP-010.
 - [x] **ROUTE-REDO-003**: When called with no event while `lifecycle.current_phase` is `INIT`, `next_step.py` shall return `stop` with `NOT_STARTED` and change no state.
 - [x] **ROUTE-REDO-004**: When called with no event while `lifecycle.current_phase` is `DONE`, `next_step.py` shall return `done`.
 
