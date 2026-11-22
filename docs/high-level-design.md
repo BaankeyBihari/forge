@@ -16,14 +16,14 @@ The **Hub** is the `/forge` skill (the Commander) running in the user's main Cla
 
 | Spoke | Role | Writes |
 |---|---|---|
-| `forge-planner` | Design and specs (LID stages 1–4, or a `PLAN.md` for non-LID repos) | `.lid/**`, `docs/**`, `PLAN.md` |
+| `forge-planner` | Design and specs (LID stages 1–4, or a `PLAN.md` for non-LID repos); in idea and triage workstreams, a proposal | `.lid/**`, `docs/**`, `PLAN.md`; in idea and triage workstreams only `proposal.md` in workstream state |
 | `forge-qa` | Tests (skeletons, full tests, contract repairs) | Test paths; spec markers, set by script |
 | `forge-dev` | Production code (stubs, full implementation) | Production paths; spec markers, set by script; never tests |
 | `forge-verifier` | Mechanical gate: trailers, boundaries, test run, arrow audit, scope delta | Nothing in the repo |
 | `forge-reviewer` | Qualitative review, internal or of an external PR | Nothing in the repo |
-| `forge-scout` | Read-only recon: GitHub issues, PR diffs and threads, CI logs | Its own cache in workstream state |
+| `forge-scout` | Read-only recon through the tracker: issues and related issues, PR diffs and threads, CI logs | Its own cache in workstream state |
 | `forge-publisher` | Push the branch, or confirm a local merge into `main` is possible and hand it to the user, behind the publish gate | Remote branch (push only) |
-| `forge-reporter` | PR creation and updates, PR review submission | External APIs |
+| `forge-reporter` | PR creation and updates, PR review submission, filing issues and posting issue comments | External APIs |
 
 The **Council** (`forge-council`) is a read-only spoke the Hub dispatches only when another spoke escalates a blocker. It fans out to two or three persona subagents (`forge-council-pm`, `-architect`, `-sec-ops`, `-debugger`, `-senior-dev`, `-critic`), and returns one draft decision matrix. The Hub presents it to the user, records the approved ruling, and routes the resulting work.
 
@@ -66,11 +66,27 @@ The `forge-memory` skill loads and saves each agent's episodic notes (decisions,
 
 `/forge <issue or task description>` starts a new workstream. Forge names it — from the GitHub issue's number, title, and labels when there is one, otherwise from the task description, which it keeps with the workstream for the planner to read — creates the worktree and branch, and moves the session there. It stops to ask only when an open workstream already tracks the same issue, when the description gives nothing to name, or when the branch would start from anything other than the default branch.
 
+### Investigating before building
+
+Two flows study a change without making it. Each runs in a worktree detached at the default branch, so the planner reads the code as it stands, and neither commits anything.
+
+- **Idea** — `/forge idea <text>` starts from the user's idea, with no issue. The planner investigates the code, the scout gathers context from the tracker (related issues and pull requests), and the planner writes a proposal. The workstream ends by filing the proposal as a new issue, or by being dropped.
+- **Triage** — `/forge triage <issue>` starts from an existing issue, which the scout reads first. The planner writes a proposal for it, and the workstream ends by posting the proposal as a comment on the issue, or by being dropped.
+
+In both flows the planner runs in a read-only mode whose only write is `proposal.md` in the workstream's state directory, and nothing reaches the tracker until the user approves the text the reporter will send. After filing or commenting, the user can **promote** the workstream: Forge closes it and starts a build workstream for the issue, with the proposal as its task description. Dropping records a one-line reason in the archived state, as `/forge drop` does.
+
+### Trackers
+
+Forge reaches an issue tracker only through a **tracker adapter**: a skill holding the tracker's read operations (read an issue, search related issues) and write operations (file an issue, comment on one), described by one entry in Forge's tracker index. The entry names the adapter skill and lists, for each operation, the commands or MCP tools it uses and whether each reads or writes. The workstream records its tracker in `identity.tracker`, the scout and reporter carry out the adapter's operations, and the files the scout writes and the drafts the reporter sends have the same shape for every tracker. Forge ships one adapter, GitHub through `gh`.
+
+Read access goes to the scout, write access to the reporter. An adapter's MCP tools are granted through the agent profiles' tool lists, which Claude Code enforces: the installer writes an entry's read tools into the scout's profile and its write tools into the reporter's. The guard adds rule checks only where a call's arguments decide whether it reads or writes — a shell command such as `gh api`, or an MCP tool that can do both — and the entry states those rules.
+
 ## Target Users
 
 - **A developer driving one change end to end** in a repository they own, who wants agents to do the bulk of planning, testing, and implementation while they keep approval over plans, spec changes, and anything that touches their own code — or hand a change over entirely and approve only its publishing.
 - **A developer working collaboratively with the agents** — writing some code or tests by hand between agent passes — who needs the agents to pick up their commits as ground truth rather than fight them.
 - **A developer running several changes in parallel** across branches or worktrees, who needs each change's state isolated and resumable.
+- **A developer deciding what to build** — shaping a rough idea into an issue, or triaging an issue someone else filed — who wants the investigation grounded in the code without anything being changed.
 
 ## Goals
 
@@ -79,6 +95,7 @@ The `forge-memory` skill loads and saves each agent's episodic notes (decisions,
 - Publishing is impossible unless the verifier and reviewer both passed the exact current HEAD on a clean tree.
 - Any workstream can be resumed in a fresh session from its state alone, with the resume brief correct about phase, progress, and next step.
 - Workstream state never leaks into the repo or into another workstream.
+- An idea or triage workstream changes nothing in the repository; its only outward action is the issue or comment the user approved.
 - Scripts, spoke skills, Council, `forge-spoke`, and `forge-memory` live in `reference/` with no Claude-specific content, so another CLI can adopt them with its own adapter.
 
 ## Non-Goals
@@ -86,7 +103,7 @@ The `forge-memory` skill loads and saves each agent's episodic notes (decisions,
 - **Other CLIs.** Only Claude Code gets an adapter and installer. `reference/` stays reusable, but no Codex, Antigravity, or Pi wiring ships.
 - **Repo-wide knowledge management.** Forge memory is scoped to a workstream and disposed of at closeout. Forge does not promote notes beyond the workstream.
 - **Prompt-behavior evaluation suites.** Correctness of the deterministic scripts is tested; behavioral evals of spoke prompts are out of scope.
-- **Jira and other non-GitHub trackers.** Scout and reporter work with GitHub (issues, PRs, Actions) through `gh` only.
+- **Adapters for trackers other than GitHub.** Only the GitHub adapter ships; Jira, other trackers, and MCP-based adapters fit the tracker contract but are not built. Pull requests and CI stay GitHub-only (`gh`).
 - **Bootstrapping linked-intent development.** A repository is planned with LID only when it already has LID structure; otherwise Forge plans with a `PLAN.md`. Adding LID to a repository is the user's job, with their own tools.
 - **Autonomous recovery from ambiguous state.** Forge does not guess its way out of drift, dirty trees, or contested locks.
 
@@ -105,6 +122,7 @@ The `forge-memory` skill loads and saves each agent's episodic notes (decisions,
 rev                          # upstream pins: one entry per dependency, a main-branch commit
 VERSION                      # Forge's version, yyyy.m.count (2026.11.1 is the first release of November 2026)
 reference/                   # CLI-neutral
+  trackers.json              # tracker index: one entry per tracker adapter
   scripts/                   # resolve_state.py, next_step.py, verify_gate.py, guard_core.py,
                              # forge_memory.py, forge_hub.py, forge_spoke.py, lid_check.py
     tests/                   # pytest suite
@@ -116,6 +134,7 @@ reference/                   # CLI-neutral
     forge-planner/  forge-qa/  forge-dev/  forge-verifier/
     forge-reviewer/ forge-scout/ forge-publisher/ forge-reporter/
     forge-council/           # council orchestration + personas/<persona>.md charters
+    forge-tracker-github/    # GitHub tracker adapter (gh)
 claude/                      # Claude Code adapter
   installer.sh               # install (--global | --project), --plugin, --preset, --models, --uninstall, --vendor
   install.py                 # the installer's work, called by installer.sh
@@ -149,7 +168,7 @@ flowchart TB
 
 ### Phase flow
 
-Planning runs LID stages 1–4 (or naive planning), either stopping for approval after each stage or chaining until done or blocked. Build runs QA full → Dev full, or a two-pass flow (QA skeletons → Dev stubs → QA full → Dev full, with the verifier recomputing remaining scope after every pass so human commits shrink it). Then final verification, internal review, publish, CI watch, and report. The complete phase set and transition table live in the router design and are implemented only by `next_step.py`.
+Planning runs LID stages 1–4 (or naive planning), either stopping for approval after each stage or chaining until done or blocked. Build runs QA full → Dev full, or a two-pass flow (QA skeletons → Dev stubs → QA full → Dev full, with the verifier recomputing remaining scope after every pass so human commits shrink it). Then final verification, internal review, publish, CI watch, and report. Idea and triage workstreams run recon, a proposal, and the report that files it or comments it, then close, promote, or drop. The complete phase set and transition table live in the router design and are implemented only by `next_step.py`.
 
 ### Modes
 
@@ -164,7 +183,7 @@ Each workstream runs in one named **mode** that decides where it stops for the u
 | `collab-code` | One approval of the finished plan | Two-pass flow, pausing after skeletons, stubs, and full tests |
 | `collab` | Stops after every LID stage | Two-pass flow, pausing after skeletons, stubs, and full tests |
 
-Every mode still stops for publishing, for changes to human-authored code beyond what the approved plan covers (in `delivery`, choosing the mode approves the plan), for uncommitted changes, for attempt limits, for council rulings that need the user, and on any error or the kill switch. New workstreams take the default mode from `~/.forge/config.json` (`collab` when unset), or the one named at start; the user switches mode at any time, and the new mode governs every step not yet started.
+Every mode still stops for publishing, for changes to human-authored code beyond what the approved plan covers (in `delivery`, choosing the mode approves the plan), for uncommitted changes, for attempt limits, for council rulings that need the user, and on any error or the kill switch. New workstreams take the default mode from `~/.forge/config.json` (`collab` when unset), or the one named at start; the user switches mode at any time, and the new mode governs every step not yet started. Modes pace build workstreams; an idea or triage workstream stops before anything is filed or posted whatever its mode.
 
 ### Installation
 
@@ -198,13 +217,16 @@ The installer reads `rev` and compares each pinned Claude Code plugin against th
 | Install by copying from `claude/`, as plain files or as a plugin | Symlinks into the checkout; plain files only; plugin only | A copy keeps working when the checkout moves and runs only what was installed. Plain files keep the guard in each agent's frontmatter, scoped to Forge agents; a plugin cannot, but it is the only install a managed hooks-only policy can allow. |
 | Skills, agents, and personas are all named `forge-*`; the Hub is `/forge` | Unprefixed role names | Role names like `dev` and `qa` collide with other installed skills and agents. |
 | Pacing is one named mode per workstream, switchable at any time | Separate settings for planning cadence, build flow, and council auto-apply; modes combined per workstream | One name per workstream is easier to choose and to read in the resume brief than a combination; the router derives every pause from it, so there is no second setting to drift. |
+| Idea and triage are their own flows, run by the planner and scout and ended by the reporter | A triage mode of the council or reviewer; a plan-only stop at plan approval in a build workstream | The planner already investigates code and the scout already reads the tracker; a separate flow keeps a study that may never be built out of build workstreams' branches, commits, and gates. |
+| The tracker seam is a tracker index entry plus an adapter skill | A tracker script (`forge_tracker.py`) with one backend per tracker; GitHub hard-coded with no seam; one index of every pluggable capability (trackers, CI, recon sources) | MCP tools are calls only the model can make, so a script seam would leave MCP trackers out. An index entry lets a new adapter arrive as a skill plus data. A general capability index waits for a second kind of extension, so its shape is not guessed from one. |
+| MCP tracker tools are granted by the profiles' tool lists; the guard checks only calls whose arguments decide read or write | Guard rules for every MCP tool by name | Claude Code enforces the tool list, so a tool an agent was not given cannot be called; a guard rule would repeat it. Shell commands and dual-use tools are the cases a tool list cannot split. |
 | Each agent's model is set at install, from a named preset or a file | Fixed aliases in each profile; the router picks a model per dispatch | An agent profile's `model:` overrides the session's model, so the install decides what each agent runs on, and the user trades cost against quality per install. Routing and Council stay free of model choice. |
 
 ## Success Metrics
 
 - The pytest suite covers every row of the routing table, every role × path combination in the guard, the publish gate, drift detection (fast-forward, rewind, dirty tree), SSH and HTTPS remotes, linked worktrees, and per-line human-code attribution — and passes.
 - A full workstream can be run in the vendored sandbox from `/forge` to publish without manual state edits.
-- **Falsification signals:** a spoke's result is accepted although its guard never ran; an agent commit lands that edits a test from `forge-dev`, or modifies human-authored lines without a recorded approval, and `verify_gate.py` passes it; a publish succeeds with `HEAD` differing from either pass SHA; a resume brief names the wrong phase or next step; any file under `~/.forge/` appears in the repo.
+- **Falsification signals:** a spoke's result is accepted although its guard never ran; an agent commit lands that edits a test from `forge-dev`, or modifies human-authored lines without a recorded approval, and `verify_gate.py` passes it; a publish succeeds with `HEAD` differing from either pass SHA; a resume brief names the wrong phase or next step; any file under `~/.forge/` appears in the repo; an idea or triage workstream makes a commit, or files or posts anything the user did not approve.
 
 ## References
 
