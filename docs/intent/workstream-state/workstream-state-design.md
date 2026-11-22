@@ -21,7 +21,7 @@ All Forge state lives under `FORGE_HOME`, which defaults to `~/.forge` and is ov
 $FORGE_HOME/
   config.json                         # global defaults
   state/<org>/<repo>/<workstream>/
-    state.json  lock.json  task.md
+    state.json  lock.json  task.md  proposal.md
     scout/  council/  envelopes/
     memory/{hub,shared,planner,qa,dev,verifier,reviewer,scout}/
   archive/<org>/<repo>/<workstream>-<UTC timestamp>/
@@ -59,11 +59,11 @@ When the workstream comes from the current branch and that branch is `main` or `
 
 ### Identity record
 
-A workstream's `state.json` records `org`, `repo`, `workstream`, `flow` (`build` or `pr_review`), `branch`, `base_branch`, `issue`, `pr`, `parent_workstream`, `git_common_dir`, and `worktree_path` at creation (see *Workstream Creation*). On every wake the script compares the recorded identity with the current checkout:
+A workstream's `state.json` records `org`, `repo`, `workstream`, `flow` (`build`, `pr_review`, `idea`, or `triage`), `tracker`, `branch`, `base_branch`, `issue`, `pr`, `parent_workstream`, `git_common_dir`, and `worktree_path` at creation (see *Workstream Creation*). `tracker` names the tracker index entry the workstream's issue operations use; it is `github`, the only entry Forge ships. On every wake the script compares the recorded identity with the current checkout:
 
 - **Different `git_common_dir`** — another clone of the same repository resolved to the same state directory. Status `IDENTITY_MISMATCH`.
 - **Different branch, when the workstream came from the current branch** — two branch names sanitized to the same slug (`feat/x` and `feat-x`). Status `IDENTITY_MISMATCH`.
-- **A `pr_review` workstream** (`identity.flow` is `pr_review`) skips both branch comparisons: its worktree is detached at the pull request head and has no branch. The worktree comparison below still applies.
+- **A detached workstream** (`identity.flow` is `pr_review`, `idea`, or `triage`) skips both branch comparisons: its worktree is detached and has no branch. The worktree comparison below still applies.
 - **Different worktree, or (for a `build` workstream) different branch, when the workstream was named explicitly** — the user is resuming a workstream that lives elsewhere. Status `ELSEWHERE`, reporting the recorded branch and worktree path, so the Hub can move the session into that worktree.
 
 ## Workstream Creation
@@ -80,6 +80,8 @@ Every workstream lives in its own git worktree under a **worktree root** the cal
 | `--type TYPE` | One of `feat`, `fix`, `chore`, `docs`, `refactor`; overrides the type derived from an issue. Default `feat`. |
 | `--branch NAME` | Adopt an existing local branch instead of creating one; the slug comes from the branch name. |
 | `--pr REF` | Start a `pr_review` workstream (see below). |
+| `--idea` | Start an `idea` workstream named by `--name`, with the idea in `--task-file` (see below). |
+| `--triage REF` | Start a `triage` workstream for an existing issue (see below). |
 | `--base REF` | The branch to start from. Default: the default branch (`origin/<default>` after `git fetch origin <default>`, or the local default branch when there is no `origin`). The default branch is the target of `origin/HEAD`; without one, `main` or else `master` among the `origin` branches, then among the local branches, and `main` when neither exists. |
 | `--base-confirmed` | Required whenever the base is not the default branch. |
 
@@ -91,9 +93,14 @@ The new branch is `<type>/<slug>` and the workstream is that branch's slug (`<ty
 
 **Review workstreams.** With `--pr`, the script reads `number`, `url`, `headRefName`, and `baseRefName` with `gh pr view --json`, names the workstream `pr-<number>`, fetches the pull request head (`git fetch origin pull/<number>/head`), and adds a detached worktree at it, so the reviewer can read whole files and run tests. `identity.flow` is `pr_review`, `branch` is `null`, and `base_branch` is the pull request's base.
 
+**Idea and triage workstreams.** Both study a change without making it, so each gets a worktree detached at the default branch (`git worktree add --detach <root>/<workstream> <default>`, with the default branch resolved as for `--base`), where the planner reads the code as it stands. `branch` is `null` and `base_branch` is the default branch. `--base`, `--branch`, `--type`, and `--base-confirmed` are usage errors with either flag.
+
+- `--idea` requires `--name` and `--task-file`. The workstream is `idea-<slug>`, `identity.flow` is `idea`, and `identity.issue` is `null`.
+- `--triage REF` reads the issue as `--issue` does. The workstream is `triage-<number>`, `identity.flow` is `triage`, and `identity.issue` is the issue's URL. `--task-file` is optional and carries the user's own words about the issue.
+
 **Refusals.** `new` creates nothing and returns:
 
-- `DUPLICATE`, naming the existing workstream, when an open workstream's `identity.issue` (or `identity.pr`) is the same URL;
+- `DUPLICATE`, naming the existing workstream, when an open workstream's `identity.issue` (or `identity.pr`) is the same URL, whatever either workstream's flow;
 - `STATE_EXISTS` when the workstream slug already has state;
 - `BRANCH_EXISTS` when the new branch name already exists (unless adopting it with `--branch`);
 - `BASE_CONFIRM_REQUIRED` or `BRANCH_CHECKED_OUT` as above;
@@ -168,7 +175,8 @@ A workstream the user abandons before it finishes is closed the same way with `-
 
 ```text
 resolve_state.py wake  [--workstream SLUG] --holder-pid PID --holder-session ID [--steal]
-resolve_state.py new   (--issue REF | --name SLUG | --branch NAME | --pr REF) [--type TYPE] [--task-file FILE]
+resolve_state.py new   (--issue REF | --name SLUG | --branch NAME | --pr REF | --idea --name SLUG | --triage REF)
+                       [--type TYPE] [--task-file FILE]
                        [--base REF [--base-confirmed]] --worktree-root DIR
                        --holder-pid PID --holder-session ID [--set KEY=VALUE ...]
 resolve_state.py list
@@ -194,6 +202,8 @@ Bare repositories and submodule-specific behavior are not supported; the script 
 | Worktree root | Passed in by the caller | Hardcode `.claude/worktrees` | The script is shared across CLIs; only the Claude Code adapter knows Claude Code's layout. |
 | Non-default base | Refused without `--base-confirmed` | Hub prompt asks before choosing a base | *Scripts over prompts*: the script guarantees stacking never happens unconfirmed. |
 | Review worktree | Detached at the pull request head | No worktree; diff only | The reviewer can read whole files and run the tests, and every workstream has the same shape. |
+| Idea and triage worktree | Detached at the default branch | A new branch; no worktree, reading the main checkout | Neither flow commits, so a branch would be left empty; reading the main checkout would see the user's uncommitted edits and whatever branch is checked out there. |
+| One issue, one open workstream | `DUPLICATE` across flows, so a triage and a build workstream never track the same issue at once | Allow a triage beside a build workstream for the same issue | Two open workstreams on one issue could both post to it. Promoting closes the triage workstream before the build workstream is created, so the rule never blocks it. |
 | Local repository naming | `local/<project-slug>` from the project directory name | Name from the local remote's path | The project directory is the name the user knows the repository by; a local remote's path is often a bare mirror with an unrelated name. |
 | Explicit workstream names | Validated, never sanitized | Sanitize like branch names | A name the user types should address exactly one workstream; sanitizing could silently map a typo onto another one. |
 | `wake` does not create state | Return `NO_STATE`; create with `new` | Create on first wake | Starting a workstream is the user's choice; an accidental `/forge` on a scratch branch should not leave state behind. |
