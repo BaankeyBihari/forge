@@ -165,7 +165,7 @@ forge_hub.py mode --state PATH --mode MODE
 
 ### Dispatch
 
-The Commander starts the subagent named by `invoke.agent` with a prompt that carries only the dispatch ID and two paths:
+The Commander starts the subagent named by `invoke.dispatch_as` (the agent's name with any harness prefix, router design) with a prompt that carries only the dispatch ID and two paths:
 
 ```text
 Forge dispatch <dispatch_id>. Your invocation is lifecycle.invoke in <state_path>.

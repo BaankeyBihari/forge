@@ -21,7 +21,7 @@ The personas' raw output stays inside the council's own subagent context; the Hu
 
 1. Read the blocker file and every file it or `context_refs` names; read the repository code the blocker concerns.
 2. Frame the question in two or three sentences, with what each possible answer would change.
-3. Start every panel persona at once with the Agent tool (`forge-council-<persona>`). Each prompt carries the persona's charter (from `personas/<persona>.md` in the `forge-council` skill), the framed question, and the paths to read, and asks for at most 300 words: assessment, preferred option, risks.
+3. Start every panel persona at once with the Agent tool, as `<invoke.agent_prefix>forge-council-<persona>`. Each prompt carries the persona's charter (from `personas/<persona>.md` in the `forge-council` skill), the framed question, and the paths to read, and asks for at most 300 words: assessment, preferred option, risks.
 4. When the blocker concerns authentication, secrets, permissions, or untrusted input and the panel has fewer than three personas, add `sec-ops`.
 5. Write the decision matrix to `council/<blocker id>-matrix-<YYYYMMDDTHHMMSSZ>.md`.
 6. Return `COUNCIL_RULING` with `ruling`.

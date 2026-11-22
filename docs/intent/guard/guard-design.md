@@ -20,7 +20,7 @@ The guard is best effort for shell commands. Write tools name their target path,
 
 ## Scope
 
-A tool call is guarded only when the hook input's `agent_type` starts with `forge-`. Without `agent_type` (the user's main session, which is also the Hub) or with any other value, the adapter exits `0` with no output before doing any other work, so non-Forge sessions see no effect and no measurable delay.
+A tool call is guarded only when the hook input's `agent_type` starts with `forge-`, or with `forge:forge-` as Claude Code names the agents of the Forge plugin. The adapter strips a leading `forge:` before anything else, so every rule, the circuit-breaker key, and the guard record see the bare name (`forge-dev`) whichever way Forge was installed. Without `agent_type` (the user's main session, which is also the Hub) or with any other value, the adapter exits `0` with no output before doing any other work, so non-Forge sessions see no effect and no measurable delay.
 
 Hook input that does not parse as a JSON object cannot be attributed to any agent, so the adapter lets it through like any other unguarded call: Claude Code always sends valid input, and blocking would break the user's own sessions on a harness bug. Once a call is known to come from a Forge agent, any internal error — malformed tool input, an exception — blocks it. A guard that fails open there would silently drop every rule at the moment something unusual is happening.
 
@@ -138,10 +138,10 @@ The installer registers the adapter under `PreToolUse` with no matcher, so every
 
 ### Resolved
 1. ✅ Hook input carries `agent_type` and `agent_id` inside subagents, and settings-level hooks fire inside subagents (Claude Code hooks documentation).
+2. ✅ Plugin agents report `agent_type` as `forge:forge-<role>` (second sandbox probe).
 
 ### Deferred
 1. The workstream lookup assumes a subagent's hook input carries the Hub's `session_id`, the same value the Hub reads from its environment and stores as `holder_session`. The first test of the adapter confirms this against a real session; if it does not hold, the lookup key changes before any other guard work lands.
-2. Plugin agents report `agent_type` as `forge:forge-<role>`. The scope check and every per-agent rule accept that form once the plugin probe confirms it (installer design, plugin mode).
 
 ## References
 

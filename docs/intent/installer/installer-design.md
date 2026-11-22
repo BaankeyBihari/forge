@@ -90,7 +90,7 @@ The installer records the checkout's real path as `source` and its `HEAD` commit
 | Settings file | `<config>/settings.json` | `<repo>/.claude/settings.local.json` | `<config>/settings.json` |
 | Hidden from git | — | each installed path listed in `.git/info/exclude` | — |
 
-`<plugin>` is `<state dir>/plugin/forge/`. Claude Code reads a plugin from a local-directory marketplace in place rather than copying it into its plugin cache, so the installer builds the plugin outside the checkout and that build is the installed copy.
+`<plugin>` is `<state dir>/plugin/forge/`. Claude Code runs a plugin from a local-directory marketplace in place: its hooks run from, and `${CLAUDE_PLUGIN_ROOT}` points at, the marketplace's directory, even though `claude plugin install` also copies the plugin into Claude Code's plugin cache. The installer therefore builds the plugin outside the checkout, and that build is the installed copy.
 
 The top-level installed paths are each skill directory and each agent file, and, for the plugin, `<state dir>/plugin/`. Removing directories left empty never goes above a top-level installed path, so `skills/`, `agents/`, and `.claude/` are never removed.
 
@@ -133,9 +133,11 @@ The build is a local marketplace rooted at `<state dir>/plugin/`:
 `hooks.json` registers the guard once under `PreToolUse` with no matcher:
 `FORGE_HOME='<state dir>' python3 "${CLAUDE_PLUGIN_ROOT}"/skills/forge/scripts/guard_paths.py`. Generated profiles carry no `hooks:` block, since Claude Code ignores it in plugin agents.
 
-Plugin mode needs the `claude` command on `PATH`; without it the install refuses with `CLAUDE_MISSING`. A marketplace named `forge-local` already registered at another directory refuses with `MARKETPLACE_CONFLICT`. After writing the build, the installer runs `claude plugin marketplace add <state dir>/plugin` (skipped when `forge-local` is registered at that directory) and `claude plugin install forge@forge-local`.
+Plugin mode needs the `claude` command on `PATH`; without it the install refuses with `CLAUDE_MISSING`. A marketplace is registered when `<config>/plugins/known_marketplaces.json` has an entry under its name; the entry's `installLocation` is its directory. A `forge-local` entry whose `installLocation` is another directory refuses with `MARKETPLACE_CONFLICT`. After writing the build, the installer runs `claude plugin marketplace add <state dir>/plugin` (skipped when `forge-local` is registered at that directory) and `claude plugin install forge@forge-local`.
 
-In plugin mode Claude Code names the agents `forge:forge-<role>` and the Commander `/forge:forge` (plain `/forge` still works while no other skill takes it). The install record's `agent_prefix` is `forge:`.
+In plugin mode Claude Code names the agents `forge:forge-<role>` and the Commander `/forge:forge` (plain `/forge` still works while no other skill takes it). It starts a plugin agent only by that name, from the main session and from inside another plugin agent alike, and reports it as the hook input's `agent_type`. Preloaded `skills:` entries with bare names resolve to the plugin's own skills, so profiles keep their bare names.
+
+The build also writes `<plugin>/skills/forge/scripts/forge_install.json` holding `{"agent_prefix": "forge:"}`. The router reads it from its own directory and names every dispatch with it (router design); a plain-files install writes no such file, and the prefix is empty. A `forge_install.json` already present in the Commander skill's source `scripts/` refuses with `SOURCE_INVALID`. The install record's `agent_prefix` is `forge:`.
 
 Until plugin mode is built, a `--plugin` install refuses with `PLUGIN_UNAVAILABLE` after its argument checks and before any other check.
 
@@ -309,6 +311,7 @@ Each step prints one line to stdout. A successful install ends with `forge-insta
 |---|---|---|---|
 | Implementation | `installer.sh` hands off to stdlib-Python `install.py` | All in shell | JSON merges of settings files, profile generation, and hashing are fragile in shell without `jq`; Python matches every other Forge script and is tested with pytest. |
 | Plugin location | Build a local marketplace under the state directory and install from it | Marketplace inside the checkout; `--plugin-dir` | Claude Code reads a local-directory plugin in place, so a marketplace in the checkout would make the install depend on the checkout and run edits nobody reinstalled. `--plugin-dir` lasts one session. |
+| Plugin agent names | The router names each dispatch from `forge_install.json` beside it; the guard strips `forge:` | The installer rewrites agent names inside the copied skill files; the skills retry with `forge:` after a "not found" error | A script supplies the exact name, so the model only copies a field; text substitution breaks silently when a skill's wording changes, and a retry wastes a call per dispatch and depends on the model. |
 | Plugin scope | Global (user) only | Project or local plugin scope | A project-scoped plugin is recorded in the tracked `.claude/settings.json`; a per-repository trial install is what plain-files project scope is for. |
 | Install record location | Fixed `~/.forge/install.json` | Under the state directory; `~/.claude/forge-install.json`; a record inside each project repository | The overlap rules need every install in one place; a record under the state directory splits into one per state directory and lets a project install sit over a global one, and a record inside each repository is invisible to a global install. Keeping it beside Forge's default state keeps Forge files out of Claude Code's configuration directory and out of repositories. |
 | Install record shape | One entry per configuration directory, each naming its `cli` | A list of installs; entries keyed by repository | A repository can hold installs for several CLIs, each in its own configuration directory, so that directory is the unique key; `cli` limits the overlap rules to installs of the same CLI. |
@@ -338,13 +341,13 @@ Each step prints one line to stdout. A successful install ends with `forge-insta
 3. ✅ A session started in the main checkout keeps the project install's skills, agents, and settings after entering a Forge worktree (sandbox runs 1 to 3).
 4. ✅ Claude Code accepts `fable` as a profile model alias, and reads a plugin from a local-directory marketplace in place, picking up edits at the next session start or `/reload-plugins` (sub-agents and plugin marketplace documentation).
 5. ✅ Plugin hooks fire under `-p`: they merge with settings-file hooks, which run in `-p` sessions (Claude Code hooks and permissions documentation).
+6. ✅ Plugin agents are started only by their scoped name `forge:forge-<role>`, including from inside other plugin agents, and report that name as `agent_type`; bare `skills:` names resolve to the plugin's own skills, whose base directory is shown so `scripts/` can be found; the plugin hook fires for the main session and every agent, under `-p` too; an installed local-directory plugin runs from the marketplace directory; `known_marketplaces.json` records each marketplace's `installLocation` (second sandbox probe).
 
 ### Deferred
 
-1. Plugin mode, before it is built: what `agent_type` a plugin agent reports (`forge:forge-dev` is expected); whether preloaded `skills:` in a plugin agent resolve bare names; how the guard, the Commander, and the Council learn the agent prefix; and how the installer reads an existing `forge-local` registration and its directory. A second sandbox probe answers these.
-2. How a project-scope plugin install appears in `installed_plugins.json`. Until then only `user` entries count for the plugin check, so a project install with `linked-intent-dev` installed only for that project refuses.
-3. Repository URLs and commits for the provenance pins (BMAD, Obra Superpowers, memoir-skill) in `rev`.
-4. Whether a session started directly inside a Forge worktree loads the main checkout's untracked project install and `settings.local.json`.
+1. How a project-scope plugin install appears in `installed_plugins.json`. Until then only `user` entries count for the plugin check, so a project install with `linked-intent-dev` installed only for that project refuses.
+2. Repository URLs and commits for the provenance pins (BMAD, Obra Superpowers, memoir-skill) in `rev`.
+3. Whether a session started directly inside a Forge worktree loads the main checkout's untracked project install and `settings.local.json`.
 
 ## References
 

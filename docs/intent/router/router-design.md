@@ -66,6 +66,8 @@ Every decision also carries `phase` (the phase after the decision) and `summary`
 |---|---|
 | `dispatch_id` | Unique per dispatch; the result envelope must echo it |
 | `agent` | `forge-planner`, `forge-qa`, `forge-dev`, `forge-verifier`, `forge-reviewer`, `forge-scout`, `forge-publisher`, `forge-reporter`, or `forge-council` |
+| `agent_prefix` | The prefix the harness needs before every Forge agent name: `forge:` for the Claude Code plugin, `""` otherwise |
+| `dispatch_as` | `agent_prefix` followed by `agent`: the name the Hub starts the subagent by |
 | `mode` | The agent's mode for this dispatch (see *Agent modes*) |
 | `stage` | The value the spoke writes into its commits' `Forge-Stage` trailer; omitted for agents that do not commit |
 | `state_path` | Absolute path of `state.json` (read-only for the spoke) |
@@ -74,6 +76,8 @@ Every decision also carries `phase` (the phase after the decision) and `summary`
 | `context_refs` | Files the spoke must read: the task description, specs, scout briefs, council rulings, review findings |
 | `notes` | User or council notes carried into this dispatch, if any |
 | `panel` | Council only: the persona names the council convenes for this blocker |
+
+The router reads `agent_prefix` from `forge_install.json` in its own directory, which only a plugin install writes; with no such file the prefix is `""`, and a file that does not parse as a JSON object with a string `agent_prefix` stops with `INSTALL_INVALID`. Every other field, `lifecycle.dispatched.agent` included, keeps the bare name.
 
 ### Result envelope
 
