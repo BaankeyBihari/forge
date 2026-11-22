@@ -107,7 +107,7 @@ Then act on `action`, and repeat until one ends the loop:
 | `close`, `done` | Close the workstream (section 7) |
 
 <!-- @spec CMD-LOOP-003 -->
-**Dispatch.** Start the subagent named by `invoke.agent` with exactly this prompt and nothing else:
+**Dispatch.** Start the subagent named by `invoke.dispatch_as` (the agent's name as this install needs it) with exactly this prompt and nothing else:
 
 ```text
 Forge dispatch <invoke.dispatch_id>. Your invocation is lifecycle.invoke in <invoke.state_path>.

@@ -30,7 +30,7 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 ## Re-derivation
 
 - [x] **ROUTE-REDO-001**: When called with no event while `lifecycle.awaiting` is set, `next_step.py` shall return the same pause again.
-- [ ] **ROUTE-REDO-002**: When called with no event while `lifecycle.dispatched` is set, no drift is reported, and ROUTE-DRIFT-008 does not apply, `next_step.py` shall return the invocation envelope stored in `lifecycle.invoke` again, unchanged except for `agent_prefix` and `dispatch_as`, which it shall set per ROUTE-DISP-010.
+- [x] **ROUTE-REDO-002**: When called with no event while `lifecycle.dispatched` is set, no drift is reported, and ROUTE-DRIFT-008 does not apply, `next_step.py` shall return the invocation envelope stored in `lifecycle.invoke` again, unchanged except for `agent_prefix` and `dispatch_as`, which it shall set per ROUTE-DISP-010.
 - [x] **ROUTE-REDO-003**: When called with no event while `lifecycle.current_phase` is `INIT`, `next_step.py` shall return `stop` with `NOT_STARTED` and change no state.
 - [x] **ROUTE-REDO-004**: When called with no event while `lifecycle.current_phase` is `DONE`, `next_step.py` shall return `done`.
 
@@ -45,8 +45,8 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 - [x] **ROUTE-DISP-007**: When dispatching `forge-verifier`, `next_step.py` shall set `assigned_scope` to `scope_manifest.assigned`.
 - [x] **ROUTE-DISP-008**: When re-dispatching the same phase while applying a `revise` answer, a `reject` answer, or an `approve` answer to a spoke's `human_code_approval`, `next_step.py` shall set `context_refs` to the replaced dispatch's `lifecycle.invoke.context_refs` followed by any new entries not already in it, except for `forge-reporter`, whose `context_refs` follow ROUTE-BUILD-033.
 - [x] **ROUTE-DISP-009**: While the workstream's state directory holds `task.md`, when `next_step.py` dispatches `forge-planner`, or `forge-reviewer` in `REVIEW_INTERNAL`, it shall put the absolute path of `task.md` first in the invocation envelope's `context_refs` and list it nowhere else in them.
-- [ ] **ROUTE-DISP-010**: When `next_step.py` dispatches an agent, the invocation envelope shall also carry `agent_prefix`, read from `forge_install.json` in the directory containing `next_step.py` (`""` when that file does not exist), and `dispatch_as`, equal to `agent_prefix` followed by `agent`.
-- [ ] **ROUTE-DISP-011**: If `forge_install.json` in the directory containing `next_step.py` exists but is not a JSON object whose `agent_prefix` is a string, then `next_step.py` shall return `stop` with `INSTALL_INVALID`, naming the file, and change no state.
+- [x] **ROUTE-DISP-010**: When `next_step.py` dispatches an agent, the invocation envelope shall also carry `agent_prefix`, read from `forge_install.json` in the directory containing `next_step.py` (`""` when that file does not exist), and `dispatch_as`, equal to `agent_prefix` followed by `agent`.
+- [x] **ROUTE-DISP-011**: If `forge_install.json` in the directory containing `next_step.py` exists but is not a JSON object whose `agent_prefix` is a string, then `next_step.py` shall return `stop` with `INSTALL_INVALID`, naming the file, and change no state.
 
 ## Result envelopes
 

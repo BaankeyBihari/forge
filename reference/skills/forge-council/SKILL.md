@@ -30,7 +30,7 @@ Then frame the question in **two or three sentences**, saying what each possible
 
 The panel is `invoke.panel`. When the blocker concerns authentication, secrets, permissions, or untrusted input and the panel has fewer than three personas, **add `sec-ops`**.
 
-Start **every** persona at once — one message, one Agent call per persona — with subagent type `forge-council-<persona>`. Each prompt carries:
+Start **every** persona at once — one message, one Agent call per persona — with subagent type `<invoke.agent_prefix>forge-council-<persona>` (`invoke.agent_prefix` is `forge:` in the Forge plugin, empty otherwise). Each prompt carries:
 
 - the full text of `personas/<persona>.md`;
 - the framed question;

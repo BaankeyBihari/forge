@@ -304,11 +304,25 @@ def skill_sources():
         skills[entry.name] = files
     if "forge" not in skills:
         raise Refuse("SOURCE_INVALID", f"{root}/forge is missing")
-    if Path("scripts/guard_paths.py") in skills["forge"]:
-        raise Refuse("SOURCE_INVALID", f"{root}/forge/scripts already holds a guard_paths.py")
+    for name in ("guard_paths.py", "forge_install.json"):
+        if Path("scripts", name) in skills["forge"]:
+            raise Refuse("SOURCE_INVALID", f"{root}/forge/scripts already holds a {name}")
     guard = CHECKOUT / "claude/hooks/guard_paths.py"
     skills["forge"][Path("scripts/guard_paths.py")] = (guard.read_bytes(), os.stat(guard).st_mode & 0o777)
     return skills
+
+
+# @spec INST-SRC-009, INST-SRC-010
+def read_version():
+    path = CHECKOUT / "VERSION"
+    try:
+        text = path.read_text()
+    except OSError as e:
+        raise Refuse("SOURCE_INVALID", f"{path} cannot be read: {e}")
+    version = text[:-1] if text.endswith("\n") else text
+    if not re.fullmatch(r"[0-9]{4}\.([1-9]|1[0-2])\.[1-9][0-9]*", version):
+        raise Refuse("SOURCE_INVALID", f"{path} must hold one line yyyy.m.count, such as 2026.11.1")
+    return version
 
 
 def walk_skill(directory, rel, stack, files):
@@ -390,10 +404,12 @@ def resolve_models(opts, agents, previous):
     return base, choice
 
 
-# @spec INST-MODEL-002, INST-PLAIN-003
+# @spec INST-MODEL-002, INST-PLAIN-003, INST-PLUG-004
 def render_profile(lines, model, guard_command):
     end = lines.index("---", 1)
     fm = [f"model: {model}" if line.startswith("model:") else line for line in lines[1:end]]
+    if guard_command is None:  # plugin: Claude Code ignores hooks in plugin agents
+        return "\n".join(["---", *fm, *lines[end:]])
     fm += ["hooks:", "  PreToolUse:", "    - hooks:", "        - type: command",
            f"          command: {json.dumps(guard_command)}"]
     return "\n".join(["---", *fm, *lines[end:]])
@@ -498,7 +514,9 @@ def write_settings(path, data, backup_global):
 
 # --------------------------------------------------------------------------- files
 
-def top_level(target, path):
+def top_level(target, path, plugin_root=None):
+    if plugin_root and Path(plugin_root) in Path(path).parents:
+        return str(plugin_root)
     parts = Path(os.path.relpath(path, target)).parts
     return str(Path(target, *parts[:2])) if parts[0] in ("skills", "agents") else str(path)
 
@@ -572,6 +590,46 @@ def check_workstreams(state_dirs):
                                           "or stop them with /forge stop and close the session")
 
 
+# --------------------------------------------------------------------------- plugin
+
+MARKETPLACE, PLUGIN_ID = "forge-local", "forge@forge-local"
+
+
+def plugin_records(config):
+    """(installed plugin ids, {marketplace name: installLocation}) from Claude Code's plugin records."""
+    out = []
+    for name, pick in (("installed_plugins.json", lambda d: d.get("plugins")),
+                       ("known_marketplaces.json", lambda d: {k: (v or {}).get("installLocation")
+                                                              for k, v in d.items() if isinstance(v, dict)})):
+        try:
+            data = pick(json.loads((Path(config) / "plugins" / name).read_text()))
+        except (OSError, ValueError, AttributeError):
+            data = None
+        out.append(data if isinstance(data, dict) else {})
+    return out
+
+
+def run_claude(*args):
+    result = subprocess.run(["claude", *args], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise Refuse("STEP_FAILED", f"claude {' '.join(args)} failed: {(result.stderr or result.stdout).strip()}")
+    say(f"ran claude {' '.join(args)}")
+
+
+# @spec INST-PLUG-001, INST-PLUG-002, INST-PLUG-003, INST-PLUG-009
+def plugin_build(root, state, version):
+    """The plugin's own files under root (<state dir>/plugin): path -> (bytes, mode)."""
+    command = f'FORGE_HOME={shlex.quote(state)} python3 "${{CLAUDE_PLUGIN_ROOT}}"/skills/forge/scripts/guard_paths.py'
+    files = {
+        ".claude-plugin/marketplace.json": {"name": MARKETPLACE, "owner": {"name": "Forge"},
+                                            "plugins": [{"name": "forge", "source": "./forge"}]},
+        "forge/.claude-plugin/plugin.json": {"name": "forge", "version": version},
+        "forge/hooks/hooks.json": {"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": command}]}]}},
+        "forge/skills/forge/scripts/forge_install.json": {"agent_prefix": "forge:"},
+    }
+    return {os.path.join(root, rel): (dump(data).encode(), 0o644) for rel, data in files.items()}
+
+
 # --------------------------------------------------------------------------- install
 
 def uninstall_command(key, entry):
@@ -592,6 +650,8 @@ def check_overlap(entries, key, scope, config):
             clashes.append((k, e))
         elif scope == "project" and e.get("scope") in ("global", "plugin"):
             clashes.append((k, e))
+        elif scope == "plugin" and (e.get("scope") == "project" or k == key):
+            clashes.append((k, e))
     if clashes:
         names = "; ".join(f"{e.get('scope')} install {e.get('repo') or k} "
                           f"(remove it with {uninstall_command(k, e)})" for k, e in clashes)
@@ -599,6 +659,7 @@ def check_overlap(entries, key, scope, config):
 
 
 # @spec INST-CLI-009, INST-CLI-010, INST-CLI-014, INST-PLAIN-001, INST-PLAIN-002, INST-PLAIN-004, INST-PLAIN-006, INST-PLAIN-007, INST-OVL-007, INST-OVL-008, INST-OVL-009, INST-REC-002, INST-REC-003, INST-REC-004, INST-SEQ-004, INST-SEQ-005, INST-SEQ-007, INST-SEQ-008, INST-SEQ-009, INST-SEQ-011, INST-SET-001, INST-SET-009, INST-MODEL-012, INST-OUT-002
+# @spec INST-PLUG-005, INST-PLUG-006, INST-PLUG-007, INST-PLUG-008
 def install(opts):
     if not shutil.which("git"):
         raise Refuse("GIT_MISSING", "the installer needs git on PATH")
@@ -610,10 +671,20 @@ def install(opts):
             raise Refuse("NOT_A_REPO_ROOT", f"{repo} is not the root of a git repository's main worktree")
         scope, target = "project", os.path.join(repo, ".claude")
         settings_file = os.path.join(target, "settings.local.json")
+        key = target
     else:
-        repo, scope, target = None, "global", config
-        settings_file = os.path.join(config, "settings.json")
-    key = target
+        plugin = bool(opts.get("--plugin"))
+        repo, scope = None, "plugin" if plugin else "global"
+        target = os.path.join(state, "plugin", "forge") if plugin else config
+        settings_file, key = os.path.join(config, "settings.json"), config
+    plugin_root = os.path.join(state, "plugin") if scope == "plugin" else None
+    if plugin_root:
+        if not shutil.which("claude"):
+            raise Refuse("CLAUDE_MISSING", "a plugin install needs the claude command on PATH")
+        where = plugin_records(config)[1].get(MARKETPLACE)
+        if where is not None and real(where) != plugin_root:
+            raise Refuse("MARKETPLACE_CONFLICT", f"a marketplace named {MARKETPLACE} is registered at {where}; "
+                                                 f"remove it with: claude plugin marketplace remove {MARKETPLACE}")
     record = load_record()
     entries = claude_entries(record)
     check_overlap(entries, key, scope, config)
@@ -622,19 +693,21 @@ def install(opts):
         check_workstreams([previous.get("state_dir"), state])
     check_pins(load_rev(), config)
 
-    skills, templates = skill_sources(), agent_templates()
+    skills, templates, version = skill_sources(), agent_templates(), read_version()
     models, choice = resolve_models(opts, list(templates), previous)
     guard = os.path.join(target, "skills/forge/scripts/guard_paths.py")
-    guard_command = f"FORGE_HOME={shlex.quote(state)} python3 {shlex.quote(guard)}"
-    planned = {}  # path -> (bytes, mode)
-    tops = []
+    guard_command = None if plugin_root else f"FORGE_HOME={shlex.quote(state)} python3 {shlex.quote(guard)}"
+    planned = plugin_build(plugin_root, state, version) if plugin_root else {}  # path -> (bytes, mode)
+    tops = [plugin_root] if plugin_root else []
     for name, files in skills.items():
-        tops.append(os.path.join(target, "skills", name))
+        if not plugin_root:
+            tops.append(os.path.join(target, "skills", name))
         for rel, content in files.items():
             planned[os.path.join(target, "skills", name, str(rel))] = content
     for name, lines in templates.items():
         path = os.path.join(target, "agents", f"{name}.md")
-        tops.append(path)
+        if not plugin_root:
+            tops.append(path)
         planned[path] = (render_profile(lines, models[name], guard_command).encode(), 0o644)
     hashes = {p: sha(data) for p, (data, _) in planned.items()}
 
@@ -669,7 +742,7 @@ def install(opts):
     entry = {
         "cli": "claude", "scope": scope, "repo": repo, "state_dir": state,
         "source": str(CHECKOUT), "source_sha": source_sha, "source_dirty": source_dirty,
-        "agent_prefix": "", "models": models,
+        "version": version, "agent_prefix": "forge:" if plugin_root else "", "models": models,
         "files": {**hashes, **prev_files},
         "settings_file": settings_file,
         "settings_created": previous.get("settings_created", False) if previous else not settings_existed,
@@ -690,12 +763,17 @@ def install(opts):
         for path in prev_files:
             if path not in planned and os.path.lexists(path):
                 os.unlink(path)
-                prune(path, top_level(target, path))
-        say(f"wrote {len(planned)} files under {target}")
+                prune(path, top_level(target, path, plugin_root))
+        say(f"wrote {len(planned)} files under {plugin_root or target}")
+        if plugin_root:
+            step = "claude plugin"
+            if real(plugin_records(config)[1].get(MARKETPLACE) or "/nonexistent") != plugin_root:
+                run_claude("plugin", "marketplace", "add", plugin_root)
+            run_claude("plugin", "install", PLUGIN_ID)
         step = "settings"
         data = read_settings(settings_file)
         added = apply_settings(data, state, prev_added)
-        backup = write_settings(settings_file, data, backup_global=scope == "global")
+        backup = write_settings(settings_file, data, backup_global=scope != "project")
         if backup:
             entry["backup"] = backup
         step = "exclude"
@@ -708,8 +786,9 @@ def install(opts):
         raise Refuse("STEP_FAILED", f"the {step} step failed: {e}; rerun the installer to finish")
     entry.update(files=hashes, settings_added=added, complete=True)
     save_record(record)
-    say(NOTICE)
-    say(f"installed plain {scope} {key} models={choice} files={len(planned)}")
+    if not plugin_root:
+        say(NOTICE)
+    say(f"installed {'plugin' if plugin_root else 'plain'} {scope} {key} models={choice} files={len(planned)}")
     return 0
 
 
@@ -735,7 +814,8 @@ def uninstall(opts):
         raise Refuse("NOT_INSTALLED", f"no Forge install is recorded for {key}")
     check_workstreams([entry.get("state_dir")])
     files = entry.get("files") or {}
-    tops = sorted({top_level(key, p) for p in files})
+    plugin_root = os.path.join(entry.get("state_dir") or "", "plugin") if entry.get("scope") == "plugin" else None
+    tops = sorted({top_level(key, p, plugin_root) for p in files})
     kept, failed, errors = {}, {}, []
 
     clean_tmp(key, tops)
@@ -748,10 +828,20 @@ def uninstall(opts):
             continue
         try:
             os.unlink(path)
-            prune(path, top_level(key, path))
+            prune(path, top_level(key, path, plugin_root))
         except OSError as e:
             failed[path] = digest
             errors.append(f"removing {path}: {e}")
+
+    if plugin_root:  # @spec INST-UNI-004
+        installed, known = plugin_records(config)
+        for wanted, args in ((PLUGIN_ID in installed, ("plugin", "uninstall", PLUGIN_ID)),
+                             (MARKETPLACE in known, ("plugin", "marketplace", "remove", MARKETPLACE))):
+            if wanted:
+                try:
+                    run_claude(*args)
+                except (OSError, Refuse) as e:
+                    errors.append(str(e))
 
     settings_failed = False
     settings_file = entry.get("settings_file")
@@ -833,7 +923,7 @@ def vendor(opts):
 
 # --------------------------------------------------------------------------- main
 
-# @spec INST-CLI-008, INST-PLUG-009, INST-OUT-001, INST-OUT-003, INST-OUT-004
+# @spec INST-CLI-008, INST-OUT-001, INST-OUT-003, INST-OUT-004
 def main(argv):
     try:
         opts = parse(argv)
@@ -841,8 +931,6 @@ def main(argv):
         print(f"forge-install: USAGE: {e}\n{USAGE}", file=sys.stderr)
         return 2
     try:
-        if opts.get("--plugin"):
-            raise Refuse("PLUGIN_UNAVAILABLE", "plugin mode is not built yet; install plain files instead")
         with install_lock():
             if opts.get("--vendor"):
                 return vendor(opts)

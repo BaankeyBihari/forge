@@ -16,7 +16,7 @@ TARGET_FIELD = {"Write": "file_path", "Edit": "file_path", "NotebookEdit": "note
 
 
 # @spec GUARD-SCOPE-001, GUARD-SCOPE-002, GUARD-ADAPT-001, GUARD-ADAPT-002, GUARD-ADAPT-003, GUARD-ADAPT-004
-# @spec GUARD-ADAPT-005, GUARD-ADAPT-006
+# @spec GUARD-ADAPT-005, GUARD-ADAPT-006, GUARD-SCOPE-003
 def main():
     try:
         data = json.loads(sys.stdin.read())
@@ -25,7 +25,7 @@ def main():
     if not isinstance(data, dict):
         return 0
     agent = data.get("agent_type")
-    if not isinstance(agent, str) or not agent.startswith("forge-"):
+    if not isinstance(agent, str) or not agent.startswith(("forge-", "forge:forge-")):
         return 0
     if sys.version_info < (3, 11):
         print("Forge guard blocked this call (PYTHON_TOO_OLD): the python3 on PATH is "
@@ -41,6 +41,8 @@ def main():
             raise ValueError("tool_input is not an object")
         call = {key: data.get(key) for key in ("agent_type", "agent_id", "session_id", "cwd", "scratchpad_dir")}
         call.update(tool_name=tool, tool_input=tool_input)
+        if agent.startswith("forge:"):  # the plugin's scoped name; every rule uses the bare one
+            call["agent_type"] = agent[len("forge:"):]
         if tool in TARGET_FIELD:
             call["target"] = tool_input[TARGET_FIELD[tool]]
         elif tool == "Bash":

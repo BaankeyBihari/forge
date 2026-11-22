@@ -842,11 +842,30 @@ def kill_switch(cwd):
 
 
 # @spec ROUTE-CLI-001, ROUTE-CLI-002, ROUTE-CLI-004, ROUTE-CLI-006, ROUTE-CLI-007, ROUTE-CLI-008, ROUTE-PAUSE-001
-# @spec ROUTE-ENV-011, ROUTE-MODE-007, ROUTE-MODE-010
+# @spec ROUTE-DISP-011
+def install_prefix():
+    """(agent prefix, None) from forge_install.json beside this script, or (None, problem)."""
+    path = Path(__file__).resolve().parent / "forge_install.json"
+    if not path.exists():
+        return "", None
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError) as e:
+        data = e
+    if not isinstance(data, dict) or not isinstance(data.get("agent_prefix"), str):
+        return None, f"{path} is not a JSON object with a string agent_prefix ({data!r}); reinstall Forge"
+    return data["agent_prefix"], None
+
+
+# @spec ROUTE-ENV-011, ROUTE-MODE-007, ROUTE-MODE-010, ROUTE-DISP-010, ROUTE-REDO-002
 def route(cwd, workstream, pid, session, event, dry_run=False):
     killed = kill_switch(cwd)
     if killed:
         return killed
+    prefix, problem = install_prefix()
+    if problem:
+        return {"action": "stop", "phase": None, "status": "INSTALL_INVALID", "detail": problem,
+                "summary": "Stopped: INSTALL_INVALID"}
     report = resolve_state.wake(cwd, workstream, pid, session)
     if report["status"] != "OK":
         return {"action": "stop", "phase": None, "status": report["status"],
@@ -885,6 +904,8 @@ def route(cwd, workstream, pid, session, event, dry_run=False):
                     "question": question, "options": options, "context_refs": outcome["context_refs"],
                     "summary": f"Waiting for the user: {outcome['awaiting']}"}
     elif kind == "dispatched":
+        # Describe the current install, also on a re-derived or re-dispatched envelope.
+        outcome["invoke"].update(agent_prefix=prefix, dispatch_as=prefix + outcome["invoke"]["agent"])
         decision = {"action": "dispatch", "phase": outcome["phase"], "invoke": outcome["invoke"],
                     "summary": f"Dispatch {outcome['invoke']['agent']} ({outcome['invoke']['mode']}) "
                                f"for {outcome['phase']}"}
