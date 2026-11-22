@@ -39,7 +39,7 @@ def ok(proc):
 
 def refused(proc, code):
     assert proc.returncode == 1, (proc.returncode, proc.stderr)
-    assert f"forge-install: {code}:" in proc.stderr, proc.stderr
+    assert f"forge-installer: {code}:" in proc.stderr, proc.stderr
     return proc
 
 
@@ -306,6 +306,57 @@ def test_uninstall_keeps_directories_above_top_level_paths(install, repo):
     ok(install("--uninstall", "--project", repo))
     for d in (".claude", ".claude/skills", ".claude/agents"):
         assert (repo / d).is_dir(), d
+
+
+def bytecode(scripts):
+    """Fill scripts/__pycache__ as Python does when the installed scripts run."""
+    cache = scripts / "__pycache__"
+    (cache / "nested").mkdir(parents=True)
+    (cache / "next_step.cpython-314.pyc").write_bytes(b"\0")
+    (cache / "nested/odd.pyc").write_bytes(b"\0")
+    return cache
+
+
+# @spec INST-PLAIN-011
+def test_uninstall_removes_skill_directories_holding_only_pycache(install, home):
+    ok(install())
+    skills_dir = global_config(home) / "skills"
+    for name in ("forge", "forge-spoke"):
+        bytecode(skills_dir / name / "scripts")
+    ok(install("--uninstall"))
+    assert not [p.name for p in skills_dir.iterdir() if p.name.startswith("forge")]
+
+
+# @spec INST-PLAIN-011
+def test_reinstall_removes_dropped_skill_holding_pycache(install, home, checkout):
+    ok(install())
+    dropped = global_config(home) / "skills/forge-memory"
+    bytecode(dropped / "scripts")
+    (checkout / "claude/skills/forge-memory").unlink()
+    ok(install())
+    assert not dropped.exists()
+
+
+# @spec INST-PLAIN-011
+def test_uninstall_keeps_directory_with_pycache_and_another_entry(install, home):
+    ok(install())
+    scripts = global_config(home) / "skills/forge/scripts"
+    cache = bytecode(scripts)
+    (scripts / "notes.txt").write_text("mine\n")
+    ok(install("--uninstall"))
+    assert (scripts / "notes.txt").is_file() and cache.is_dir()
+
+
+# @spec INST-PLAIN-011
+def test_uninstall_keeps_directory_whose_pycache_is_a_link(install, home, tmp_path):
+    ok(install())
+    scripts = global_config(home) / "skills/forge/scripts"
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    (target / "keep.pyc").write_bytes(b"\0")
+    (scripts / "__pycache__").symlink_to(target)
+    ok(install("--uninstall"))
+    assert (scripts / "__pycache__").is_symlink() and (target / "keep.pyc").is_file()
 
 
 # @spec INST-PLAIN-009

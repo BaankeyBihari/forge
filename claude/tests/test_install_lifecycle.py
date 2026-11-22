@@ -32,7 +32,7 @@ def ok(proc):
 
 def assert_refused(proc, code):
     assert proc.returncode == 1, proc.stdout + proc.stderr
-    assert re.search(rf"^forge-install: {code}: \S", proc.stderr, re.M), proc.stderr
+    assert re.search(rf"^forge-installer: {code}: \S", proc.stderr, re.M), proc.stderr
 
 
 def out(proc):
@@ -867,7 +867,7 @@ def test_vendor_failure_reported_others_continue(install, checkout, tmp_path, fa
 def test_refusal_prints_code_line_and_exits_1(install):
     proc = install("--uninstall")
     assert proc.returncode == 1
-    assert re.search(r"^forge-install: NOT_INSTALLED: \S", proc.stderr, re.M), proc.stderr
+    assert re.search(r"^forge-installer: NOT_INSTALLED: \S", proc.stderr, re.M), proc.stderr
 
 
 def summary_count_ok(line, key, count):
@@ -928,6 +928,6 @@ def test_progress_on_stdout_warnings_on_stderr(install, home):
     other = "b" * 40
     write_installed_plugins(home / ".claude", {LID_PLUGIN: [{"scope": "user", "gitCommitSha": other}]})
     proc = ok(install())
-    assert re.search(r"^forge-install: warning: .*" + other, proc.stderr, re.M), proc.stderr
+    assert re.search(r"^forge-installer: warning: .*" + other, proc.stderr, re.M), proc.stderr
     assert "warning" not in proc.stdout
-    assert proc.stdout.strip() and all(line.startswith("forge-install: ") for line in proc.stdout.splitlines())
+    assert proc.stdout.strip() and all(line.startswith("forge-installer: ") for line in proc.stdout.splitlines())

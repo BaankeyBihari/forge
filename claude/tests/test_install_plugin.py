@@ -36,7 +36,7 @@ def ok(proc):
 
 def refused(proc, code):
     assert proc.returncode == 1, proc.stdout + proc.stderr
-    assert re.search(rf"^forge-install: {code}: \S", proc.stderr, re.M), proc.stderr
+    assert re.search(rf"^forge-installer: {code}: \S", proc.stderr, re.M), proc.stderr
     return proc
 
 
@@ -191,7 +191,7 @@ def test_plugin_writes_forge_install_json(plugin, home):
 # @spec INST-OUT-002
 def test_plugin_summary_line(plugin, home):
     line = ok(plugin("--plugin")).stdout.strip().splitlines()[-1]
-    assert line.startswith(f"forge-install: installed plugin plugin {cfg(home)} models=balanced files="), line
+    assert line.startswith(f"forge-installer: installed plugin plugin {cfg(home)} models=balanced files="), line
 
 
 # --- uninstall -----------------------------------------------------------------------------
@@ -215,6 +215,18 @@ def test_plugin_uninstall_skips_entries_already_gone(plugin, home):
     plugin.log.unlink()
     ok(plugin("--uninstall"))
     assert claude_calls(plugin.log) == []
+    assert not os.path.exists(build(home))
+
+
+# @spec INST-PLAIN-011
+def test_plugin_uninstall_removes_build_holding_pycache(plugin, home):
+    ok(plugin("--plugin"))
+    for name in ("forge", "forge-spoke"):
+        cache = os.path.join(build(home), "forge", "skills", name, "scripts", "__pycache__")
+        os.makedirs(cache)
+        with open(os.path.join(cache, "next_step.cpython-314.pyc"), "wb") as f:
+            f.write(b"\0")
+    ok(plugin("--uninstall"))
     assert not os.path.exists(build(home))
 
 

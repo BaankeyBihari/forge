@@ -23,11 +23,11 @@ REAL_PYTHON = os.path.realpath(sys.executable)
 
 def refused(proc, code):
     assert proc.returncode == 1, (proc.returncode, proc.stderr)
-    assert any(line.startswith(f"forge-install: {code}: ") for line in proc.stderr.splitlines()), proc.stderr
+    assert any(line.startswith(f"forge-installer: {code}: ") for line in proc.stderr.splitlines()), proc.stderr
 
 
 def usage(proc):
-    refused_lines = [line for line in proc.stderr.splitlines() if line.startswith("forge-install: USAGE: ")]
+    refused_lines = [line for line in proc.stderr.splitlines() if line.startswith("forge-installer: USAGE: ")]
     assert proc.returncode == 2, (proc.returncode, proc.stderr)
     assert refused_lines, proc.stderr
 
@@ -236,7 +236,7 @@ def test_malformed_arguments_are_usage_errors(install, repo, models_file, name):
 def test_usage_error_prints_code_and_usage_text(install, repo, models_file, name):
     proc = install(*bad_args(name, repo, models_file))
     usage(proc)
-    rest = [line for line in proc.stderr.splitlines() if not line.startswith("forge-install: USAGE: ")]
+    rest = [line for line in proc.stderr.splitlines() if not line.startswith("forge-installer: USAGE: ")]
     assert any(line.strip() for line in rest), proc.stderr
 
 
