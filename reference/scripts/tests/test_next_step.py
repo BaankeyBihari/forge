@@ -1517,8 +1517,8 @@ def test_publish_approval_names_merged_specs(r):
 def commit_unmarked_spec(r):
     """A workstream spec still `[ ]` that a test cites and code tags: lid_check lists it in unmarked_specs."""
     r.human_commit({"docs/intent/a/a-specs.md": "# Specs\n\n- [ ] **A-001**: tested and tagged.\n",
-                    "tests/test_a.py": "# @spec A-001\ndef test_a(): pass\n",
-                    "src/a.py": "# @spec A-001\ndef a(): pass\n"})
+                    "tests/test_a.py": "# @" + "spec A-001\ndef test_a(): pass\n",
+                    "src/a.py": "# @" + "spec A-001\ndef a(): pass\n"})
 
 
 def publish_payload(r):
