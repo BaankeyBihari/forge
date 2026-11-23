@@ -51,7 +51,7 @@ Resolved in priority order:
 
 1. An explicit argument (`/forge <workstream>`).
 2. The `FORGE_WORKSTREAM` environment variable.
-3. The current branch from `git rev-parse --abbrev-ref HEAD`; a detached HEAD gives `detached-<7-char short SHA>`. In a repository with no commits yet, the branch comes from `git symbolic-ref --short HEAD`.
+3. The current branch from `git rev-parse --abbrev-ref HEAD`. On a detached HEAD, the open workstream whose `identity.worktree_path` is the current worktree (`git rev-parse --show-toplevel`), so a session inside a `pr_review`, `idea`, or `triage` worktree finds its workstream; with no such workstream, `detached-<7-char short SHA>`. In a repository with no commits yet, the branch comes from `git symbolic-ref --short HEAD`.
 
 A branch name is turned into a slug by lowercasing, replacing every character outside `[a-z0-9._-]` with `-`, collapsing runs of `-`, and trimming leading and trailing `-` and `.`. An explicit argument or environment value must already be a valid slug; anything else (including `..` or a `/`) is rejected rather than sanitized, so a typed name always means exactly that workstream.
 
@@ -59,7 +59,7 @@ When the workstream comes from the current branch and that branch is `main` or `
 
 ### Identity record
 
-A workstream's `state.json` records `org`, `repo`, `workstream`, `flow` (`build`, `pr_review`, `idea`, or `triage`), `tracker`, `branch`, `base_branch`, `issue`, `pr`, `parent_workstream`, `git_common_dir`, and `worktree_path` at creation (see *Workstream Creation*). `tracker` names the tracker index entry the workstream's issue operations use; it is `github`, the only entry Forge ships. On every wake the script compares the recorded identity with the current checkout:
+A workstream's `state.json` records `org`, `repo`, `workstream`, `flow` (`build`, `pr_review`, `idea`, or `triage`), `tracker`, `branch`, `base_branch`, `issue`, `pr`, `parent_workstream`, `git_common_dir`, and `worktree_path` at creation (see *Workstream Creation*). `tracker` names the tracker index entry the workstream's issue operations use: `github`, the only entry Forge ships, for a workstream with an issue and for every idea or triage workstream; `null` for one with no issue operations. On every wake the script compares the recorded identity with the current checkout:
 
 - **Different `git_common_dir`** — another clone of the same repository resolved to the same state directory. Status `IDENTITY_MISMATCH`.
 - **Different branch, when the workstream came from the current branch** — two branch names sanitized to the same slug (`feat/x` and `feat-x`). Status `IDENTITY_MISMATCH`.
@@ -93,19 +93,23 @@ The new branch is `<type>/<slug>` and the workstream is that branch's slug (`<ty
 
 **Review workstreams.** With `--pr`, the script reads `number`, `url`, `headRefName`, and `baseRefName` with `gh pr view --json`, names the workstream `pr-<number>`, fetches the pull request head (`git fetch origin pull/<number>/head`), and adds a detached worktree at it, so the reviewer can read whole files and run tests. `identity.flow` is `pr_review`, `branch` is `null`, and `base_branch` is the pull request's base.
 
-**Idea and triage workstreams.** Both study a change without making it, so each gets a worktree detached at the default branch (`git worktree add --detach <root>/<workstream> <default>`, with the default branch resolved as for `--base`), where the planner reads the code as it stands. `branch` is `null` and `base_branch` is the default branch. `--base`, `--branch`, `--type`, and `--base-confirmed` are usage errors with either flag.
+**Idea and triage workstreams.** Both study a change without making it, so each gets a worktree detached at the default branch (`git worktree add --detach <root>/<workstream> <default>`, with the default branch resolved as for `--base`), where the planner reads the code as it stands. `branch` is `null` and `base_branch` is the default branch. `--base`, `--branch`, `--type`, and `--base-confirmed` are usage errors with either flag. Nothing should commit in these worktrees, so `new` also sets `anchors.last_known_head_sha` to `workstream_base_sha`, and any commit, even one made before the first dispatch, is drift. The code studied is the default branch as it stood at creation and is never refreshed; for these workstreams `wake` reports `base_behind`, the number of commits on the default branch (its last fetched `origin/<default>`, or the local default branch without an `origin`) not reachable from `workstream_base_sha`, so a resumed study shows how stale it is.
 
 - `--idea` requires `--name` and `--task-file`. The workstream is `idea-<slug>`, `identity.flow` is `idea`, and `identity.issue` is `null`.
 - `--triage REF` reads the issue as `--issue` does. The workstream is `triage-<number>`, `identity.flow` is `triage`, and `identity.issue` is the issue's URL. `--task-file` is optional and carries the user's own words about the issue.
 
-**Refusals.** `new` creates nothing and returns:
+**Refusals.** `new` creates nothing and returns the first of these that applies, checked in this order:
 
-- `DUPLICATE`, naming the existing workstream, when an open workstream's `identity.issue` (or `identity.pr`) is the same URL, whatever either workstream's flow;
+- `NO_TRACKER` for an idea or triage workstream in a local repository, where no tracker can file or read an issue;
+- `NO_COMMITS` for an idea or triage workstream in a repository with no commits, where there is nothing to detach a worktree at;
+- `GH_FAILED` with `gh`'s message when an issue or pull request cannot be read;
+- `DUPLICATE`, naming the existing workstream, when an open workstream tracks the same issue or pull request URL, whatever either workstream's flow: its `identity.issue` or `identity.pr`, or, for an open idea workstream, the issue it filed (`lifecycle.report_url`). A `null` URL never matches;
 - `STATE_EXISTS` when the workstream slug already has state;
 - `BRANCH_EXISTS` when the new branch name already exists (unless adopting it with `--branch`);
-- `BASE_CONFIRM_REQUIRED` or `BRANCH_CHECKED_OUT` as above;
-- `NO_COMMITS` for an idea or triage workstream in a repository with no commits, where there is nothing to detach a worktree at;
-- `GH_FAILED` with `gh`'s message when an issue or pull request cannot be read.
+- `BASE_CONFIRM_REQUIRED` as above;
+- `FETCH_FAILED` with git's message when `git fetch origin <default>` fails;
+- `BASE_NOT_FOUND` when the base (from `--base`, or the default branch as resolved) names no commit;
+- `BRANCH_CHECKED_OUT` as above.
 
 On success it returns `CREATED` with the identity and `worktree_path`.
 
@@ -118,7 +122,7 @@ On success it returns `CREATED` with the identity and `worktree_path`.
 | `schema_version` | Integer, currently `1` | `resolve_state.py` at creation |
 | `identity` | See *Identity record* and *Workstream Creation* | `resolve_state.py` at creation |
 | `config` | `repo_mode`, `mode`, `retention`, and optional `test_patterns` (see the gates design) and `test_command` (the command spokes run tests with; see the spokes design) | `resolve_state.py` at creation; `next_step.py` changes `mode` when the user switches it |
-| `anchors` | `workstream_base_sha`, `plan_base_sha`, `last_known_head_sha`, `verifier_pass_sha`, `reviewer_pass_sha`, `stale_shas` | `next_step.py`, except `workstream_base_sha` (set by `resolve_state.py` at creation to `HEAD`, or `null` in a repository with no commits) and `stale_shas`, which `resolve_state.py` appends to |
+| `anchors` | `workstream_base_sha`, `plan_base_sha`, `last_known_head_sha`, `verifier_pass_sha`, `reviewer_pass_sha`, `stale_shas` | `next_step.py`, except `workstream_base_sha` (set by `resolve_state.py` at creation to `HEAD`, or `null` in a repository with no commits), `last_known_head_sha` in an idea or triage workstream (set at creation to `workstream_base_sha`), and `stale_shas`, which `resolve_state.py` appends to |
 | `lifecycle` | Phase, flow, dispatch, pause, and repair bookkeeping; fields listed in the router design | `next_step.py` |
 | `scope_manifest`, `blockers`, `council_decisions`, `approvals` | Routing and gate data | `next_step.py` |
 | `dropped` | `{reason, at}`, present only on a workstream the user abandoned | `resolve_state.py close --reason-file` |
@@ -172,6 +176,16 @@ Uncommitted changes are reported separately as `dirty`: the paths from `git stat
 
 A workstream the user abandons before it finishes is closed the same way with `--reason-file FILE`: after any worktree removal succeeds and before archiving, `close` writes `dropped: {reason, at}` (`reason` the file's text with surrounding whitespace removed, `at` a UTC ISO 8601 timestamp) into `state.json`, so the archive records why the work stopped. A drop always archives, whatever `retention` says, so the reason is kept. An unreadable file or an empty reason is a usage error and changes nothing. Without `--reason-file`, `close` writes no `dropped` field.
 
+### Promotion
+
+`promote` turns a finished idea or triage workstream into a build workstream in one call, creating before it closes, so a failure never loses the study. It acts only on the request the router recorded: it refuses with `PROMOTE_NOT_REQUESTED` when the source's `lifecycle.promote` is `null`, and otherwise takes `issue` and `proposal` from it. It requires the caller to hold the source's lock, like `close`. In order:
+
+1. With `--remove-worktree`, it checks the source worktree for uncommitted changes and returns `WORKTREE_DIRTY` with the paths when there are any.
+2. It creates the build workstream exactly as `new --issue <issue> --task-file <proposal>` would, with `--worktree-root` and the holder arguments passed through and `config.mode` taken from the source; the source is ignored when checking `DUPLICATE`. Any refusal from `new` is returned as it is.
+3. It closes the source as `close` does, with `--remove-worktree` when given.
+
+Any failure before the last step leaves the source open and unchanged. On success it returns `PROMOTED` with the new workstream's identity and `worktree_path`, and the caller holds the new workstream's lock.
+
 ## Command Interface
 
 ```text
@@ -183,13 +197,14 @@ resolve_state.py new   (--issue REF | --name SLUG | --branch NAME | --pr REF | -
 resolve_state.py list
 resolve_state.py release --workstream SLUG --holder-pid PID --holder-session ID
 resolve_state.py close   --workstream SLUG --holder-pid PID --holder-session ID [--remove-worktree] [--reason-file FILE]
+resolve_state.py promote --workstream SLUG --worktree-root DIR --holder-pid PID --holder-session ID [--remove-worktree]
 ```
 
 After creating the worktree, `new` creates the workstream directory, `state.json` (phase `INIT`), the memory partitions, the lock, and `task.md` when `--task-file` is given; `--set` overrides `config` keys for this workstream; each `VALUE` is parsed as JSON (so `test_patterns=["spec/**"]` stores a list), and a value that is not valid JSON is stored as a string (`mode=delivery`). A `mode` that is not one of the six names, from `--set` or from `config.json`, is a usage error and nothing is created. `wake` never creates state: with no state it returns `NO_STATE`, and the Hub decides whether to start a workstream with `new`.
 
 Every command prints one JSON object to stdout and exits `0`, including for every status above. A non-zero exit means a usage error or that the working directory is not a git repository; the message goes to stderr.
 
-`wake` statuses: `OK`, `NO_STATE`, `LIST`, `ELSEWHERE`, `LOCKED`, `IDENTITY_MISMATCH`, `DRIFT_UNKNOWN`, `STATE_INVALID`. When several apply, the first in this order is reported: `STATE_INVALID`, `IDENTITY_MISMATCH`, `ELSEWHERE`, `LOCKED`, `DRIFT_UNKNOWN`, `OK`. The lock is acquired only on a path that reaches `LOCKED`'s check and passes it, so `STATE_INVALID`, `IDENTITY_MISMATCH`, and `ELSEWHERE` leave any lock untouched. The report always includes `identity` (as derived now), `state_path`, and `lock`; with `OK` it also includes `drift` and `dirty`.
+`wake` statuses: `OK`, `NO_STATE`, `LIST`, `ELSEWHERE`, `LOCKED`, `IDENTITY_MISMATCH`, `DRIFT_UNKNOWN`, `STATE_INVALID`. When several apply, the first in this order is reported: `STATE_INVALID`, `IDENTITY_MISMATCH`, `ELSEWHERE`, `LOCKED`, `DRIFT_UNKNOWN`, `OK`. The lock is acquired only on a path that reaches `LOCKED`'s check and passes it, so `STATE_INVALID`, `IDENTITY_MISMATCH`, and `ELSEWHERE` leave any lock untouched. The report always includes `identity` (as derived now), `state_path`, and `lock`; with `OK` it also includes `drift` and `dirty`, and `base_behind` for an idea or triage workstream.
 
 Bare repositories and submodule-specific behavior are not supported; the script runs against the working tree it is invoked in.
 
@@ -205,7 +220,10 @@ Bare repositories and submodule-specific behavior are not supported; the script 
 | Review worktree | Detached at the pull request head | No worktree; diff only | The reviewer can read whole files and run the tests, and every workstream has the same shape. |
 | Idea and triage worktree | Detached at the default branch | A new branch; no worktree, reading the main checkout | Neither flow commits, so a branch would be left empty; reading the main checkout would see the user's uncommitted edits and whatever branch is checked out there. |
 | Reading an issue for naming | `gh issue view` in the script, per tracker | A command template in the tracker index entry; the scout reads the issue before the workstream exists | An MCP tracker cannot be read by any script, so a template would cover only some trackers; the scout writes into workstream state, which does not exist yet. |
-| One issue, one open workstream | `DUPLICATE` across flows, so a triage and a build workstream never track the same issue at once | Allow a triage beside a build workstream for the same issue | Two open workstreams on one issue could both post to it. Promoting closes the triage workstream before the build workstream is created, so the rule never blocks it. |
+| One issue, one open workstream | `DUPLICATE` across flows, including the issue an idea workstream filed, so a triage and a build workstream never track the same issue at once | Allow a triage beside a build workstream for the same issue | Two open workstreams on one issue could both post to it. `promote` ignores its own source, so the rule never blocks promotion. |
+| Promotion | One `promote` command: create the build workstream, then close the source | The Commander closes the source, then runs `new`; create with `new` first | Closing first archives the proposal and loses the study when `new` fails; `new` alone is refused as `DUPLICATE` while the source is open. One call that creates before closing leaves either the source unchanged or the promotion finished. |
+| Idea or triage without a tracker | `NO_TRACKER` at creation in a local repository | Create, and fail at the scout or the send | Failing after the study is done wastes the whole flow; whether a tracker exists is known before anything starts. |
+| Finding a detached workstream | By `identity.worktree_path` before falling back to `detached-<sha>` | Require `/forge <workstream>` inside detached worktrees | A detached worktree has no branch to name its workstream, but its path is recorded and unique. |
 | Local repository naming | `local/<project-slug>` from the project directory name | Name from the local remote's path | The project directory is the name the user knows the repository by; a local remote's path is often a bare mirror with an unrelated name. |
 | Explicit workstream names | Validated, never sanitized | Sanitize like branch names | A name the user types should address exactly one workstream; sanitizing could silently map a typo onto another one. |
 | `wake` does not create state | Return `NO_STATE`; create with `new` | Create on first wake | Starting a workstream is the user's choice; an accidental `/forge` on a scratch branch should not leave state behind. |
