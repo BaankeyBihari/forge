@@ -32,7 +32,7 @@ The optional event is one JSON object:
 | `user` | The user answered a pause | `awaiting` (the pause kind being answered), `decision`, optional `option`, optional `notes` |
 | `mode` | The user switched the workstream's mode | `mode`, one of the six workstream modes |
 
-With no event, the router re-derives the decision from state: a pending pause is returned again, an outstanding dispatch returns the stored invocation envelope (`lifecycle.invoke`) unchanged except for `agent_prefix` and `dispatch_as`, which describe the current install and are read again, and drift or a dirty tree is handled as described below. At `INIT` a no-event call stops with `NOT_STARTED`, because only a `start` event begins routing; at `DONE` it returns `done`. This makes calling the router after a crash or on resume always safe.
+With no event, the router re-derives the decision from state: a pending pause is returned again, an outstanding dispatch returns the stored invocation envelope (`lifecycle.invoke`) unchanged except for `agent_prefix` and `dispatch_as`, which describe the current install and are read again, and drift or a dirty tree is handled as described below. At `INIT` a no-event call stops with `NOT_STARTED`, because only a `start` event begins routing; at `DONE` it returns `done`, or, when `lifecycle.promote` is set, the same `close` with `promote` again, since the state directory still existing means the promotion did not finish. This makes calling the router after a crash or on resume always safe.
 
 `--dry-run` computes the decision without writing state. The Hub uses it to build the resume brief's next step.
 
@@ -54,7 +54,7 @@ Output is one JSON decision on stdout with exit `0`; a non-zero exit means a usa
 | `dispatch` | `invoke` (the invocation envelope) | Starts the named subagent with the envelope |
 | `pause` | `awaiting`, `question`, `options`, `context_refs` | Asks the user, then calls the router with a `user` event |
 | `stop` | `status`, `detail` | Reports the problem to the user; no further routing until it is resolved |
-| `close` | `promote` (idea and triage only, when the user chose to promote): `{issue, proposal}` | Runs `resolve_state.py close` and reports the workstream finished; with `promote`, starts a build workstream for `issue` with `proposal` as its task description |
+| `close` | `promote` (idea and triage only, when the user chose to promote): `{issue, proposal}` | Runs `resolve_state.py close` and reports the workstream finished; with `promote`, runs `resolve_state.py promote` instead, which starts a build workstream for `issue` with `proposal` as its task description and then closes this one |
 | `done` | — | Nothing further; the workstream is already closed |
 | `mode_set` | `mode` | Reports the switch; routes again with no event once no subagent is running |
 
@@ -100,7 +100,7 @@ The router reads `agent_prefix` from `forge_install.json` in its own directory, 
 
 A `user` event is accepted only when its `awaiting` matches the pending pause and its `decision` is one of that pause's options; otherwise the router returns `stop` with `EVENT_INVALID` and changes nothing.
 
-A `mode` event is accepted in any phase but `DONE` when its `mode` is one of the six workstream modes; otherwise the router returns `stop` with `EVENT_INVALID` and changes nothing. Applying it sets `config.mode` (a no-op when it already holds that mode), answers any pacing pause the new mode lacks (*Modes*), and returns `mode_set` without handling drift, checking the tree, or dispatching: a switch can arrive while a subagent is still running, and the Hub routes again once nothing is outstanding. At `INIT` the Hub's next call carries the `start` event. In a `pr_review`, `idea`, or `triage` workstream the mode changes nothing, since those flows have no pacing pauses.
+A `mode` event is accepted in any phase but `DONE` when its `mode` is one of the six workstream modes; otherwise the router returns `stop` with `EVENT_INVALID` and changes nothing. Applying it sets `config.mode` (a no-op when it already holds that mode), answers any pacing pause the new mode lacks (*Modes*), and returns `mode_set` without handling drift, checking the tree, or dispatching: a switch can arrive while a subagent is still running, and the Hub routes again once nothing is outstanding. At `INIT` the Hub's next call carries the `start` event. In a `pr_review`, `idea`, or `triage` workstream the mode is stored but changes nothing, since those flows have no pacing pauses; a build workstream promoted from an idea or triage workstream starts in that stored mode.
 
 A `result` event is accepted only when all of these hold; otherwise the router returns `stop` with `ENVELOPE_INVALID` and changes nothing:
 
@@ -110,7 +110,9 @@ A `result` event is accepted only when all of these hold; otherwise the router r
 - For an agent that does not commit (`forge-verifier`, `forge-reviewer`, `forge-scout`, `forge-council`, `forge-reporter`, `forge-publisher`, and `forge-planner` in mode `propose`), `head_sha` equals the dispatch's `base_sha`.
 - For a committing agent, every first-parent commit between `base_sha` and `head_sha` carries `Forge-Agent` equal to the dispatched agent. Any other commit in that range is drift (see *Drift and Dirty Trees*), not an envelope error: the envelope is applied, then the drift is handled.
 
-Once `dispatch_id` and `agent` match, and before the other checks, the router reads the guard record `envelopes/<dispatch_id>.guard.json` beside `state.json` (guard design). When the file is missing, is not a JSON object whose `agents` is a list, or does not list the dispatched agent, the guard did not run for that spoke, and the router returns `stop` with `GUARD_INACTIVE` and changes nothing. The `detail` names the record's path and the known causes: a project-scope install in a `-p` session or in a folder whose workspace trust was not accepted, a managed policy that allows only managed hooks, and no `python3` on `PATH`. The dispatch stays outstanding. Once the guard runs again, the Commander discards the envelope and starts the spoke again with the stored invocation; any commits the unguarded spoke made stay, and the commit gate at `VERIFY_FINAL` checks them like every other Forge commit.
+Once `dispatch_id` and `agent` match, and before the other checks, the router reads the guard record `envelopes/<dispatch_id>.guard.json` beside `state.json` (guard design). When the file is missing, is not a JSON object whose `agents` is a list, or does not list the dispatched agent, the guard did not run for that spoke, and the router returns `stop` with `GUARD_INACTIVE` and changes nothing. The `detail` names the record's path and the known causes: a project-scope install in a `-p` session or in a folder whose workspace trust was not accepted, a managed policy that allows only managed hooks, and no `python3` on `PATH`. The dispatch stays outstanding. Once the guard runs again, the Commander discards the envelope and starts the spoke again with the stored invocation; any commits the unguarded spoke made stay, and the commit gate at `VERIFY_FINAL` checks them like every other Forge commit. An idea or triage workstream never reaches that gate, so there the `detail` also states whether `HEAD` differs from the dispatch's `base_sha` and lists any uncommitted paths; the restarted dispatch then meets the `WORKTREE_MOVED` stop or the `dirty_tree` pause, and a restarted reporter `send` finds an earlier send before sending again (reporter design).
+
+In an `idea` or `triage` workstream, once the guard record is found, a `result` event arriving while `HEAD` differs from `last_known_head_sha` stops with `WORKTREE_MOVED` and changes nothing, whatever `head_sha` the envelope reports: a commit in the study's worktree is the same fault whoever made it.
 
 ## Lifecycle State
 
@@ -133,6 +135,8 @@ The router owns these `lifecycle` fields:
 | `last_agent`, `last_status` | From the most recently applied envelope |
 | `report_input` | Absolute path of the envelope file the next report is built from: set when a `PUBLISHED`, `PR_REVIEW_READY`, `PROPOSAL_READY`, or `REPORT_DRAFTED` envelope is applied, to `envelopes/<dispatch_id>.json` beside `state.json` |
 | `report_url` | Idea and triage only: `report.url` of the applied `REPORT_SENT` envelope — the filed issue, or the comment on the triaged issue; `null` before |
+| `propose_context_refs` | Idea and triage only: the `context_refs` of the latest `PROPOSE` dispatch, kept so a `replan` from `report_approval` reads what the planner read; `null` before the first |
+| `promote` | Idea and triage only: the `{issue, proposal}` of a `close` decision that promotes, set when that decision is returned; `null` otherwise |
 
 It also writes `anchors` (except `stale_shas`), `scope_manifest`, `blockers`, `council_decisions`, and `approvals`.
 
@@ -153,7 +157,7 @@ A workstream whose `config` has no `mode` is routed as `collab`. In a naive repo
 
 A switch made while a pacing pause is pending answers that pause when the new mode would not have made it: a `plan_approval` raised after a stage (`STAGE_COMPLETE`) is answered `approve` when the new mode does not stop after every stage, a `plan_approval` on the finished plan is answered `approve` when the new mode is `delivery`, an `edit_window` is answered `continue` when the new mode has no edit window after the phase that raised it, and a switch to `delivery` applies a pending `council_signoff` ruling that `delivery` would have applied without asking. A stored `config.mode` that is not one of the six names stops the router with `STATE_INVALID`. The answer has the same effect as the user's, without dispatching; the Hub's next call dispatches. Every other pause stays until the user answers it.
 
-Every mode keeps the pauses that guard against harm rather than pace the work: `publish_approval`, `manual_merge`, `human_code_approval`, `findings_signoff`, `dirty_tree`, `attempt_limit`, `ci_none`, `report_approval`, `council_signoff` for `CONCERNS` and for rulings that need the user, and every stop.
+Every mode keeps the pauses that guard against harm rather than pace the work: `publish_approval`, `manual_merge`, `human_code_approval`, `findings_signoff`, `dirty_tree`, `attempt_limit`, `ci_none`, `report_approval`, `promotion`, `council_signoff` for `CONCERNS` and for rulings that need the user, and every stop.
 
 ## Phases
 
@@ -281,17 +285,23 @@ Both flows study a change without making it: nothing commits, and the only outwa
 | `RECON` | `OK` | `PROPOSE`; the workstream's `scout/` directory joins the planner's `context_refs` |
 | `PROPOSE` | `PROPOSAL_READY` | `REPORT` (reporter `draft`) |
 | `PROPOSE` | `CONCERNS` | Blocker `CONCERNS`, as in the build flow: the council drafts options, the user signs off, and `PROPOSE` is dispatched again with the matrix in `context_refs` and the chosen option's `delta` in `notes`. `council_signoff` here also offers `leave_open` (below) |
-| `REPORT` | `REPORT_DRAFTED` | Pause `report_approval`, with `report_input` (the draft) in `context_refs` → `approve`: re-dispatch reporter `send`; `revise`: re-dispatch reporter `draft` with `notes`; `replan`: dispatch `PROPOSE` with `notes`, keeping the planner's earlier `context_refs` |
-| `REPORT` | `REPORT_SENT` | Set `report_url`; pause `promotion`, naming `report_url` → `promote`: `close` with `promote` `{issue, proposal}`; `close`: `close` |
+| `REPORT` | `REPORT_DRAFTED` | Pause `report_approval`, with `report_input` (the draft) in `context_refs` → `approve`: re-dispatch reporter `send`; `revise`: re-dispatch reporter `draft` with `notes`; `replan`: dispatch `PROPOSE` with `notes` and with `propose_context_refs` followed by `proposal.md` and the rejected draft (`report_input`) as `context_refs` |
+| `REPORT` | `REPORT_SENT` | Set `report_url`; pause `promotion`, naming `report_url` → `promote`: set `lifecycle.promote` and `close` with `promote` `{issue, proposal}`; `close`: `close` |
 | `COUNCIL` | `COUNCIL_RULING` | As for `CONCERNS` in *Blockers and Council*; `council_signoff` always pauses |
 
-A `REPORT` `draft` dispatch in these flows carries `report_input` (the planner's `PROPOSAL_READY` envelope) followed by `proposal.md` in the workstream's state directory, which the planner wrote; `send` and a revised `draft` carry only `report_input`, as in the build flow. `replan` and the `promotion` pause exist only in these flows: `replan` at a `report_approval` of another flow is `EVENT_INVALID`. `skip` is not offered at their `report_approval`, since sending is the point of the flow; a user who wants nothing sent drops the workstream.
+Every `PROPOSE` dispatch records its `context_refs` in `lifecycle.propose_context_refs`. The reporter's `context_refs` in these flows are exact, never carried forward from the dispatch they replace: a `draft` after `PROPOSAL_READY` carries `report_input` (the planner's `PROPOSAL_READY` envelope) followed by `proposal.md` in the workstream's state directory, which the planner wrote; a revised `draft` carries `report_input` (the reporter's latest `REPORT_DRAFTED` envelope) followed by `proposal.md`; `send` carries only that `report_input`, so it sends exactly the draft the user saw. `replan` and the `promotion` pause exist only in these flows: `replan` at a `report_approval` of another flow is `EVENT_INVALID`. `skip` is not offered at their `report_approval`, since sending is the point of the flow; a user who wants nothing sent drops the workstream.
+
+Three envelope checks apply only in these flows; each failure is `ENVELOPE_INVALID` and changes nothing:
+
+- `PROPOSAL_READY` requires `proposal.md` in the workstream's state directory, not empty and modified after the dispatch began, and an empty `files_touched`.
+- `REPORT_SENT` requires `report.url`. In an idea workstream it must be an issue URL of the workstream's repository, in the form `resolve_state.py new --issue` accepts, since promotion passes it there.
+- A `COUNCIL_RULING` on a `PROPOSE` blocker may route only to `forge-planner` or to nobody: every `route_to`, top-level and per option, is `[]` or `["forge-planner"]`. Either way the blocker is resolved and `PROPOSE` runs again; `reject` re-dispatches the council once, as in the build flow.
 
 **Leaving a fork open.** A proposal need not settle every choice: the user may accept none of the council's options and leave the decision to whoever reads the issue. At a `council_signoff` in these flows, `leave_open` (with optional `notes`) resolves the blocker, records a `council_decisions` entry with `option` `null`, `left_open` `true`, and `approved_by` `"user"`, and dispatches `PROPOSE` again with the matrix in `context_refs` and `notes` telling the planner to present the council's options and its recommendation as an open decision, unresolved, with the user's notes. The draft that follows goes through `report_approval` as usual. `leave_open` at a `council_signoff` in the build flow is `EVENT_INVALID`, because building needs one answer.
 
-In `promote`, `issue` is `identity.issue` for a triage workstream and `report_url` for an idea workstream; `proposal` is the absolute path of `proposal.md`. The Commander reads the proposal before closing, because closing archives the directory that holds it.
+In `promote`, `issue` is `identity.issue` for a triage workstream and `report_url` for an idea workstream; `proposal` is the absolute path of `proposal.md`. The Hub carries it out with one `resolve_state.py promote` call (workstream-state design), which creates the build workstream before closing this one and leaves this one open when any step fails. Until that call succeeds the state directory remains at `DONE` with `lifecycle.promote` set, so the next call returns the same `close` and nothing is lost.
 
-The worktree is detached at the default branch and nothing should commit there. Drift stops with `WORKTREE_MOVED`. A dirty tree before a `PROPOSE` dispatch pauses `dirty_tree` with `stash` as the only option, since a checkpoint would commit on the detached `HEAD`.
+The worktree is detached at the default branch and nothing should commit there. `new` sets `last_known_head_sha` to `workstream_base_sha`, so even a commit made before the first dispatch is drift. `RECONCILE` and `REPAIR` are never reached in these flows: any drift stops with `WORKTREE_MOVED` (*Drift and Dirty Trees*). A dirty tree before a `PROPOSE` or `COUNCIL` dispatch pauses `dirty_tree` with `stash` as the only option, since a checkpoint would commit on the detached `HEAD`.
 
 ## Blockers and Council
 
@@ -320,17 +330,15 @@ Resolving a blocker removes it from `blockers`. Each repair-queue item names its
 
 ## Drift and Dirty Trees
 
-On every call, after any event is applied:
+On every call, after any event is applied, a workstream whose worktree is detached (`pr_review`, `idea`, or `triage`) stops with `WORKTREE_MOVED` on any drift, and steps 1, 2, 3, and 5 do not apply; nothing should commit there, so there is nothing to reconcile. The stop leaves state unchanged and repeats on every call until `HEAD` is back at `last_known_head_sha` (the user resets the worktree, for example `git checkout --detach <sha>`) or the user drops the workstream. In a build workstream:
 
 1. **Drift `ahead` with human commits, `behind`, or `diverged`:** set `verifier_pass_sha` and `reviewer_pass_sha` to `null`. If the next phase is already a verifier phase (`PRE_QA`, `PRE_DEV`, `POST_QA`, `VERIFY_FINAL`, `RECONCILE`), continue to it. Otherwise set `after_reconcile` to the next phase — or to `VERIFY_FINAL` when the next phase is `REPORT` or `CI_WATCH`, whose commits were never verified, reviewed, or pushed — and go to `RECONCILE`. In both cases set `last_known_head_sha = HEAD`.
-
-   In a `pr_review` workstream, the worktree is pinned at the pull request's head and nothing should commit there; drift stops with `REVIEW_WORKTREE_MOVED` instead. In an `idea` or `triage` workstream drift stops with `WORKTREE_MOVED` (*Transition Table — Idea and Triage Flows*).
 2. **Drift `ahead` with only Forge commits** from a dispatch whose envelope never arrived (the session ended while the spoke ran): treated as in step 1, so the verifier accounts for the work before the phase is retried.
 3. **Applied envelope from a committing agent:** set `last_known_head_sha = head_sha`. When the envelope's range also holds commits from someone else and the envelope leads to a pause, `last_known_head_sha` keeps its value from before the call, so those commits are still reported as drift when the pause is answered rather than absorbed into the anchor.
 4. **Outstanding dispatch on a dirty tree:** returning an outstanding dispatch again counts as dispatching, so a dirty tree pauses `dirty_tree` as in step 7. The changes may be the unfinished work of a spoke whose session ended, or the user's own edits; the question says so, because only the user can tell which, and a `checkpoint` records them as human-authored.
 5. **Workstream about to close:** drift found on a call that would return `close` goes to `RECONCILE` with `after_reconcile = VERIFY_FINAL`, so the new commits are verified and reviewed before the workstream finishes.
-6. **First dispatch:** when `last_known_head_sha` is still `null`, dispatching sets it to `HEAD`, so commits made before the first spoke commit are still seen as drift.
-7. **Dirty tree:** before dispatching any agent except `forge-scout` and `forge-reporter`, pause `dirty_tree` with options `checkpoint` (the Hub commits the changes as `wip(user): partial implementation`, without Forge trailers) and `stash` (`stash` only in an `idea` or `triage` workstream). The answer clears the pause; the next call re-checks the tree.
+6. **First dispatch:** when `last_known_head_sha` is still `null`, dispatching sets it to `HEAD`, so commits made before the first spoke commit are still seen as drift. (Idea and triage workstreams never reach this: `new` sets the anchor.)
+7. **Dirty tree:** before dispatching any agent except `forge-scout` and `forge-reporter`, pause `dirty_tree` with options `checkpoint` (the Hub commits the changes as `wip(user): partial implementation`, without Forge trailers) and `stash`. In an `idea` or `triage` workstream `stash` is the only option. For `stash` the Hub runs `git stash push -u -m "forge:<workstream>"`, reports the stash it made, and never restores it; the stash is the user's to apply. The answer clears the pause; the next call re-checks the tree.
 
 A pause that is waiting for the user is not disturbed by drift: drift is handled when the pause is answered.
 
@@ -383,9 +391,9 @@ The transition table lists which statuses each phase accepts. Within a phase, th
 
 ## Context Carried into Re-dispatches
 
-A dispatch of the same phase caused by a user answer (`revise`, `reject` of a human-code change, approval of a human-code change) keeps every `context_refs` entry of the dispatch it replaces and appends the new ones, so a planner revising stage 2 still has the scout's brief.
+A dispatch of the same phase caused by a user answer (`revise`, `reject` of a human-code change, approval of a human-code change) keeps every `context_refs` entry of the dispatch it replaces and appends the new ones, so a planner revising stage 2 still has the scout's brief. `REPORT` dispatches are the exception: their `context_refs` are exactly those listed for each flow.
 
-When the workstream directory holds `task.md` (the user's task description, written by `new --task-file`), every `forge-planner` dispatch and every `forge-reviewer` dispatch in `REVIEW_INTERNAL` lists it first in `context_refs`, once, so the planner plans and the reviewer reviews against the user's own words.
+When the workstream directory holds `task.md` (the user's task description, written by `new --task-file`), every `forge-planner` dispatch, every `forge-reviewer` dispatch in `REVIEW_INTERNAL`, and every `RECON` dispatch in an idea or triage workstream lists it first in `context_refs`, once, so the planner plans, the reviewer reviews, and the scout searches against the user's own words.
 
 ## Agent Modes
 
@@ -438,7 +446,8 @@ When the workstream directory holds `task.md` (the user's task description, writ
 | Read-only agents and dirty trees | Scout and reporter may run on a dirty tree; every other agent waits | Block all dispatch | Scout and reporter read remote state or committed receipts only; the verifier and reviewer would otherwise certify a HEAD that differs from the files on disk. |
 | Approval before an idea or triage sends | One `report_approval` on the reporter's draft, offering `approve`, `revise` (reword), and `replan` (rework the proposal) | Approve the proposal, then the draft; send `proposal.md` as written | The user approves the exact text the tracker receives, in one question, and can still send the planner back. A second pause would mostly repeat the first; sending the proposal as written drops the step that shapes it for the tracker. |
 | Forks in a proposal | `CONCERNS` to the council and the user, then `PROPOSE` again; the user may `leave_open`, filing the council's options and recommendation as an open decision | The planner lists open questions in the proposal without a council; the user must pick an option | A fork the planner cannot settle gets a considered set of options before anything is filed, but the user may disagree with every option, or the decision may belong to the people who read the issue; an issue can carry an open decision where a build cannot. |
-| Promotion | A `promotion` pause after sending; `close` carries `promote` and the Commander starts the build workstream | The router creates the build workstream; a separate command | Creating a workstream is `resolve_state.py`'s job and needs a worktree the router never makes; asking at the end of the flow is when the user knows whether the change is worth building. |
+| Promotion | A `promotion` pause after sending; `close` carries `promote`, kept in `lifecycle.promote` until one `resolve_state.py promote` call creates the build workstream and then closes this one | The router creates the build workstream; the Commander closes, then runs `new`; a separate command | Creating a workstream is `resolve_state.py`'s job and needs a worktree the router never makes. Closing first archives the proposal and loses the study when `new` then fails; one script call that creates before it closes leaves nothing half done. Asking at the end of the flow is when the user knows whether the change is worth building. |
+| Drift in a detached worktree | One stop, `WORKTREE_MOVED`, for `pr_review`, `idea`, and `triage`, cleared only by restoring `HEAD`; in idea and triage also checked before a result is applied | Reconcile as in the build flow; a stop code per flow; check only after applying | Nothing should commit in these worktrees and no later gate would check a commit, so reconciling has nothing to verify against. Checking before applying gives a stray commit one stop code, whatever `head_sha` the spoke reports, and leaves state as it was. |
 | Task description in dispatches | `task.md` first in every planner dispatch and every internal review dispatch | Planner only; every dispatch | The planner turns the task into a plan and the reviewer checks the change against it; builders and auditors work from the plan and specs the planner produced. |
 
 ## Open Questions & Future Decisions
