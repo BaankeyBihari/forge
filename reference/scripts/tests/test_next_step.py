@@ -2362,9 +2362,11 @@ def test_drift_after_publishing_reconciles_to_verify_final(r, phase):
 
 
 # @spec ROUTE-DRIFT-009
-@pytest.mark.skip(reason="skeleton: pr_review drift stops with WORKTREE_MOVED")
-def test_pr_review_drift_stops_with_worktree_moved():
-    pass
+def test_pr_review_drift_stops_with_worktree_moved(pr):
+    pr.start()
+    pr.result("OK")
+    pr.human_commit({"src/h.py": "h\n"})
+    assert stops(pr.run(), "WORKTREE_MOVED")
 
 
 # @spec ROUTE-DRIFT-010

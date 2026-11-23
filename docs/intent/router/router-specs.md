@@ -167,7 +167,7 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 
 - [x] **ROUTE-DRIFT-001**: When the wake reports drift `behind` or `diverged`, or drift `ahead` with any commit not accounted for by an envelope accepted in the same call, `next_step.py` shall set `anchors.verifier_pass_sha` and `anchors.reviewer_pass_sha` to `null` and `anchors.last_known_head_sha` to `HEAD`.
 - [x] **ROUTE-DRIFT-002**: When handling drift per ROUTE-DRIFT-001 and the next phase is `PRE_QA`, `PRE_DEV`, `POST_QA`, `VERIFY_FINAL`, or `RECONCILE`, `next_step.py` shall continue to that phase; otherwise it shall set `lifecycle.after_reconcile` to `VERIFY_FINAL` when the next phase is `REPORT` or `CI_WATCH` and to the next phase otherwise, and go to `RECONCILE`.
-- [ ] **ROUTE-DRIFT-009**: When handling drift per ROUTE-DRIFT-001 in a `pr_review`-flow workstream, `next_step.py` shall return `stop` with `WORKTREE_MOVED` instead.
+- [x] **ROUTE-DRIFT-009**: When handling drift per ROUTE-DRIFT-001 in a `pr_review`-flow workstream, `next_step.py` shall return `stop` with `WORKTREE_MOVED` instead.
 - [x] **ROUTE-DRIFT-010**: `next_step.py` shall leave `lifecycle.resume_phase` unchanged when handling drift.
 - [x] **ROUTE-DRIFT-007**: When drift per ROUTE-DRIFT-001 is reported on a call that would return `close` in a `build`-flow workstream, `next_step.py` shall set `lifecycle.after_reconcile` to `VERIFY_FINAL` and go to `RECONCILE` instead.
 - [x] **ROUTE-DRIFT-003**: When handling drift per ROUTE-DRIFT-001 while `lifecycle.dispatched` is set, `next_step.py` shall clear `lifecycle.dispatched` before routing to `RECONCILE`.
