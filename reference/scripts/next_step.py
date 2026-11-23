@@ -811,7 +811,7 @@ def handle_drift(ctx, outcome):
     if not unaccounted_drift(ctx):
         return outcome
     if ctx.state["identity"].get("flow") == "pr_review":
-        return stop("REVIEW_WORKTREE_MOVED", "commits appeared in the pull request review worktree", write=False)
+        return stop("WORKTREE_MOVED", "commits appeared in the pull request review worktree", write=False)
     ctx.anchors["verifier_pass_sha"] = None
     ctx.anchors["reviewer_pass_sha"] = None
     ctx.anchors["last_known_head_sha"] = ctx.head()
