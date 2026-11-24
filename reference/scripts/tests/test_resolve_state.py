@@ -1087,3 +1087,210 @@ def test_stdlib_only_imports():
             continue
         for name in names:
             assert name.split(".")[0] in sys.stdlib_module_names, name
+
+
+# --- Idea/triage workstreams, tracker, base_behind, promote (skeletons) ---
+
+
+# @spec WS-ID-006
+@pytest.mark.skip(reason="skeleton: detached_head_uses_open_workstream_at_worktree_path_else_detached_sha")
+def test_ws_id_006_detached_head_uses_open_workstream_at_worktree_path_else_detached_sha():
+    pass
+
+
+# @spec WS-NEW-007
+@pytest.mark.skip(reason="skeleton: default_base_applies_to_idea_triage_and_branch_adoption")
+def test_ws_new_007_default_base_applies_to_idea_triage_and_branch_adoption():
+    pass
+
+
+# @spec WS-NEW-015
+@pytest.mark.skip(reason="skeleton: duplicate_matches_any_flow_and_idea_report_url_and_ignores_null")
+def test_ws_new_015_duplicate_matches_any_flow_and_idea_report_url_and_ignores_null():
+    pass
+
+
+# @spec WS-NEW-026
+@pytest.mark.skip(reason="skeleton: idea_triage_worktree_detached_at_default_branch_no_branch")
+def test_ws_new_026_idea_triage_worktree_detached_at_default_branch_no_branch():
+    pass
+
+
+# @spec WS-NEW-027
+@pytest.mark.skip(reason="skeleton: idea_triage_identity_branch_null_base_branch_and_base_sha")
+def test_ws_new_027_idea_triage_identity_branch_null_base_branch_and_base_sha():
+    pass
+
+
+# @spec WS-NEW-028
+@pytest.mark.skip(reason="skeleton: idea_named_idea_slug_flow_idea_issue_null")
+def test_ws_new_028_idea_named_idea_slug_flow_idea_issue_null():
+    pass
+
+
+# @spec WS-NEW-029
+@pytest.mark.skip(reason="skeleton: idea_without_name_or_task_file_is_usage_error")
+def test_ws_new_029_idea_without_name_or_task_file_is_usage_error():
+    pass
+
+
+# @spec WS-NEW-030
+@pytest.mark.skip(reason="skeleton: triage_reads_issue_via_gh_names_triage_number")
+def test_ws_new_030_triage_reads_issue_via_gh_names_triage_number():
+    pass
+
+
+# @spec WS-NEW-031
+@pytest.mark.skip(reason="skeleton: idea_triage_conflicting_options_are_usage_error")
+def test_ws_new_031_idea_triage_conflicting_options_are_usage_error():
+    pass
+
+
+# @spec WS-NEW-032
+@pytest.mark.skip(reason="skeleton: tracker_github_for_issue_idea_triage_else_null")
+def test_ws_new_032_tracker_github_for_issue_idea_triage_else_null():
+    pass
+
+
+# @spec WS-NEW-033
+@pytest.mark.skip(reason="skeleton: last_known_head_sha_set_for_idea_triage_null_otherwise")
+def test_ws_new_033_last_known_head_sha_set_for_idea_triage_null_otherwise():
+    pass
+
+
+# @spec WS-NEW-034
+@pytest.mark.skip(reason="skeleton: idea_triage_in_local_repo_returns_no_tracker")
+def test_ws_new_034_idea_triage_in_local_repo_returns_no_tracker():
+    pass
+
+
+# @spec WS-NEW-035
+@pytest.mark.skip(reason="skeleton: idea_triage_without_commits_returns_no_commits")
+def test_ws_new_035_idea_triage_without_commits_returns_no_commits():
+    pass
+
+
+# @spec WS-NEW-036
+@pytest.mark.skip(reason="skeleton: default_base_fetch_failure_returns_fetch_failed")
+def test_ws_new_036_default_base_fetch_failure_returns_fetch_failed():
+    pass
+
+
+# @spec WS-NEW-037
+@pytest.mark.skip(reason="skeleton: base_naming_no_commit_returns_base_not_found")
+def test_ws_new_037_base_naming_no_commit_returns_base_not_found():
+    pass
+
+
+# @spec WS-NEW-038
+@pytest.mark.skip(reason="skeleton: new_refusals_returned_in_documented_order")
+def test_ws_new_038_new_refusals_returned_in_documented_order():
+    pass
+
+
+# @spec WS-NEW-039
+@pytest.mark.skip(reason="skeleton: new_sets_promoted_from_null")
+def test_ws_new_039_new_sets_promoted_from_null():
+    pass
+
+
+# @spec WS-LOCK-008
+@pytest.mark.skip(reason="skeleton: promote_by_non_holder_returns_not_holder")
+def test_ws_lock_008_promote_by_non_holder_returns_not_holder():
+    pass
+
+
+# @spec WS-WAKE-004
+@pytest.mark.skip(reason="skeleton: wake_includes_base_behind_for_idea_triage_ok")
+def test_ws_wake_004_wake_includes_base_behind_for_idea_triage_ok():
+    pass
+
+
+# @spec WS-WAKE-005
+@pytest.mark.skip(reason="skeleton: wake_base_behind_counts_commits_from_origin_base_branch")
+def test_ws_wake_005_wake_base_behind_counts_commits_from_origin_base_branch():
+    pass
+
+
+# @spec WS-WAKE-006
+@pytest.mark.skip(reason="skeleton: wake_base_behind_null_when_ref_missing_status_ok")
+def test_ws_wake_006_wake_base_behind_null_when_ref_missing_status_ok():
+    pass
+
+
+# @spec WS-PROMOTE-001
+@pytest.mark.skip(reason="skeleton: promote_without_lifecycle_promote_returns_promote_not_requested")
+def test_ws_promote_001_promote_without_lifecycle_promote_returns_promote_not_requested():
+    pass
+
+
+# @spec WS-PROMOTE-002
+@pytest.mark.skip(reason="skeleton: promote_remove_worktree_dirty_returns_worktree_dirty")
+def test_ws_promote_002_promote_remove_worktree_dirty_returns_worktree_dirty():
+    pass
+
+
+# @spec WS-PROMOTE-003
+@pytest.mark.skip(reason="skeleton: promote_creates_build_workstream_with_promoted_from")
+def test_ws_promote_003_promote_creates_build_workstream_with_promoted_from():
+    pass
+
+
+# @spec WS-PROMOTE-004
+@pytest.mark.skip(reason="skeleton: promote_duplicate_check_ignores_source")
+def test_ws_promote_004_promote_duplicate_check_ignores_source():
+    pass
+
+
+# @spec WS-PROMOTE-005
+@pytest.mark.skip(reason="skeleton: promote_new_failure_returned_source_unchanged")
+def test_ws_promote_005_promote_new_failure_returned_source_unchanged():
+    pass
+
+
+# @spec WS-PROMOTE-006
+@pytest.mark.skip(reason="skeleton: promote_closes_source_after_creating_build")
+def test_ws_promote_006_promote_closes_source_after_creating_build():
+    pass
+
+
+# @spec WS-PROMOTE-007
+@pytest.mark.skip(reason="skeleton: promote_returns_promoted_with_build_identity_and_lock")
+def test_ws_promote_007_promote_returns_promoted_with_build_identity_and_lock():
+    pass
+
+
+# @spec WS-PROMOTE-008
+@pytest.mark.skip(reason="skeleton: promote_new_usage_error_exits_source_unchanged")
+def test_ws_promote_008_promote_new_usage_error_exits_source_unchanged():
+    pass
+
+
+# @spec WS-PROMOTE-009
+@pytest.mark.skip(reason="skeleton: promote_refusals_returned_in_documented_order")
+def test_ws_promote_009_promote_refusals_returned_in_documented_order():
+    pass
+
+
+# @spec WS-PROMOTE-010
+@pytest.mark.skip(reason="skeleton: promote_retry_reuses_open_build_with_promoted_from")
+def test_ws_promote_010_promote_retry_reuses_open_build_with_promoted_from():
+    pass
+
+
+# @spec WS-PROMOTE-011
+@pytest.mark.skip(reason="skeleton: promote_retry_acquires_existing_build_lock")
+def test_ws_promote_011_promote_retry_acquires_existing_build_lock():
+    pass
+
+
+# @spec WS-PROMOTE-012
+@pytest.mark.skip(reason="skeleton: promote_retry_locked_by_other_holder_returns_locked")
+def test_ws_promote_012_promote_retry_locked_by_other_holder_returns_locked():
+    pass
+
+
+# @spec WS-PROMOTE-013
+@pytest.mark.skip(reason="skeleton: promote_close_failure_returns_close_status_keeps_build_open")
+def test_ws_promote_013_promote_close_failure_returns_close_status_keeps_build_open():
+    pass
