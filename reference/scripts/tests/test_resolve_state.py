@@ -1100,9 +1100,9 @@ STUDY_WS = {"idea": "idea-study", "triage": "triage-42"}
 
 @pytest.fixture
 def hosted(cloned_repo, forge_home, monkeypatch, tmp_path):
-    """A clone whose origin looks hosted (identity acme/widgets) but fetches from the local bare repo.
+    """A clone whose origin looks hosted (identity acme/widgets) but fetches and pushes to the local bare repo.
 
-    A `git` shim on PATH rewrites the hosted URL to the bare repository for `git fetch` only, so
+    A `git` shim on PATH rewrites the hosted URL to the bare repository for `git fetch` and `git push`, so
     `remote get-url` still reports the hosted URL. Returns (clone, bare).
     """
     clone, bare = cloned_repo
@@ -1115,7 +1115,7 @@ def hosted(cloned_repo, forge_home, monkeypatch, tmp_path):
         f"#!{sys.executable}\n"
         "import os, sys\n"
         "args = sys.argv[1:]\n"
-        "if args[:1] == ['fetch']:\n"
+        "if args[:1] in (['fetch'], ['push']):\n"
         f"    args = ['-c', 'url.{bare}.insteadOf={HOSTED_URL}'] + args\n"
         f"os.execv({real!r}, [{real!r}] + args)\n"
     )
