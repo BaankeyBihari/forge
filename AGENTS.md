@@ -47,3 +47,9 @@ Annotate code and tests with `@spec` comments citing EARS IDs:
 
 Place the annotation at the *entry point of the behavior's implementation graph* — the topmost function or module owning the specified behavior, not every helper. When a behavior spans multiple subsystems (UI + API + database, for example), annotate at the entry point in each subsystem. Tests follow the same rule: annotate the test that directly exercises the spec, not every inner assertion.
 
+
+## Running tests
+
+Full suite: `uvx pytest -q reference/scripts/tests claude/tests claude/hooks/tests` (about 6 minutes, 1573 tests). Run it from the checkout root, never as `pytest` over the repo root (symlinked skill dirs collect the suite several times).
+
+Run test commands in the foreground with a Bash timeout of 600000 ms. Do not background them, sleep, or poll for their output.
