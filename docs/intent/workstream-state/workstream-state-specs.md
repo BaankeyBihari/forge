@@ -62,6 +62,7 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 - [ ] **WS-NEW-036**: If `git fetch origin <default>` fails while `new` resolves the default branch as its base per WS-NEW-007, then `resolve_state.py` shall return `FETCH_FAILED` with git's message and create nothing.
 - [ ] **WS-NEW-037**: If the base of `new` — `--base` when given; otherwise, for a `build`, `idea`, or `triage` workstream, the default branch as resolved per WS-NEW-007 — names no commit, then `resolve_state.py` shall return `BASE_NOT_FOUND` and create nothing.
 - [ ] **WS-NEW-038**: When more than one of `NO_TRACKER`, `NO_COMMITS`, `GH_FAILED`, `DUPLICATE`, `STATE_EXISTS`, `BRANCH_EXISTS`, `BASE_CONFIRM_REQUIRED`, `FETCH_FAILED`, `BASE_NOT_FOUND`, and `BRANCH_CHECKED_OUT` applies to `new`, `resolve_state.py` shall return the first of them in that order.
+- [ ] **WS-NEW-039**: When `new` creates a workstream, `resolve_state.py` shall set `identity.promoted_from` to `null`.
 
 ## State file
 
@@ -96,8 +97,9 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 - [x] **WS-WAKE-001**: When more than one of `STATE_INVALID`, `IDENTITY_MISMATCH`, `ELSEWHERE`, `LOCKED`, and `DRIFT_UNKNOWN` applies, `resolve_state.py` shall return the first of them in that order.
 - [x] **WS-WAKE-002**: When `wake` returns `STATE_INVALID`, `IDENTITY_MISMATCH`, or `ELSEWHERE`, `resolve_state.py` shall leave any existing lock unchanged and acquire none.
 - [x] **WS-WAKE-003**: When `wake` finds no state for the resolved workstream and `LIST` does not apply, `resolve_state.py` shall return `NO_STATE` and create nothing.
-- [ ] **WS-WAKE-004**: `resolve_state.py` shall include `identity` (as derived from the current checkout), `state_path`, and `lock` in every `wake` report, also `drift` and `dirty` when the status is `OK`, and also `base_behind` (WS-WAKE-005) when the status is `OK` and the workstream's `identity.flow` is `idea` or `triage`.
-- [ ] **WS-WAKE-005**: When `wake` returns `OK` for an `idea` or `triage` workstream, `resolve_state.py` shall report as `base_behind` the number of commits reachable from `origin/<default>` — or, in a repository with no `origin`, from the local default branch — and not from `anchors.workstream_base_sha`, without fetching.
+- [ ] **WS-WAKE-004**: `resolve_state.py` shall include `identity` (as derived from the current checkout), `state_path`, and `lock` in every `wake` report, also `drift` and `dirty` when the status is `OK`, and also `base_behind` (WS-WAKE-005, WS-WAKE-006), present but possibly `null`, when the status is `OK` and the workstream's `identity.flow` is `idea` or `triage`.
+- [ ] **WS-WAKE-005**: When `wake` returns `OK` for an `idea` or `triage` workstream, `resolve_state.py` shall report as `base_behind` the number of commits reachable from `origin/<identity.base_branch>` — or, in a repository with no `origin`, from the local branch `<identity.base_branch>` — and not from `anchors.workstream_base_sha`, without fetching and without re-resolving the default branch (`identity.base_branch` is the default branch's name at creation, per WS-NEW-027).
+- [ ] **WS-WAKE-006**: If the ref WS-WAKE-005 counts from does not exist when `wake` reports on an `idea` or `triage` workstream, then `resolve_state.py` shall report `base_behind` as `null`, meaning unknown rather than `0`, and keep the status `OK`.
 
 ## Listing
 
@@ -120,13 +122,17 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 
 - [ ] **WS-PROMOTE-001**: If `promote` is called for a source workstream whose `lifecycle.promote` is `null` or absent, then `resolve_state.py` shall return `PROMOTE_NOT_REQUESTED` and change nothing.
 - [ ] **WS-PROMOTE-002**: When `promote` is given `--remove-worktree` and `git status --porcelain` lists any path in the source workstream's worktree, `resolve_state.py` shall return `WORKTREE_DIRTY` with those paths before creating anything, and change nothing.
-- [ ] **WS-PROMOTE-003**: When `promote` creates the build workstream, `resolve_state.py` shall create it as `new --issue <lifecycle.promote.issue> --task-file <lifecycle.promote.proposal>` would, with `promote`'s `--worktree-root`, `--holder-pid`, and `--holder-session`, and with `config.mode` set to the source workstream's `config.mode`.
+- [ ] **WS-PROMOTE-003**: When `promote` creates the build workstream, `resolve_state.py` shall create it as `new --issue <lifecycle.promote.issue> --task-file <lifecycle.promote.proposal>` would, with `promote`'s `--worktree-root`, `--holder-pid`, and `--holder-session`, with `config.mode` set to the source workstream's `config.mode`, and with `identity.promoted_from` set to the source workstream's name.
 - [ ] **WS-PROMOTE-004**: When `promote` checks the new build workstream for `DUPLICATE` (WS-NEW-015), `resolve_state.py` shall ignore the source workstream.
 - [ ] **WS-PROMOTE-005**: If creating the build workstream during `promote` returns a status other than `CREATED`, then `resolve_state.py` shall return that status with its details and leave the source workstream unchanged.
 - [ ] **WS-PROMOTE-006**: When `promote` has created the build workstream, `resolve_state.py` shall close the source workstream as `close` does (WS-CLOSE-001 to WS-CLOSE-005), with `--remove-worktree` when `promote` was given it.
 - [ ] **WS-PROMOTE-007**: When `promote` has closed the source workstream, `resolve_state.py` shall return `PROMOTED` with the build workstream's identity and `worktree_path`, the caller holding the build workstream's lock.
 - [ ] **WS-PROMOTE-008**: If creating the build workstream during `promote` meets a usage error of `new` (such as a `lifecycle.promote.proposal` that cannot be read or holds only whitespace, per WS-NEW-025), then `resolve_state.py` shall exit with that usage error and leave the source workstream unchanged.
-- [ ] **WS-PROMOTE-009**: When more than one of `NOT_HOLDER`, `STATE_INVALID`, `PROMOTE_NOT_REQUESTED`, and `WORKTREE_DIRTY` applies to `promote`, `resolve_state.py` shall return the first of them in that order.
+- [ ] **WS-PROMOTE-009**: When more than one of `NOT_HOLDER`, `STATE_INVALID`, `PROMOTE_NOT_REQUESTED`, `WORKTREE_DIRTY` (WS-PROMOTE-002), `LOCKED` (WS-PROMOTE-012) or a status of `new` other than `CREATED` (WS-PROMOTE-005), and a failure to close the source (WS-PROMOTE-013) applies to `promote`, `resolve_state.py` shall return the first of them in that order.
+- [ ] **WS-PROMOTE-010**: When an open `build`-flow workstream of the same repository has `identity.promoted_from` equal to the name of the workstream `promote` is called for, `resolve_state.py` shall take that workstream as the build workstream instead of creating one per WS-PROMOTE-003, so no refusal of `new` (including `DUPLICATE`) applies, and leave its `task.md` and `config` unchanged.
+- [ ] **WS-PROMOTE-011**: When `promote` takes an existing build workstream per WS-PROMOTE-010, `resolve_state.py` shall acquire that workstream's lock for the caller as `wake` does per WS-LOCK-001 to WS-LOCK-004.
+- [ ] **WS-PROMOTE-012**: If the build workstream `promote` takes per WS-PROMOTE-010 has a lock held by another running process on this host, or by any holder on another host, then `resolve_state.py` shall return `LOCKED` with the holder's details and leave the source and the build workstream unchanged.
+- [ ] **WS-PROMOTE-013**: If closing the source workstream during `promote` fails, then `resolve_state.py` shall return the status `close` returned (such as `WORKTREE_DIRTY`) with git's message and the build workstream's name, leaving the build workstream open with its lock held by the caller.
 
 ## Command interface
 
