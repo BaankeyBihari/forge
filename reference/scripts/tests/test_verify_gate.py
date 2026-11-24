@@ -302,7 +302,7 @@ def test_marker_only_spec_change_is_allowed(repo, tmp_path, agent, mode):
     base = spec_base(repo)
     flipped = SPEC_TEXT.replace("- [ ] **A-001**", "- [x] **A-001**").replace("- [x] **A-002**", "- [ ] **A-002**")
     stage = "REPAIR" if mode == "repair" else STAGES[agent][0]
-    forge(repo, agent, {EVIDENCE[agent]: "# @spec A-001\n", SPECS: flipped}, stage=stage, mode=mode)
+    forge(repo, agent, {EVIDENCE[agent]: "# @" + "spec A-001\n", SPECS: flipped}, stage=stage, mode=mode)
     res = check_commits(repo, f"{base}..HEAD", make_state(tmp_path / "s.json"))
     assert findings_of(res, "BOUNDARY_VIOLATION") == []
 

@@ -552,10 +552,10 @@ def committed(repo, path, rev="HEAD"):
 @pytest.mark.parametrize("mode", ["full", "repair"])
 def test_commit_marks_open_specs_that_are_tested_and_tagged(ws, agent, mode):
     text = spec_text("- [ ] **A-001**: tested and tagged after this commit.", "- [ ] **A-002**: untested.")
-    other = {"forge-qa": ("src/a.py", "# @spec A-001, A-002\n"),
-             "forge-dev": ("tests/test_a.py", "# @spec A-001\n")}[agent]
+    other = {"forge-qa": ("src/a.py", "# @" + "spec A-001, A-002\n"),
+             "forge-dev": ("tests/test_a.py", "# @" + "spec A-001\n")}[agent]
     plan_specs(ws, {A_SPECS: text, other[0]: other[1]}, agent, mode)
-    stage(ws.repo, {IN_BOUNDARY[agent]: "# @spec A-001\n"})
+    stage(ws.repo, {IN_BOUNDARY[agent]: "# @" + "spec A-001\n"})
     out = ws.commit()
     assert out["status"] == "COMMITTED"
     assert (out["marked"], out["unmarked"]) == (["A-001"], [])
@@ -569,9 +569,9 @@ def test_commit_marks_open_specs_that_are_tested_and_tagged(ws, agent, mode):
 def test_commit_unmarks_done_specs_that_lack_a_test_or_tag(ws, agent):
     text = spec_text("- [x] **A-001**: loses its evidence in this commit.", "- [x] **A-002**: tagged, untested.",
                      "- [x] **A-003**: tested and tagged.", "- [ ] **A-004**: untested and untagged.")
-    plan_specs(ws, {A_SPECS: text, "tests/test_a.py": "# @spec A-001, A-003\n",
-                    "src/a.py": "# @spec A-001, A-002, A-003\n"}, agent, "repair")
-    stage(ws.repo, {IN_BOUNDARY[agent]: "# @spec A-003\n"})
+    plan_specs(ws, {A_SPECS: text, "tests/test_a.py": "# @" + "spec A-001, A-003\n",
+                    "src/a.py": "# @" + "spec A-001, A-002, A-003\n"}, agent, "repair")
+    stage(ws.repo, {IN_BOUNDARY[agent]: "# @" + "spec A-003\n"})
     out = ws.commit()
     assert out["status"] == "COMMITTED"
     assert (out["marked"], sorted(out["unmarked"])) == ([], ["A-001", "A-002"])
@@ -581,9 +581,9 @@ def test_commit_unmarks_done_specs_that_lack_a_test_or_tag(ws, agent):
 # @spec SPOKE-PROTO-MARK-003
 def test_markers_follow_the_staged_tree_not_unstaged_edits(ws):
     text = spec_text("- [ ] **A-001**: tag only in an unstaged edit.", "- [x] **A-002**: tag removed only unstaged.")
-    plan_specs(ws, {A_SPECS: text, "tests/test_a.py": "# @spec A-001, A-002\n", "src/b.py": "# @spec A-002\n"})
+    plan_specs(ws, {A_SPECS: text, "tests/test_a.py": "# @" + "spec A-001, A-002\n", "src/b.py": "# @" + "spec A-002\n"})
     stage(ws.repo, {"src/a.py": "a = 1\n"})
-    (ws.repo / "src" / "a.py").write_text("# @spec A-001\na = 1\n")
+    (ws.repo / "src" / "a.py").write_text("# @" + "spec A-001\na = 1\n")
     (ws.repo / "src" / "b.py").write_text("b = 1\n")
     out = ws.commit()
     assert out["status"] == "COMMITTED"
@@ -602,9 +602,9 @@ def test_markers_follow_lid_check_rules_for_specs_ids_and_annotations(ws):
         "- [ ] **A-004**: tested and tagged, duplicated.",
         "- [ ] **A-005**: tested, named in code only after non-ID text.",
     )
-    plan_specs(ws, {A_SPECS: text, "docs/notes.md": "@spec A-003\n",
-                    "tests/test_a.py": "# @spec A-001, A-002, A-003, A-004, A-005, B-001\n"})
-    stage(ws.repo, {"src/a.py": "# @spec A-001, A-002, A-004, B-001\n# see @spec <ID> A-005\n"})
+    plan_specs(ws, {A_SPECS: text, "docs/notes.md": "@" + "spec A-003\n",
+                    "tests/test_a.py": "# @" + "spec A-001, A-002, A-003, A-004, A-005, B-001\n"})
+    stage(ws.repo, {"src/a.py": "# @" + "spec A-001, A-002, A-004, B-001\n# see @" + "spec <ID> A-005\n"})
     out = ws.commit()
     assert out["status"] == "COMMITTED"
     assert (out["marked"], out["unmarked"]) == (["A-001"], [])
@@ -616,13 +616,13 @@ def test_markers_follow_lid_check_rules_for_specs_ids_and_annotations(ws):
 def test_marker_change_keeps_unstaged_edits_and_other_paths(ws):
     text = spec_text("- [ ] **A-001**: tested and tagged after this commit.", "- [ ] **A-002**: untested.")
     b_text = spec_text("- [ ] **B-001**: untested.")
-    plan_specs(ws, {A_SPECS: text, B_SPECS: b_text, "tests/test_a.py": "# @spec A-001\n", "src/b.py": "b1\n"})
+    plan_specs(ws, {A_SPECS: text, B_SPECS: b_text, "tests/test_a.py": "# @" + "spec A-001\n", "src/b.py": "b1\n"})
     edited = "Draft note above every spec.\n" + text.replace("A-002**: untested.", "A-002**: reworded, unstaged.")
     (ws.repo / A_SPECS).write_text(edited)
     (ws.repo / B_SPECS).write_text(b_text + "Unstaged note.\n")
     (ws.repo / "src" / "b.py").write_text("b2\n")
     (ws.repo / "src" / "u.py").write_text("untracked\n")
-    stage(ws.repo, {"src/a.py": "# @spec A-001\n"})
+    stage(ws.repo, {"src/a.py": "# @" + "spec A-001\n"})
     out = ws.commit()
     assert out["status"] == "COMMITTED" and out["marked"] == ["A-001"]
     assert git(ws.repo, "show", "--name-only", "--format=", out["sha"]).splitlines() == [A_SPECS, "src/a.py"]
@@ -636,10 +636,10 @@ def test_marker_change_keeps_unstaged_edits_and_other_paths(ws):
 # @spec SPOKE-PROTO-MARK-007
 def test_marker_change_keeps_unstaged_deletion_of_the_spec_line(ws):
     text = spec_text("- [ ] **A-001**: tested and tagged after this commit.", "- [ ] **A-002**: untested.")
-    plan_specs(ws, {A_SPECS: text, "tests/test_a.py": "# @spec A-001\n"})
+    plan_specs(ws, {A_SPECS: text, "tests/test_a.py": "# @" + "spec A-001\n"})
     deleted = "".join(line for line in text.splitlines(keepends=True) if "**A-001**" not in line)
     (ws.repo / A_SPECS).write_text(deleted)
-    stage(ws.repo, {"src/a.py": "# @spec A-001\n"})
+    stage(ws.repo, {"src/a.py": "# @" + "spec A-001\n"})
     out = ws.commit()
     assert out["status"] == "COMMITTED" and out["marked"] == ["A-001"]
     assert committed(ws.repo, A_SPECS) == flip(text, "A-001", "x")
@@ -658,10 +658,10 @@ def test_committed_without_marker_changes_carries_empty_lists(ws):
 # @spec SPOKE-PROTO-MARK-004
 @pytest.mark.parametrize("files, expected", [
     ({}, "NOTHING_STAGED"),
-    ({"src/a.py": "# @spec A-001\n", "docs/x.md": "x\n"}, "BOUNDARY_VIOLATION"),
+    ({"src/a.py": "# @" + "spec A-001\n", "docs/x.md": "x\n"}, "BOUNDARY_VIOLATION"),
 ], ids=["nothing-staged", "boundary-violation"])
 def test_other_statuses_carry_no_marker_lists(ws, files, expected):
-    plan_specs(ws, {A_SPECS: spec_text("- [ ] **A-001**: tested."), "tests/test_a.py": "# @spec A-001\n"})
+    plan_specs(ws, {A_SPECS: spec_text("- [ ] **A-001**: tested."), "tests/test_a.py": "# @" + "spec A-001\n"})
     stage(ws.repo, files)
     out = ws.commit()
     assert out["status"] == expected
@@ -679,10 +679,10 @@ def test_other_statuses_carry_no_marker_lists(ws, files, expected):
 def test_no_marker_changes_outside_lid_qa_and_dev_full_and_repair(ws, agent, phase, mode, config):
     text = spec_text("- [ ] **A-001**: tested and tagged.", "- [x] **A-002**: untested.")
     base = head(ws.repo)
-    commit(ws.repo, {A_SPECS: text, "tests/test_a.py": "# @spec A-001\n", "src/b.py": "# @spec A-001, A-002\n"},
+    commit(ws.repo, {A_SPECS: text, "tests/test_a.py": "# @" + "spec A-001\n", "src/b.py": "# @" + "spec A-001, A-002\n"},
            "planned specs and earlier work")
     ws.dispatch(agent, phase=phase, mode=mode, config=config, anchors={"workstream_base_sha": base})
-    stage(ws.repo, {IN_BOUNDARY[agent]: "# @spec A-001\nX = 1\n"})
+    stage(ws.repo, {IN_BOUNDARY[agent]: "# @" + "spec A-001\nX = 1\n"})
     out = ws.commit()
     assert out["status"] == "COMMITTED"
     assert "marked" not in out and "unmarked" not in out
@@ -693,9 +693,9 @@ def test_no_marker_changes_outside_lid_qa_and_dev_full_and_repair(ws, agent, pha
 # @spec SPOKE-PROTO-MARK-005
 def test_failed_commit_restores_changed_spec_files(ws, tmp_path):
     text = spec_text("- [ ] **A-001**: tested and tagged after this commit.")
-    plan_specs(ws, {A_SPECS: text, "tests/test_a.py": "# @spec A-001\n"})
+    plan_specs(ws, {A_SPECS: text, "tests/test_a.py": "# @" + "spec A-001\n"})
     (ws.repo / A_SPECS).write_text("Unstaged note.\n" + text)
-    stage(ws.repo, {"src/a.py": "# @spec A-001\n"})
+    stage(ws.repo, {"src/a.py": "# @" + "spec A-001\n"})
     hooks, seen = tmp_path / "hooks", tmp_path / "seen-by-hook.md"
     hooks.mkdir()
     (hooks / "pre-commit").write_text(f"#!/bin/sh\ngit show :{A_SPECS} > '{seen}'\nexit 1\n")

@@ -47,7 +47,7 @@ def specs(*lines):
 
 def covered(*ids):
     """A test file and a production file both citing ids."""
-    tag = "# @spec " + ", ".join(ids) + "\n"
+    tag = "# @" + "spec " + ", ".join(ids) + "\n"
     return {"tests/test_cov.py": tag + "def test_x():\n    pass\n", "src/cov.py": tag + "X = 1\n"}
 
 
@@ -179,7 +179,7 @@ def test_changes_no_file(repo, tmp_path):
     commit(repo, {
         A_SPECS: specs("- [ ] **A-001**: x.", "- [ ] **A-002**: y."),
         B_SPECS: specs("- [ ] **A-001**: dup."),
-        "src/x.py": "# @spec A-001, NOPE-001\n",
+        "src/x.py": "# @" + "spec A-001, NOPE-001\n",
     })
     (repo / "untracked.txt").write_text("left alone\n")
     state = make_state(tmp_path / "s.json", repo, base)
@@ -285,8 +285,8 @@ def test_untested_merged_specs_are_listed_without_findings(repo, tmp_path):
     base = merge_from_main(repo, {
         B_SPECS: specs("- [ ] **B-001**: untested.", "- [x] **B-002**: tested.",
                        "- [D] **B-003**: deferred.", "- [ ] **B-004**: tested, no tag."),
-        "tests/test_b.py": "# @spec B-002, B-004\ndef test_b():\n    pass\n",
-        "src/b.py": "# @spec B-002\nX = 1\n",
+        "tests/test_b.py": "# @" + "spec B-002, B-004\ndef test_b():\n    pass\n",
+        "src/b.py": "# @" + "spec B-002\nX = 1\n",
     }, {A_SPECS: specs("- [ ] **A-001**: workstream."), **covered("A-001")})
     res = lid(make_state(tmp_path / "s.json", repo, base), repo)
     assert res.json["merged_specs"] == ["B-001"]
@@ -306,8 +306,8 @@ def test_test_file_annotation_is_citation_and_production_file_is_tag(repo, tmp_p
     base = head(repo)
     commit(repo, {
         A_SPECS: specs("- [ ] **A-001**: tested only.", "- [ ] **A-002**: tagged only."),
-        "tests/test_a.py": "# @spec A-001\ndef test_a():\n    pass\n",
-        "src/a.py": "# @spec A-002\nX = 1\n",
+        "tests/test_a.py": "# @" + "spec A-001\ndef test_a():\n    pass\n",
+        "src/a.py": "# @" + "spec A-002\nX = 1\n",
     })
     res = lid(make_state(tmp_path / "s.json", repo, base), repo)
     assert ids_of(res, "UNTESTED") == ["A-002"]
@@ -330,8 +330,8 @@ def test_spec_followed_by_non_id_is_not_an_annotation(repo, tmp_path):
     base = head(repo)
     commit(repo, {
         A_SPECS: specs("- [ ] **A-001**: x."),
-        "tests/test_a.py": "# put @spec <ID> above each test; see A-001\n",
-        "src/a.py": "# @spec A-001\n",
+        "tests/test_a.py": "# put @" + "spec <ID> above each test; see A-001\n",
+        "src/a.py": "# @" + "spec A-001\n",
     })
     res = lid(make_state(tmp_path / "s.json", repo, base), repo)
     assert ids_of(res, "UNTESTED") == ["A-001"]
@@ -341,7 +341,7 @@ def test_spec_followed_by_non_id_is_not_an_annotation(repo, tmp_path):
 # @spec SPOKE-VER-LID-003
 def test_config_test_patterns_decide_test_class(repo, tmp_path):
     base = head(repo)
-    commit(repo, {A_SPECS: specs("- [ ] **A-001**: x."), "spec/a_spec.rb": "# @spec A-001\n"})
+    commit(repo, {A_SPECS: specs("- [ ] **A-001**: x."), "spec/a_spec.rb": "# @" + "spec A-001\n"})
     res = lid(make_state(tmp_path / "s.json", repo, base, config={"test_patterns": ["spec/**"]}), repo)
     assert ids_of(res, "UNTESTED") == []
     assert ids_of(res, "UNTAGGED") == ["A-001"]
@@ -350,7 +350,7 @@ def test_config_test_patterns_decide_test_class(repo, tmp_path):
 # @spec SPOKE-VER-LID-003
 def test_plan_class_annotation_is_neither_citation_nor_tag(repo, tmp_path):
     base = head(repo)
-    commit(repo, {A_SPECS: specs("- [ ] **A-001**: x."), "docs/notes.md": "@spec A-001\n"})
+    commit(repo, {A_SPECS: specs("- [ ] **A-001**: x."), "docs/notes.md": "@" + "spec A-001\n"})
     res = lid(make_state(tmp_path / "s.json", repo, base), repo)
     assert ids_of(res, "UNTESTED") == ["A-001"]
     assert ids_of(res, "UNTAGGED") == ["A-001"]
@@ -391,8 +391,8 @@ def test_unknown_id_in_changed_file_reports_path_and_line(repo, tmp_path):
     base = head(repo)
     commit(repo, {
         A_SPECS: specs("- [ ] **A-001**: x."),
-        "tests/test_cov.py": "# @spec A-001\n",
-        "src/x.py": "import os\n\n# @spec A-001, NOPE-001\n",
+        "tests/test_cov.py": "# @" + "spec A-001\n",
+        "src/x.py": "import os\n\n# @" + "spec A-001, NOPE-001\n",
     })
     res = lid(make_state(tmp_path / "s.json", repo, base), repo)
     unknown = findings_of(res, "UNKNOWN_ID")
@@ -402,7 +402,7 @@ def test_unknown_id_in_changed_file_reports_path_and_line(repo, tmp_path):
 
 # @spec SPOKE-VER-LID-005
 def test_unknown_id_in_unchanged_file_is_not_reported(repo, tmp_path):
-    commit(repo, {"src/old.py": "# @spec NOPE-001\n"})
+    commit(repo, {"src/old.py": "# @" + "spec NOPE-001\n"})
     base = head(repo)
     commit(repo, {A_SPECS: specs("- [ ] **A-001**: x."), **covered("A-001")})
     res = lid(make_state(tmp_path / "s.json", repo, base), repo)
@@ -413,7 +413,7 @@ def test_unknown_id_in_unchanged_file_is_not_reported(repo, tmp_path):
 @pytest.mark.parametrize("marker", [" ", "x"])
 def test_workstream_spec_without_test_citation_is_untested(repo, tmp_path, marker):
     base = head(repo)
-    commit(repo, {A_SPECS: specs(f"- [{marker}] **A-001**: x."), "src/a.py": "# @spec A-001\n"})
+    commit(repo, {A_SPECS: specs(f"- [{marker}] **A-001**: x."), "src/a.py": "# @" + "spec A-001\n"})
     res = lid(make_state(tmp_path / "s.json", repo, base), repo)
     assert ids_of(res, "UNTESTED") == ["A-001"]
 
@@ -440,7 +440,7 @@ def test_non_workstream_spec_gaps_are_not_reported(repo, tmp_path):
 @pytest.mark.parametrize("marker", [" ", "x"])
 def test_workstream_spec_without_code_tag_is_untagged(repo, tmp_path, marker):
     base = head(repo)
-    commit(repo, {A_SPECS: specs(f"- [{marker}] **A-001**: x."), "tests/test_a.py": "# @spec A-001\n"})
+    commit(repo, {A_SPECS: specs(f"- [{marker}] **A-001**: x."), "tests/test_a.py": "# @" + "spec A-001\n"})
     res = lid(make_state(tmp_path / "s.json", repo, base), repo)
     assert ids_of(res, "UNTAGGED") == ["A-001"]
 
@@ -460,8 +460,8 @@ def test_every_finding_carries_kind_id_detail_and_path_line_for_annotations(repo
     base = head(repo)
     commit(repo, {
         A_SPECS: specs("- [ ] **A-001**: dup.", "- [ ] **A-002**: tested only.", "- [ ] **A-003**: tagged only."),
-        "tests/test_a.py": "# @spec A-001, A-002\n",
-        "src/a.py": "# @spec A-001, A-003, NOPE-001\n",
+        "tests/test_a.py": "# @" + "spec A-001, A-002\n",
+        "src/a.py": "# @" + "spec A-001, A-003, NOPE-001\n",
     })
     res = lid(make_state(tmp_path / "s.json", repo, base), repo)
     assert res.json["status"] == "OK"
@@ -487,9 +487,9 @@ def test_unmarked_specs_lists_open_workstream_specs_with_test_and_tag(repo, tmp_
             "- [ ] **A-005**: open, tested and tagged, duplicated.",
             "- [ ] **A-006**: open, tested, tagged only in a plan path.",
         ),
-        "tests/test_a.py": "# @spec A-001, A-002, A-003, A-004, A-005, A-006, B-001\n",
-        "src/a.py": "# @spec A-001, A-002, A-003, A-005, B-001\n",
-        "docs/notes.md": "@spec A-006\n",
+        "tests/test_a.py": "# @" + "spec A-001, A-002, A-003, A-004, A-005, A-006, B-001\n",
+        "src/a.py": "# @" + "spec A-001, A-002, A-003, A-005, B-001\n",
+        "docs/notes.md": "@" + "spec A-006\n",
     })
     res = lid(make_state(tmp_path / "s.json", repo, base), repo)
     assert res.json["status"] == "OK"
