@@ -148,6 +148,7 @@ class Checkout:
         hosted = parse_remote(self.origin) if self.origin else None
         org, repo = hosted if hosted else ("local", os.path.basename(os.path.dirname(self.common)))
         self.org, self.repo = slug(org), slug(repo)
+        self.hosted = hosted is not None
         self.has_commits = git_ok(self.root, "rev-parse", "--verify", "--quiet", "HEAD")
 
     # @spec WS-ID-006, WS-ID-007
@@ -164,6 +165,9 @@ class Checkout:
     def branch_workstream(self):
         branch = self.branch()
         if branch is None:
+            for name, state in open_states(self):
+                if (state.get("identity") or {}).get("worktree_path") == self.root:
+                    return name
             return f"detached-{git_out(self.root, 'rev-parse', '--short=7', 'HEAD')}"
         return slug(branch)
 
@@ -344,6 +348,18 @@ def list_workstreams(checkout):
 # ---------------------------------------------------------------------- wake
 
 
+# @spec WS-WAKE-005, WS-WAKE-006
+def base_behind(checkout, recorded, state):
+    """Commits on the recorded base branch that the workstream's base commit lacks; None when unknown."""
+    branch = recorded.get("base_branch")
+    base = (state.get("anchors") or {}).get("workstream_base_sha")
+    if not branch or not base:
+        return None
+    ref = f"refs/remotes/origin/{branch}" if checkout.origin else f"refs/heads/{branch}"
+    proc = git(checkout.root, "rev-list", "--count", ref, f"^{base}", check=False)
+    return int(proc.stdout) if proc.returncode == 0 else None
+
+
 # @spec WS-ID-008, WS-ID-009, WS-ID-010, WS-ID-011, WS-WAKE-001, WS-WAKE-002, WS-WAKE-003, WS-WAKE-004
 # @spec WS-DRIFT-005
 def wake(cwd, workstream=None, holder_pid=None, holder_session=None, steal=False):
@@ -388,6 +404,8 @@ def wake(cwd, workstream=None, holder_pid=None, holder_session=None, steal=False
         stale.extend(added)
         write_state(sp, state)
     result = {"status": "OK", **report, "drift": drift, "dirty": dirty_paths(checkout)}
+    if recorded.get("flow") in ("idea", "triage"):
+        result["base_behind"] = base_behind(checkout, recorded, state)
     if cleared:
         result["cleared_dead_lock"] = True
     return result
@@ -485,12 +503,12 @@ def build_config(sets):
     return config
 
 
-def initial_state(identity, config, base_sha):
+def initial_state(identity, config, base_sha, head_sha=None):
     return {
         "schema_version": SCHEMA_VERSION,
         "identity": identity,
         "config": config,
-        "anchors": {"workstream_base_sha": base_sha, "plan_base_sha": None, "last_known_head_sha": None,
+        "anchors": {"workstream_base_sha": base_sha, "plan_base_sha": None, "last_known_head_sha": head_sha,
                     "verifier_pass_sha": None, "reviewer_pass_sha": None, "stale_shas": []},
         "lifecycle": {"current_phase": "INIT", "pass": None, "dispatched": None, "awaiting": None,
                       "resume_phase": None, "repair_queue": [], "attempts": {}, "blocker_counts": {},
@@ -504,13 +522,18 @@ def initial_state(identity, config, base_sha):
 
 # @spec WS-NEW-001, WS-NEW-002, WS-NEW-003, WS-NEW-004, WS-NEW-005, WS-NEW-006, WS-NEW-008, WS-NEW-009
 # @spec WS-NEW-010, WS-NEW-011, WS-NEW-012, WS-NEW-013, WS-NEW-014, WS-NEW-015, WS-NEW-016, WS-NEW-017
-# @spec WS-NEW-018, WS-NEW-019, WS-NEW-022, WS-NEW-023, WS-NEW-024, WS-NEW-025
-def new(cwd, args):
+# @spec WS-NEW-018, WS-NEW-019, WS-NEW-022, WS-NEW-023, WS-NEW-024, WS-NEW-025, WS-NEW-026, WS-NEW-027
+# @spec WS-NEW-028, WS-NEW-029, WS-NEW-030, WS-NEW-031, WS-NEW-032, WS-NEW-033, WS-NEW-034, WS-NEW-035
+# @spec WS-NEW-036, WS-NEW-037, WS-NEW-038, WS-NEW-039
+def new(cwd, args, promoted_from=None, ignore=None):
     checkout = Checkout(cwd)
     root = checkout.root
     config = build_config(args.set or [])
     issue_url = pr_url = None
     flow = "build"
+    study = "idea" if args.idea else "triage" if args.triage else None
+    if args.idea and (not args.name or args.task_file is None):
+        raise UsageError("--idea needs --name and --task-file")
 
     if args.name is not None and not valid_slug(args.name):
         raise UsageError(f"invalid --name {args.name!r}: use lowercase letters, digits, '.', '_', '-'")
@@ -523,7 +546,19 @@ def new(cwd, args):
         if not task.strip():
             raise UsageError(f"--task-file {args.task_file} is empty")
 
-    if args.issue:
+    if study and not checkout.hosted:
+        return {"status": "NO_TRACKER"}
+    if study and not checkout.has_commits:
+        return {"status": "NO_COMMITS"}
+
+    if args.idea:
+        flow, branch, ws = "idea", None, f"idea-{args.name}"
+    elif args.triage:
+        issue, err = gh_json(root, "issue", "view", args.triage, "--json", "number,title,labels,url")
+        if err:
+            return {"status": "GH_FAILED", "detail": err}
+        issue_url, flow, branch, ws = issue["url"], "triage", None, f"triage-{issue['number']}"
+    elif args.issue:
         issue, err = gh_json(root, "issue", "view", args.issue, "--json", "number,title,labels,url")
         if err:
             return {"status": "GH_FAILED", "detail": err}
@@ -546,9 +581,13 @@ def new(cwd, args):
         kind = args.type or "feat"
         branch, ws = f"{kind}/{args.name}", f"{kind}-{args.name}"
 
+    urls = {u for u in (issue_url, pr_url) if u}
     for other, state in open_states(checkout):
         ident = state.get("identity") or {}
-        if (issue_url and ident.get("issue") == issue_url) or (pr_url and ident.get("pr") == pr_url):
+        if other == ignore:
+            continue
+        report = (state.get("lifecycle") or {}).get("report_url") if ident.get("flow") == "idea" else None
+        if urls & {ident.get("issue"), ident.get("pr"), report}:
             return {"status": "DUPLICATE", "workstream": other}
     sd = checkout.repo_dir() / ws
     if sd.exists():
@@ -567,10 +606,14 @@ def new(cwd, args):
     else:
         base_branch = default
         if checkout.origin:
-            git(root, "fetch", "--quiet", "origin", default)
+            fetch = git(root, "fetch", "--quiet", "origin", default, check=False)
+            if fetch.returncode != 0:
+                return {"status": "FETCH_FAILED", "detail": fetch.stderr.strip()}
             base_ref = f"origin/{default}"
         else:
             base_ref = default
+    if base_ref and not git_ok(root, "rev-parse", "--verify", "--quiet", f"{base_ref}^{{commit}}"):
+        return {"status": "BASE_NOT_FOUND", "base": base_ref}
 
     if args.branch:
         elsewhere = checked_out_at(checkout, branch)
@@ -586,6 +629,9 @@ def new(cwd, args):
         git(root, "fetch", "--quiet", "origin", f"pull/{pr['number']}/head")
         base_sha = git_out(root, "rev-parse", "FETCH_HEAD")
         git(root, "worktree", "add", "--quiet", "--detach", worktree, base_sha)
+    elif study:
+        base_sha = git_out(root, "rev-parse", f"{base_ref}^{{commit}}")
+        git(root, "worktree", "add", "--quiet", "--detach", worktree, base_sha)
     elif args.branch:
         base_sha = git_out(root, "rev-parse", f"refs/heads/{branch}")
         git(root, "worktree", "add", "--quiet", worktree, branch)
@@ -597,7 +643,8 @@ def new(cwd, args):
     parent = next((other for other, state in open_states(checkout)
                    if (state.get("identity") or {}).get("branch") == base_branch), None)
     identity = {"org": checkout.org, "repo": checkout.repo, "workstream": ws, "flow": flow, "branch": branch,
-                "base_branch": base_branch, "issue": issue_url, "pr": pr_url, "parent_workstream": parent,
+                "tracker": "github" if issue_url or study else None, "base_branch": base_branch,
+                "issue": issue_url, "pr": pr_url, "parent_workstream": parent, "promoted_from": promoted_from,
                 "git_common_dir": checkout.common, "worktree_path": worktree}
     config = {"repo_mode": detect_repo_mode(worktree), **config}
 
@@ -607,7 +654,7 @@ def new(cwd, args):
     (sd / "scout").mkdir()
     (sd / "council").mkdir()
     (sd / "envelopes").mkdir()
-    write_state(sd / "state.json", initial_state(identity, config, base_sha))
+    write_state(sd / "state.json", initial_state(identity, config, base_sha, base_sha if study else None))
     if task is not None:
         (sd / "task.md").write_text(task, encoding="utf-8")
     try_acquire(sd, args.holder_pid, args.holder_session)
@@ -666,7 +713,45 @@ def close(cwd, args):
 # @spec WS-PROMOTE-001, WS-PROMOTE-002, WS-PROMOTE-003, WS-PROMOTE-004, WS-PROMOTE-005, WS-PROMOTE-006, WS-PROMOTE-007
 # @spec WS-PROMOTE-008, WS-PROMOTE-009, WS-PROMOTE-010, WS-PROMOTE-011, WS-PROMOTE-012, WS-PROMOTE-013
 def promote(cwd, args):
-    raise NotImplementedError("promote")
+    checkout = Checkout(cwd)
+    ws = args.workstream
+    sd = checkout.repo_dir() / ws
+    if not is_holder(read_lock(sd), args.holder_pid, args.holder_session):
+        return {"status": "NOT_HOLDER", "lock": read_lock(sd)}
+    state, err = load_state(sd / "state.json")
+    if err:
+        return {"status": "STATE_INVALID", "detail": err}
+    request = (state.get("lifecycle") or {}).get("promote")
+    if not request:
+        return {"status": "PROMOTE_NOT_REQUESTED"}
+    if args.remove_worktree:
+        wt = state["identity"].get("worktree_path")
+        dirty = dirty_paths(Checkout(wt)) if wt and Path(wt).is_dir() else []
+        if dirty:
+            return {"status": "WORKTREE_DIRTY", "detail": f"uncommitted changes: {', '.join(dirty)}",
+                    "paths": dirty}
+    existing = next((n for n, s in open_states(checkout) if (s.get("identity") or {}).get("flow") == "build"
+                     and (s.get("identity") or {}).get("promoted_from") == ws), None)
+    if existing:
+        ok, lock, _ = take_lock(checkout.repo_dir() / existing, args.holder_pid, args.holder_session)
+        if not ok:
+            return {"status": "LOCKED", "lock": lock}
+        identity = load_state(checkout.repo_dir() / existing / "state.json")[0]["identity"]
+    else:
+        created = new(cwd, argparse.Namespace(
+            issue=request["issue"], name=None, branch=None, pr=None, idea=False, triage=None, type=None,
+            base=None, base_confirmed=False, worktree_root=args.worktree_root, holder_pid=args.holder_pid,
+            holder_session=args.holder_session, set=[f"mode={json.dumps(state['config']['mode'])}"],
+            task_file=request["proposal"]), promoted_from=ws, ignore=ws)
+        if created["status"] != "CREATED":
+            return created
+        identity = created["identity"]
+    closed = close(cwd, argparse.Namespace(workstream=ws, holder_pid=args.holder_pid,
+                                           holder_session=args.holder_session,
+                                           remove_worktree=args.remove_worktree, reason_file=None))
+    if closed["status"] != "CLOSED":
+        return {**closed, "workstream": identity["workstream"]}
+    return {"status": "PROMOTED", "identity": identity, "worktree_path": identity["worktree_path"]}
 
 
 # ------------------------------------------------------------------------ CLI
@@ -686,7 +771,9 @@ def main(argv=None):
     _holder(p)
     p.add_argument("--steal", action="store_true")
     p = sub.add_parser("new")
-    src = p.add_mutually_exclusive_group(required=True)
+    src = p.add_mutually_exclusive_group()
+    src.add_argument("--triage")
+    p.add_argument("--idea", action="store_true")
     src.add_argument("--issue")
     src.add_argument("--name")
     src.add_argument("--branch")
@@ -699,6 +786,11 @@ def main(argv=None):
     p.add_argument("--set", action="append")
     p.add_argument("--task-file")
     sub.add_parser("list")
+    p = sub.add_parser("promote")
+    p.add_argument("--workstream", required=True)
+    p.add_argument("--worktree-root", required=True)
+    _holder(p)
+    p.add_argument("--remove-worktree", action="store_true")
     for name in ("release", "close"):
         p = sub.add_parser(name)
         p.add_argument("--workstream", required=True)
@@ -707,6 +799,13 @@ def main(argv=None):
             p.add_argument("--remove-worktree", action="store_true")
             p.add_argument("--reason-file")
     args = parser.parse_args(argv)
+    if args.command == "new":
+        if args.idea and (args.triage or args.issue or args.branch or args.pr):
+            parser.error("--idea cannot be combined with --triage, --issue, --branch, or --pr")
+        if not (args.idea or args.triage or args.issue or args.name or args.branch or args.pr):
+            parser.error("one of --issue, --name, --branch, --pr, --idea, --triage is required")
+        if (args.idea or args.triage) and (args.base or args.base_confirmed or args.type):
+            parser.error("--idea and --triage cannot be combined with --base, --base-confirmed, or --type")
     cwd = os.getcwd()
     try:
         if args.command == "wake":
@@ -715,6 +814,8 @@ def main(argv=None):
             result = new(cwd, args)
         elif args.command == "list":
             result = {"status": "OK", "workstreams": list_workstreams(Checkout(cwd))}
+        elif args.command == "promote":
+            result = promote(cwd, args)
         elif args.command == "release":
             result = release(cwd, args)
         else:
