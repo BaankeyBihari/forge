@@ -663,6 +663,12 @@ def close(cwd, args):
     return {"status": "CLOSED", "retention": "archive", "archive_path": str(dest)}
 
 
+# @spec WS-PROMOTE-001, WS-PROMOTE-002, WS-PROMOTE-003, WS-PROMOTE-004, WS-PROMOTE-005, WS-PROMOTE-006, WS-PROMOTE-007
+# @spec WS-PROMOTE-008, WS-PROMOTE-009, WS-PROMOTE-010, WS-PROMOTE-011, WS-PROMOTE-012, WS-PROMOTE-013
+def promote(cwd, args):
+    raise NotImplementedError("promote")
+
+
 # ------------------------------------------------------------------------ CLI
 
 
