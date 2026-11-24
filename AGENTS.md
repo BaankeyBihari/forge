@@ -50,6 +50,6 @@ Place the annotation at the *entry point of the behavior's implementation graph*
 
 ## Running tests
 
-Full suite: `uvx pytest -q reference/scripts/tests claude/tests claude/hooks/tests` (about 6 minutes, 1573 tests). Run it from the checkout root, never as `pytest` over the repo root (symlinked skill dirs collect the suite several times).
+Full suite: `uvx pytest -q reference/scripts/tests claude/tests claude/hooks/tests` (about 6 minutes). Run it from the checkout root, never as `pytest` over the repo root (symlinked skill dirs collect the suite several times).
 
 Run test commands in the foreground with a Bash timeout of 600000 ms. Do not background them, sleep, or poll for their output.
