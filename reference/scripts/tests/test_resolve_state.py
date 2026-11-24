@@ -12,6 +12,7 @@ ASSUMPTIONS about report shapes the specs leave open:
 import ast
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -1089,208 +1090,837 @@ def test_stdlib_only_imports():
             assert name.split(".")[0] in sys.stdlib_module_names, name
 
 
-# --- Idea/triage workstreams, tracker, base_behind, promote (skeletons) ---
+# ----------------------------------------- idea/triage workstreams, base_behind, promote
+
+HOSTED_URL = "https://github.com/acme/widgets.git"
+STUDY_ISSUE = {**ISSUE, "labels": []}
+BUILD_WS = "feat-42-fix-the-login-bug-urgent"  # what `new --issue 42` names STUDY_ISSUE's workstream
+STUDY_WS = {"idea": "idea-study", "triage": "triage-42"}
+
+
+@pytest.fixture
+def hosted(cloned_repo, forge_home, monkeypatch, tmp_path):
+    """A clone whose origin looks hosted (identity acme/widgets) but fetches from the local bare repo.
+
+    A `git` shim on PATH rewrites the hosted URL to the bare repository for `git fetch` only, so
+    `remote get-url` still reports the hosted URL. Returns (clone, bare).
+    """
+    clone, bare = cloned_repo
+    git(clone, "remote", "set-url", "origin", HOSTED_URL)
+    real = shutil.which("git")
+    shim_dir = tmp_path / "gitshim"
+    shim_dir.mkdir()
+    shim = shim_dir / "git"
+    shim.write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\n"
+        "args = sys.argv[1:]\n"
+        "if args[:1] == ['fetch']:\n"
+        f"    args = ['-c', 'url.{bare}.insteadOf={HOSTED_URL}'] + args\n"
+        f"os.execv({real!r}, [{real!r}] + args)\n"
+    )
+    shim.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{shim_dir}{os.pathsep}{os.environ['PATH']}")
+    return clone, bare
+
+
+def hosted_state_dir(forge_home, ws):
+    return state_dir(forge_home, "acme", "widgets", ws)
+
+
+def task_file(tmp_path, text="Study the thing.\n", name="idea-task.txt"):
+    path = tmp_path / name
+    path.write_text(text)
+    return path
+
+
+def study_args(kind, tmp_path):
+    if kind == "idea":
+        return ["--idea", "--name", "study", "--task-file", task_file(tmp_path)]
+    return ["--triage", "42"]
+
+
+def start_study(kind, clone, tmp_path, fake_gh):
+    fake_gh.set("issue view", STUDY_ISSUE)
+    res = new(clone, *study_args(kind, tmp_path))
+    assert res.json["status"] == "CREATED", res.json
+    return res
+
+
+def push_upstream(tmp_path, bare, count=1, name="other"):
+    """Push `count` new commits to the bare origin's main; return the new tip."""
+    other = tmp_path / name
+    git(tmp_path, "clone", "-q", str(bare), str(other))
+    git(other, "config", "user.email", "t@example.invalid")
+    git(other, "config", "user.name", "T")
+    tip = None
+    for i in range(count):
+        tip = commit(other, {f"up{i}.txt": f"{i}\n"}, f"upstream {i}")
+    git(other, "push", "-q", "origin", "main")
+    return tip
+
+
+def nothing_created(forge_home, clone):
+    assert not (forge_home / "state").exists() or not any((forge_home / "state").rglob("state.json"))
+    wt = clone / ".claude/worktrees"
+    assert not wt.exists() or not any(wt.iterdir())
 
 
 # @spec WS-ID-006
-@pytest.mark.skip(reason="skeleton: detached_head_uses_open_workstream_at_worktree_path_else_detached_sha")
-def test_ws_id_006_detached_head_uses_open_workstream_at_worktree_path_else_detached_sha():
-    pass
+def test_ws_id_006_detached_head_uses_open_workstream_at_worktree_path_else_detached_sha(workstream):
+    wt = workstream["worktree"]
+    git(wt, "checkout", "-q", "--detach")
+    assert wake(wt).json["identity"]["workstream"] == "feat-demo"
+    # a detached checkout that no open workstream owns falls back to detached-<sha>
+    repo = workstream["repo"]
+    git(repo, "checkout", "-q", "--detach")
+    assert wake(repo).json["identity"]["workstream"] == f"detached-{head(repo)[:7]}"
+
+
+# @spec WS-ID-006
+def test_ws_id_006_detached_idea_worktree_resolves_its_workstream(hosted, forge_home, fake_gh, tmp_path):
+    clone, _ = hosted
+    res = start_study("idea", clone, tmp_path, fake_gh)
+    res = wake(Path(res.json["worktree_path"]))
+    assert res.json["identity"]["workstream"] == "idea-study"
+    assert res.json["status"] == "OK"
+
+
+# @spec WS-ID-006
+def test_ws_id_006_closed_workstream_is_not_matched(workstream):
+    wt = workstream["worktree"]
+    git(wt, "checkout", "-q", "--detach")
+    sha = head(wt)
+    assert rs(workstream["repo"], "close", "--workstream", "feat-demo", *holder_args()).json["status"] == "CLOSED"
+    assert wake(wt).json["identity"]["workstream"] == f"detached-{sha[:7]}"
 
 
 # @spec WS-NEW-007
-@pytest.mark.skip(reason="skeleton: default_base_applies_to_idea_triage_and_branch_adoption")
-def test_ws_new_007_default_base_applies_to_idea_triage_and_branch_adoption():
-    pass
+def test_ws_new_007_default_base_applies_to_idea_triage_and_branch_adoption(hosted, forge_home, fake_gh, tmp_path):
+    clone, bare = hosted
+    upstream = push_upstream(tmp_path, bare)
+    res = start_study("idea", clone, tmp_path, fake_gh)  # fetches origin/main
+    assert git(clone, "rev-parse", "origin/main") == upstream
+    state = read_state(Path(res.json["state_path"]))
+    assert state["anchors"]["workstream_base_sha"] == upstream
+    assert state["identity"]["base_branch"] == "main"
+
+
+# @spec WS-NEW-007
+def test_ws_new_007_branch_adoption_fetches_default_base(hosted, forge_home, tmp_path):
+    clone, bare = hosted
+    git(clone, "branch", "feat/existing")
+    upstream = push_upstream(tmp_path, bare)
+    assert git(clone, "rev-parse", "origin/main") != upstream
+    res = new(clone, "--branch", "feat/existing")
+    assert res.json["status"] == "CREATED"
+    assert git(clone, "rev-parse", "origin/main") == upstream  # fetched
+    assert read_state(Path(res.json["state_path"]))["identity"]["base_branch"] == "main"
+
+
+# @spec WS-NEW-007
+def test_ws_new_007_default_branch_is_origin_head_target_for_triage(hosted, forge_home, fake_gh, tmp_path):
+    clone, _ = hosted
+    git(clone, "push", "-q", "origin", "main:develop")
+    git(clone, "remote", "set-head", "origin", "develop")
+    res = start_study("triage", clone, tmp_path, fake_gh)
+    assert res.json["identity"]["base_branch"] == "develop"
 
 
 # @spec WS-NEW-015
-@pytest.mark.skip(reason="skeleton: duplicate_matches_any_flow_and_idea_report_url_and_ignores_null")
-def test_ws_new_015_duplicate_matches_any_flow_and_idea_report_url_and_ignores_null():
-    pass
+def test_ws_new_015_duplicate_matches_any_flow_and_idea_report_url_and_ignores_null(hosted, forge_home, fake_gh, tmp_path):
+    clone, _ = hosted
+    start_study("idea", clone, tmp_path, fake_gh)
+    sp = hosted_state_dir(forge_home, "idea-study") / "state.json"
+    # an idea workstream that filed the issue
+    state = read_state(sp)
+    state["lifecycle"]["report_url"] = STUDY_ISSUE["url"]
+    write_state(sp, state)
+    res = new(clone, "--issue", "42")
+    assert res.json["status"] == "DUPLICATE" and res.json["workstream"] == "idea-study"
+    # a null report_url never matches
+    state["lifecycle"]["report_url"] = None
+    write_state(sp, state)
+    assert new(clone, "--issue", "42").json["status"] == "CREATED"
+
+
+# @spec WS-NEW-015
+def test_ws_new_015_triage_workstream_issue_is_a_duplicate(hosted, forge_home, fake_gh, tmp_path):
+    clone, _ = hosted
+    start_study("triage", clone, tmp_path, fake_gh)
+    res = new(clone, "--issue", "42")
+    assert res.json["status"] == "DUPLICATE" and res.json["workstream"] == "triage-42"
+    res = new(clone, "--triage", "42")
+    assert res.json["status"] == "DUPLICATE" and res.json["workstream"] == "triage-42"
+
+
+# @spec WS-NEW-015
+def test_ws_new_015_report_url_of_a_non_idea_workstream_is_ignored(hosted, forge_home, fake_gh, tmp_path):
+    clone, _ = hosted
+    fake_gh.set("issue view", STUDY_ISSUE)
+    assert new(clone, "--name", "demo").json["status"] == "CREATED"
+    sp = hosted_state_dir(forge_home, "feat-demo") / "state.json"
+    state = read_state(sp)
+    state["lifecycle"]["report_url"] = STUDY_ISSUE["url"]
+    write_state(sp, state)
+    assert new(clone, "--issue", "42").json["status"] == "CREATED"
+
+
+# @spec WS-NEW-015
+def test_ws_new_015_null_issue_of_idea_workstream_never_matches(hosted, forge_home, fake_gh, tmp_path):
+    clone, _ = hosted
+    start_study("idea", clone, tmp_path, fake_gh)  # issue null, pr null, no report_url
+    assert new(clone, "--issue", "42").json["status"] == "CREATED"
 
 
 # @spec WS-NEW-026
-@pytest.mark.skip(reason="skeleton: idea_triage_worktree_detached_at_default_branch_no_branch")
-def test_ws_new_026_idea_triage_worktree_detached_at_default_branch_no_branch():
-    pass
+@pytest.mark.parametrize("kind", ["idea", "triage"])
+def test_ws_new_026_idea_triage_worktree_detached_at_default_branch_no_branch(hosted, forge_home, fake_gh, tmp_path, kind):
+    clone, bare = hosted
+    upstream = push_upstream(tmp_path, bare)
+    branches = git(clone, "branch", "--format=%(refname)")
+    res = start_study(kind, clone, tmp_path, fake_gh)
+    wt = Path(res.json["worktree_path"])
+    assert wt == clone / ".claude/worktrees" / STUDY_WS[kind]
+    assert git(wt, "rev-parse", "--abbrev-ref", "HEAD") == "HEAD"  # detached
+    assert head(wt) == upstream  # at origin/<default> after the fetch
+    assert git(clone, "branch", "--format=%(refname)") == branches
+    assert str(wt) in git(clone, "worktree", "list")
 
 
 # @spec WS-NEW-027
-@pytest.mark.skip(reason="skeleton: idea_triage_identity_branch_null_base_branch_and_base_sha")
-def test_ws_new_027_idea_triage_identity_branch_null_base_branch_and_base_sha():
-    pass
+@pytest.mark.parametrize("kind", ["idea", "triage"])
+def test_ws_new_027_idea_triage_identity_branch_null_base_branch_and_base_sha(hosted, forge_home, fake_gh, tmp_path, kind):
+    clone, bare = hosted
+    upstream = push_upstream(tmp_path, bare)
+    res = start_study(kind, clone, tmp_path, fake_gh)
+    state = read_state(Path(res.json["state_path"]))
+    assert state["identity"]["branch"] is None
+    assert state["identity"]["base_branch"] == "main"
+    assert state["anchors"]["workstream_base_sha"] == upstream == head(res.json["worktree_path"])
 
 
 # @spec WS-NEW-028
-@pytest.mark.skip(reason="skeleton: idea_named_idea_slug_flow_idea_issue_null")
-def test_ws_new_028_idea_named_idea_slug_flow_idea_issue_null():
-    pass
+def test_ws_new_028_idea_named_idea_slug_flow_idea_issue_null(hosted, forge_home, fake_gh, tmp_path):
+    clone, _ = hosted
+    res = new(clone, "--idea", "--name", "faster-search", "--task-file", task_file(tmp_path, "Make search faster.\n"))
+    assert res.json["status"] == "CREATED"
+    ident = res.json["identity"]
+    assert (ident["workstream"], ident["flow"], ident["issue"]) == ("idea-faster-search", "idea", None)
+    assert (Path(res.json["state_path"]).parent / "task.md").read_text() == "Make search faster.\n"
 
 
 # @spec WS-NEW-029
-@pytest.mark.skip(reason="skeleton: idea_without_name_or_task_file_is_usage_error")
-def test_ws_new_029_idea_without_name_or_task_file_is_usage_error():
-    pass
+@pytest.mark.parametrize("which", ["no-name", "no-task-file"])
+def test_ws_new_029_idea_without_name_or_task_file_is_usage_error(hosted, forge_home, tmp_path, which):
+    clone, _ = hosted
+    args = ["--idea", "--task-file", task_file(tmp_path)] if which == "no-name" else ["--idea", "--name", "study"]
+    res = new(clone, *args)
+    assert res.returncode != 0 and res.stderr
+    nothing_created(forge_home, clone)
 
 
 # @spec WS-NEW-030
-@pytest.mark.skip(reason="skeleton: triage_reads_issue_via_gh_names_triage_number")
-def test_ws_new_030_triage_reads_issue_via_gh_names_triage_number():
-    pass
+def test_ws_new_030_triage_reads_issue_via_gh_names_triage_number(hosted, forge_home, fake_gh, tmp_path):
+    clone, _ = hosted
+    fake_gh.set("issue view", {**STUDY_ISSUE, "labels": [{"name": "bug"}]})
+    res = new(clone, "--triage", "42")
+    assert res.json["status"] == "CREATED"
+    ident = res.json["identity"]
+    assert (ident["workstream"], ident["flow"], ident["issue"]) == ("triage-42", "triage", STUDY_ISSUE["url"])
+    assert ident["branch"] is None
+    assert any(c[:3] == ["issue", "view", "42"] and "--json" in c for c in fake_gh.calls())
+    assert not (Path(res.json["state_path"]).parent / "task.md").exists()  # --task-file is optional
+
+
+# @spec WS-NEW-030
+def test_ws_new_030_triage_task_file_is_copied(hosted, forge_home, fake_gh, tmp_path):
+    clone, _ = hosted
+    fake_gh.set("issue view", STUDY_ISSUE)
+    res = new(clone, "--triage", "42", "--task-file", task_file(tmp_path, "My own words.\n"))
+    assert (Path(res.json["state_path"]).parent / "task.md").read_text() == "My own words.\n"
 
 
 # @spec WS-NEW-031
-@pytest.mark.skip(reason="skeleton: idea_triage_conflicting_options_are_usage_error")
-def test_ws_new_031_idea_triage_conflicting_options_are_usage_error():
-    pass
+@pytest.mark.parametrize("kind", ["idea", "triage"])
+@pytest.mark.parametrize("extra", [["--base", "main"], ["--branch", "feat/x"], ["--type", "feat"],
+                                   ["--base-confirmed"], ["--issue", "42"], ["--pr", "7"]])
+def test_ws_new_031_idea_triage_conflicting_options_are_usage_error(hosted, forge_home, fake_gh, tmp_path, kind, extra):
+    clone, _ = hosted
+    fake_gh.set("issue view", STUDY_ISSUE)
+    git(clone, "branch", "feat/x")
+    res = new(clone, *study_args(kind, tmp_path), *extra)
+    assert res.returncode != 0 and res.stderr
+    nothing_created(forge_home, clone)
+
+
+# @spec WS-NEW-031
+@pytest.mark.parametrize("args", [["--idea", "--name", "study", "--triage", "42"], ["--triage", "42", "--name", "study"]])
+def test_ws_new_031_idea_with_triage_or_triage_with_name_is_usage_error(hosted, forge_home, fake_gh, tmp_path, args):
+    clone, _ = hosted
+    fake_gh.set("issue view", STUDY_ISSUE)
+    res = new(clone, *args, "--task-file", task_file(tmp_path))
+    assert res.returncode != 0 and res.stderr
+    nothing_created(forge_home, clone)
 
 
 # @spec WS-NEW-032
-@pytest.mark.skip(reason="skeleton: tracker_github_for_issue_idea_triage_else_null")
-def test_ws_new_032_tracker_github_for_issue_idea_triage_else_null():
-    pass
+@pytest.mark.parametrize("args, tracker", [(["--name", "demo"], None), (["--issue", "42"], "github"),
+                                           (["--idea", "--name", "study", "--task-file", "T"], "github"),
+                                           (["--triage", "42"], "github")])
+def test_ws_new_032_tracker_github_for_issue_idea_triage_else_null(hosted, forge_home, fake_gh, tmp_path, args, tracker):
+    clone, _ = hosted
+    fake_gh.set("issue view", STUDY_ISSUE)
+    args = [task_file(tmp_path) if a == "T" else a for a in args]
+    res = new(clone, *args)
+    assert res.json["status"] == "CREATED"
+    assert read_state(Path(res.json["state_path"]))["identity"]["tracker"] == tracker
+
+
+# @spec WS-NEW-032
+def test_ws_new_032_tracker_follows_issue_in_a_local_repository(repo, forge_home, fake_gh):
+    fake_gh.set("issue view", STUDY_ISSUE)
+    assert new(repo, "--issue", "42").json["identity"]["tracker"] == "github"
+    assert new(repo, "--name", "demo").json["identity"]["tracker"] is None
 
 
 # @spec WS-NEW-033
-@pytest.mark.skip(reason="skeleton: last_known_head_sha_set_for_idea_triage_null_otherwise")
-def test_ws_new_033_last_known_head_sha_set_for_idea_triage_null_otherwise():
-    pass
+@pytest.mark.parametrize("kind", ["idea", "triage"])
+def test_ws_new_033_last_known_head_sha_set_for_idea_triage_null_otherwise(hosted, forge_home, fake_gh, tmp_path, kind):
+    clone, _ = hosted
+    res = start_study(kind, clone, tmp_path, fake_gh)
+    anchors = read_state(Path(res.json["state_path"]))["anchors"]
+    assert anchors["last_known_head_sha"] == anchors["workstream_base_sha"] == head(res.json["worktree_path"])
+
+
+# @spec WS-NEW-033
+def test_ws_new_033_last_known_head_sha_null_for_build(hosted, forge_home, fake_gh):
+    clone, _ = hosted
+    fake_gh.set("issue view", STUDY_ISSUE)
+    for args in (["--name", "demo"], ["--issue", "42"]):
+        res = new(clone, *args)
+        assert read_state(Path(res.json["state_path"]))["anchors"]["last_known_head_sha"] is None
+
+
+# @spec WS-NEW-033, WS-DRIFT-008
+def test_ws_new_033_commit_in_study_worktree_is_drift_and_anchor_is_kept(hosted, forge_home, fake_gh, tmp_path):
+    clone, _ = hosted
+    res = start_study("idea", clone, tmp_path, fake_gh)
+    wt = Path(res.json["worktree_path"])
+    base = head(wt)
+    made = commit(wt, {"x.txt": "x\n"}, "stray commit")
+    report = wake(wt, "--workstream", "idea-study").json
+    assert report["status"] == "OK"
+    assert report["drift"]["kind"] == "ahead"
+    assert [c["sha"] for c in report["drift"]["new_commits"]] == [made]
+    assert read_state(Path(res.json["state_path"]))["anchors"]["last_known_head_sha"] == base
 
 
 # @spec WS-NEW-034
-@pytest.mark.skip(reason="skeleton: idea_triage_in_local_repo_returns_no_tracker")
-def test_ws_new_034_idea_triage_in_local_repo_returns_no_tracker():
-    pass
+@pytest.mark.parametrize("kind", ["idea", "triage"])
+def test_ws_new_034_idea_triage_in_local_repo_returns_no_tracker(repo, forge_home, fake_gh, tmp_path, kind):
+    fake_gh.set("issue view", STUDY_ISSUE)
+    res = new(repo, *study_args(kind, tmp_path))
+    assert res.json["status"] == "NO_TRACKER"
+    nothing_created(forge_home, repo)
+
+
+# @spec WS-NEW-034
+def test_ws_new_034_origin_that_is_not_hosted_is_local(cloned_repo, forge_home, tmp_path):
+    clone, _ = cloned_repo  # origin is a local path
+    assert new(clone, *study_args("idea", tmp_path)).json["status"] == "NO_TRACKER"
 
 
 # @spec WS-NEW-035
-@pytest.mark.skip(reason="skeleton: idea_triage_without_commits_returns_no_commits")
-def test_ws_new_035_idea_triage_without_commits_returns_no_commits():
-    pass
+@pytest.mark.parametrize("kind", ["idea", "triage"])
+def test_ws_new_035_idea_triage_without_commits_returns_no_commits(empty_repo, forge_home, fake_gh, tmp_path, kind):
+    set_origin(empty_repo, HOSTED_URL)
+    fake_gh.set("issue view", STUDY_ISSUE)
+    res = new(empty_repo, *study_args(kind, tmp_path))
+    assert res.json["status"] == "NO_COMMITS"
+    nothing_created(forge_home, empty_repo)
 
 
 # @spec WS-NEW-036
-@pytest.mark.skip(reason="skeleton: default_base_fetch_failure_returns_fetch_failed")
-def test_ws_new_036_default_base_fetch_failure_returns_fetch_failed():
-    pass
+@pytest.mark.parametrize("args", [["--name", "demo"], ["--idea", "--name", "study", "--task-file", "T"]])
+def test_ws_new_036_default_base_fetch_failure_returns_fetch_failed(hosted, forge_home, tmp_path, args):
+    clone, bare = hosted
+    shutil.rmtree(bare)
+    args = [task_file(tmp_path) if a == "T" else a for a in args]
+    res = new(clone, *args)
+    assert res.json["status"] == "FETCH_FAILED" and res.json["detail"]
+    nothing_created(forge_home, clone)
+    assert not git(clone, "branch", "--list", "feat/demo")
 
 
 # @spec WS-NEW-037
-@pytest.mark.skip(reason="skeleton: base_naming_no_commit_returns_base_not_found")
-def test_ws_new_037_base_naming_no_commit_returns_base_not_found():
-    pass
+def test_ws_new_037_base_naming_no_commit_returns_base_not_found(repo, forge_home):
+    res = new(repo, "--name", "demo", "--base", "ghost", "--base-confirmed")
+    assert res.json["status"] == "BASE_NOT_FOUND"
+    nothing_created(forge_home, repo)
+    assert not git(repo, "branch", "--list", "feat/demo")
+
+
+# @spec WS-NEW-037
+def test_ws_new_037_default_branch_naming_no_commit_returns_base_not_found(repo, forge_home):
+    git(repo, "branch", "-m", "main", "trunk")  # neither main nor master exists: the default resolves to main
+    res = new(repo, "--name", "demo")
+    assert res.json["status"] == "BASE_NOT_FOUND"
+    nothing_created(forge_home, repo)
 
 
 # @spec WS-NEW-038
-@pytest.mark.skip(reason="skeleton: new_refusals_returned_in_documented_order")
-def test_ws_new_038_new_refusals_returned_in_documented_order():
-    pass
+def test_ws_new_038_new_refusals_returned_in_documented_order(hosted, empty_repo, forge_home, fake_gh, tmp_path):
+    clone, bare = hosted
+    fake_gh.set("issue view", STUDY_ISSUE)
+    # NO_TRACKER before NO_COMMITS: a local repository with no commits
+    assert new(empty_repo, *study_args("idea", tmp_path)).json["status"] == "NO_TRACKER"
+    # GH_FAILED before BASE_CONFIRM_REQUIRED
+    git(clone, "branch", "feat/parent")
+    fake_gh.fail("issue view", "boom")
+    assert new(clone, "--issue", "42", "--base", "feat/parent").json["status"] == "GH_FAILED"
+    fake_gh.set("issue view", STUDY_ISSUE)
+    # DUPLICATE before STATE_EXISTS and BRANCH_EXISTS (all three apply to a repeated `new --issue`)
+    assert new(clone, "--issue", "42").json["status"] == "CREATED"
+    assert new(clone, "--issue", "42").json["status"] == "DUPLICATE"
+    # STATE_EXISTS before BRANCH_EXISTS
+    assert new(clone, "--name", "demo").json["status"] == "CREATED"
+    assert new(clone, "--name", "demo").json["status"] == "STATE_EXISTS"
+    # BRANCH_EXISTS before BASE_CONFIRM_REQUIRED
+    git(clone, "branch", "feat/taken")
+    assert new(clone, "--name", "taken", "--base", "feat/parent").json["status"] == "BRANCH_EXISTS"
+    # BASE_CONFIRM_REQUIRED before BASE_NOT_FOUND
+    assert new(clone, "--name", "fresh", "--base", "ghost").json["status"] == "BASE_CONFIRM_REQUIRED"
+
+
+# @spec WS-NEW-038
+def test_ws_new_038_no_commits_before_gh_failed(empty_repo, forge_home, fake_gh, tmp_path):
+    set_origin(empty_repo, HOSTED_URL)
+    fake_gh.fail("issue view", "boom")
+    assert new(empty_repo, "--triage", "42").json["status"] == "NO_COMMITS"
+
+
+# @spec WS-NEW-038
+def test_ws_new_038_fetch_failed_before_base_not_found(hosted, forge_home, tmp_path):
+    clone, bare = hosted
+    shutil.rmtree(bare)
+    git(clone, "update-ref", "-d", "refs/remotes/origin/main")  # the default base now names no commit
+    assert new(clone, "--name", "demo").json["status"] == "FETCH_FAILED"
+
+
+# @spec WS-NEW-038
+def test_ws_new_038_base_not_found_before_branch_checked_out(repo, forge_home):
+    git(repo, "checkout", "-q", "-b", "feat/x")  # checked out in the main checkout
+    res = new(repo, "--branch", "feat/x", "--base", "ghost", "--base-confirmed")
+    assert res.json["status"] == "BASE_NOT_FOUND"
+    assert new(repo, "--branch", "feat/x").json["status"] == "BRANCH_CHECKED_OUT"
 
 
 # @spec WS-NEW-039
-@pytest.mark.skip(reason="skeleton: new_sets_promoted_from_null")
-def test_ws_new_039_new_sets_promoted_from_null():
-    pass
+def test_ws_new_039_new_sets_promoted_from_null(hosted, forge_home, fake_gh, tmp_path):
+    clone, _ = hosted
+    fake_gh.set("issue view", STUDY_ISSUE)
+    for args in (["--name", "demo"], ["--issue", "42"], study_args("idea", tmp_path)):
+        ident = new(clone, *args).json["identity"]
+        assert "promoted_from" in ident and ident["promoted_from"] is None
+    fake_gh.set("issue view", {**STUDY_ISSUE, "number": 43, "url": "https://github.com/acme/widgets/issues/43"})
+    assert new(clone, "--triage", "43").json["identity"]["promoted_from"] is None  # 42 is taken by the build one
 
 
-# @spec WS-LOCK-008
-@pytest.mark.skip(reason="skeleton: promote_by_non_holder_returns_not_holder")
-def test_ws_lock_008_promote_by_non_holder_returns_not_holder():
-    pass
+# ------------------------------------------------------------------- base_behind
 
 
 # @spec WS-WAKE-004
-@pytest.mark.skip(reason="skeleton: wake_includes_base_behind_for_idea_triage_ok")
-def test_ws_wake_004_wake_includes_base_behind_for_idea_triage_ok():
-    pass
+@pytest.mark.parametrize("kind", ["idea", "triage"])
+def test_ws_wake_004_wake_includes_base_behind_for_idea_triage_ok(hosted, forge_home, fake_gh, tmp_path, kind):
+    clone, _ = hosted
+    res = start_study(kind, clone, tmp_path, fake_gh)
+    report = wake(Path(res.json["worktree_path"]), "--workstream", STUDY_WS[kind]).json
+    assert report["status"] == "OK"
+    assert {"identity", "state_path", "lock", "drift", "dirty", "base_behind"} <= set(report)
+
+
+# @spec WS-WAKE-004
+def test_ws_wake_004_build_wake_has_no_base_behind(workstream):
+    report = wake(workstream["worktree"]).json
+    assert report["status"] == "OK" and "base_behind" not in report
+
+
+# @spec WS-WAKE-004
+def test_ws_wake_004_base_behind_only_when_status_ok(hosted, forge_home, fake_gh, tmp_path, live_pid):
+    clone, _ = hosted
+    res = start_study("idea", clone, tmp_path, fake_gh)
+    report = wake(Path(res.json["worktree_path"]), "--workstream", "idea-study", pid=live_pid, session="other").json
+    assert report["status"] == "LOCKED" and "base_behind" not in report
 
 
 # @spec WS-WAKE-005
-@pytest.mark.skip(reason="skeleton: wake_base_behind_counts_commits_from_origin_base_branch")
-def test_ws_wake_005_wake_base_behind_counts_commits_from_origin_base_branch():
-    pass
+def test_ws_wake_005_wake_base_behind_counts_commits_from_origin_base_branch(hosted, forge_home, fake_gh, tmp_path):
+    clone, bare = hosted
+    res = start_study("idea", clone, tmp_path, fake_gh)
+    wt = Path(res.json["worktree_path"])
+    assert wake(wt, "--workstream", "idea-study").json["base_behind"] == 0
+    push_upstream(tmp_path, bare, count=2)
+    # wake never fetches: the count only moves once origin/main does
+    assert wake(wt, "--workstream", "idea-study").json["base_behind"] == 0
+    git(clone, "fetch", "-q", "origin")
+    assert wake(wt, "--workstream", "idea-study").json["base_behind"] == 2
+    assert git(clone, "rev-parse", "main") != git(clone, "rev-parse", "origin/main")  # the local branch is not used
+
+
+# @spec WS-WAKE-005
+def test_ws_wake_005_uses_recorded_base_branch_not_current_default(hosted, forge_home, fake_gh, tmp_path):
+    clone, bare = hosted
+    res = start_study("triage", clone, tmp_path, fake_gh)
+    git(clone, "push", "-q", "origin", "main:develop")
+    git(clone, "remote", "set-head", "origin", "develop")  # the default branch is now develop
+    push_upstream(tmp_path, bare, count=1)
+    git(clone, "fetch", "-q", "origin")
+    report = wake(Path(res.json["worktree_path"]), "--workstream", "triage-42").json
+    assert report["base_behind"] == 1
+
+
+def retag_as_study(workstream, base_branch="main"):
+    """A local repository cannot create a study workstream, so retag a build workstream as one."""
+    state = read_state(workstream["state_path"])
+    state["identity"].update(flow="idea", branch=None, base_branch=base_branch)
+    write_state(workstream["state_path"], state)
+    git(workstream["worktree"], "checkout", "-q", "--detach")
+
+
+# @spec WS-WAKE-005
+def test_ws_wake_005_without_origin_counts_from_local_branch(workstream):
+    retag_as_study(workstream)
+    commit(workstream["repo"], {"a.txt": "a\n"}, "a")
+    commit(workstream["repo"], {"b.txt": "b\n"}, "b")
+    report = wake(workstream["worktree"], "--workstream", "feat-demo").json
+    assert report["status"] == "OK" and report["base_behind"] == 2
 
 
 # @spec WS-WAKE-006
-@pytest.mark.skip(reason="skeleton: wake_base_behind_null_when_ref_missing_status_ok")
-def test_ws_wake_006_wake_base_behind_null_when_ref_missing_status_ok():
-    pass
+def test_ws_wake_006_wake_base_behind_null_when_ref_missing_status_ok(hosted, forge_home, fake_gh, tmp_path):
+    clone, _ = hosted
+    res = start_study("idea", clone, tmp_path, fake_gh)
+    git(clone, "update-ref", "-d", "refs/remotes/origin/main")
+    report = wake(Path(res.json["worktree_path"]), "--workstream", "idea-study").json
+    assert report["status"] == "OK"
+    assert "base_behind" in report and report["base_behind"] is None
+
+
+# @spec WS-WAKE-006
+def test_ws_wake_006_without_origin_missing_local_branch_is_null(workstream):
+    retag_as_study(workstream, base_branch="gone")
+    report = wake(workstream["worktree"], "--workstream", "feat-demo").json
+    assert report["status"] == "OK"
+    assert "base_behind" in report and report["base_behind"] is None
+
+
+# ------------------------------------------------------------------------ promote
+
+
+def promote(cwd, ws, *extra, pid=None, session=HOLDER_SESSION):
+    return rs(cwd, "promote", "--workstream", ws, "--worktree-root", ".claude/worktrees",
+              *holder_args(pid, session), *extra)
+
+
+def make_source(clone, forge_home, fake_gh, tmp_path, kind="idea", mode="collab-plan"):
+    """An idea or triage workstream, held by the test process, with a promote request recorded."""
+    res = start_study(kind, clone, tmp_path, fake_gh)
+    sp = Path(res.json["state_path"])
+    proposal = task_file(tmp_path, "Proposal: do the thing.\n", "proposal.md")
+    state = read_state(sp)
+    state["config"]["mode"] = mode
+    state["lifecycle"]["promote"] = {"issue": STUDY_ISSUE["url"], "proposal": str(proposal)}
+    write_state(sp, state)
+    return {"clone": clone, "ws": STUDY_WS[kind], "state_path": sp, "worktree": Path(res.json["worktree_path"]),
+            "proposal": proposal, "forge_home": forge_home, "tmp": tmp_path}
+
+
+@pytest.fixture
+def source(hosted, forge_home, fake_gh, tmp_path):
+    return make_source(hosted[0], forge_home, fake_gh, tmp_path)
+
+
+def build_dir(src):
+    return hosted_state_dir(src["forge_home"], BUILD_WS)
+
+
+def archived(src, ws):
+    root = src["forge_home"] / "archive/acme/widgets"
+    return sorted(root.glob(f"{ws}-*")) if root.exists() else []
+
+
+def source_untouched(src, before):
+    assert src["state_path"].is_file() and src["state_path"].read_text() == before
+    assert (src["state_path"].parent / "lock.json").is_file()
+    assert src["worktree"].exists()
+    assert not archived(src, src["ws"])
+    assert not build_dir(src).exists()
+
+
+# @spec WS-LOCK-008
+def test_ws_lock_008_promote_by_non_holder_returns_not_holder(source, live_pid):
+    before = source["state_path"].read_text()
+    lock_before = (source["state_path"].parent / "lock.json").read_text()
+    res = promote(source["clone"], source["ws"], pid=live_pid, session="intruder")
+    assert res.json["status"] == "NOT_HOLDER"
+    assert (source["state_path"].parent / "lock.json").read_text() == lock_before
+    source_untouched(source, before)
 
 
 # @spec WS-PROMOTE-001
-@pytest.mark.skip(reason="skeleton: promote_without_lifecycle_promote_returns_promote_not_requested")
-def test_ws_promote_001_promote_without_lifecycle_promote_returns_promote_not_requested():
-    pass
+@pytest.mark.parametrize("request_value", ["absent", None])
+def test_ws_promote_001_promote_without_lifecycle_promote_returns_promote_not_requested(source, request_value):
+    state = read_state(source["state_path"])
+    if request_value == "absent":
+        del state["lifecycle"]["promote"]
+    else:
+        state["lifecycle"]["promote"] = None
+    write_state(source["state_path"], state)
+    before = source["state_path"].read_text()
+    assert promote(source["clone"], source["ws"]).json["status"] == "PROMOTE_NOT_REQUESTED"
+    source_untouched(source, before)
 
 
 # @spec WS-PROMOTE-002
-@pytest.mark.skip(reason="skeleton: promote_remove_worktree_dirty_returns_worktree_dirty")
-def test_ws_promote_002_promote_remove_worktree_dirty_returns_worktree_dirty():
-    pass
+def test_ws_promote_002_promote_remove_worktree_dirty_returns_worktree_dirty(source):
+    (source["worktree"] / "scratch.txt").write_text("uncommitted\n")
+    before = source["state_path"].read_text()
+    res = promote(source["clone"], source["ws"], "--remove-worktree")
+    assert res.returncode == 0 and res.json["status"] == "WORKTREE_DIRTY"
+    assert "scratch.txt" in json.dumps(res.json)
+    source_untouched(source, before)
+    assert not (source["clone"] / ".claude/worktrees" / BUILD_WS).exists()
+    assert not git(source["clone"], "branch", "--list", "feat/42-*")
+
+
+# @spec WS-PROMOTE-002
+def test_ws_promote_002_dirty_source_without_remove_worktree_is_promoted(source):
+    (source["worktree"] / "scratch.txt").write_text("uncommitted\n")
+    assert promote(source["clone"], source["ws"]).json["status"] == "PROMOTED"
 
 
 # @spec WS-PROMOTE-003
-@pytest.mark.skip(reason="skeleton: promote_creates_build_workstream_with_promoted_from")
-def test_ws_promote_003_promote_creates_build_workstream_with_promoted_from():
-    pass
+def test_ws_promote_003_promote_creates_build_workstream_with_promoted_from(source):
+    res = promote(source["clone"], source["ws"])
+    assert res.json["status"] == "PROMOTED", res.json
+    state = read_state(build_dir(source) / "state.json")
+    ident = state["identity"]
+    assert (ident["workstream"], ident["flow"], ident["issue"]) == (BUILD_WS, "build", STUDY_ISSUE["url"])
+    assert ident["branch"] == "feat/42-fix-the-login-bug-urgent"
+    assert ident["promoted_from"] == "idea-study"
+    assert state["config"]["mode"] == "collab-plan"  # the source's, not the default
+    assert (build_dir(source) / "task.md").read_text() == "Proposal: do the thing.\n"
+    wt = source["clone"] / ".claude/worktrees" / BUILD_WS
+    assert wt.is_dir() and git(wt, "rev-parse", "--abbrev-ref", "HEAD") == "feat/42-fix-the-login-bug-urgent"
 
 
 # @spec WS-PROMOTE-004
-@pytest.mark.skip(reason="skeleton: promote_duplicate_check_ignores_source")
-def test_ws_promote_004_promote_duplicate_check_ignores_source():
-    pass
+@pytest.mark.parametrize("kind", ["idea", "triage"])
+def test_ws_promote_004_promote_duplicate_check_ignores_source(hosted, forge_home, fake_gh, tmp_path, kind):
+    src = make_source(hosted[0], forge_home, fake_gh, tmp_path, kind=kind)
+    if kind == "idea":  # the idea filed the very issue it promotes
+        state = read_state(src["state_path"])
+        state["lifecycle"]["report_url"] = STUDY_ISSUE["url"]
+        write_state(src["state_path"], state)
+    assert promote(src["clone"], src["ws"]).json["status"] == "PROMOTED"
 
 
 # @spec WS-PROMOTE-005
-@pytest.mark.skip(reason="skeleton: promote_new_failure_returned_source_unchanged")
-def test_ws_promote_005_promote_new_failure_returned_source_unchanged():
-    pass
+def test_ws_promote_005_promote_new_failure_returned_source_unchanged(source, fake_gh):
+    # another open workstream already tracks the issue
+    assert new(source["clone"], "--issue", "42").json["status"] == "CREATED"
+    other = hosted_state_dir(source["forge_home"], BUILD_WS) / "state.json"
+    before = source["state_path"].read_text()
+    res = promote(source["clone"], source["ws"])
+    assert res.json["status"] == "DUPLICATE" and res.json["workstream"] == BUILD_WS
+    assert read_state(other)["identity"]["promoted_from"] is None
+    assert source["state_path"].read_text() == before
+    assert (source["state_path"].parent / "lock.json").is_file() and source["worktree"].exists()
+    assert not archived(source, source["ws"])
+
+
+# @spec WS-PROMOTE-005
+def test_ws_promote_005_gh_failure_is_returned_source_unchanged(source, fake_gh):
+    fake_gh.fail("issue view", "no such issue")
+    before = source["state_path"].read_text()
+    res = promote(source["clone"], source["ws"])
+    assert res.json["status"] == "GH_FAILED" and "no such issue" in res.json["detail"]
+    source_untouched(source, before)
 
 
 # @spec WS-PROMOTE-006
-@pytest.mark.skip(reason="skeleton: promote_closes_source_after_creating_build")
-def test_ws_promote_006_promote_closes_source_after_creating_build():
-    pass
+def test_ws_promote_006_promote_closes_source_after_creating_build(source):
+    assert promote(source["clone"], source["ws"]).json["status"] == "PROMOTED"
+    assert not source["state_path"].parent.exists()
+    [arch] = archived(source, source["ws"])
+    assert (arch / "state.json").is_file()
+    assert source["worktree"].exists()  # no --remove-worktree
+    assert (build_dir(source) / "state.json").is_file()
+
+
+# @spec WS-PROMOTE-006
+def test_ws_promote_006_remove_worktree_removes_the_source_worktree(source):
+    assert promote(source["clone"], source["ws"], "--remove-worktree").json["status"] == "PROMOTED"
+    assert not source["worktree"].exists()
+    assert len(archived(source, source["ws"])) == 1
+    assert (source["clone"] / ".claude/worktrees" / BUILD_WS).is_dir()
 
 
 # @spec WS-PROMOTE-007
-@pytest.mark.skip(reason="skeleton: promote_returns_promoted_with_build_identity_and_lock")
-def test_ws_promote_007_promote_returns_promoted_with_build_identity_and_lock():
-    pass
+def test_ws_promote_007_promote_returns_promoted_with_build_identity_and_lock(source):
+    res = promote(source["clone"], source["ws"])
+    assert res.returncode == 0 and res.json["status"] == "PROMOTED"
+    ident = res.json["identity"]
+    assert (ident["workstream"], ident["flow"], ident["promoted_from"]) == (BUILD_WS, "build", "idea-study")
+    assert Path(res.json["worktree_path"]) == source["clone"] / ".claude/worktrees" / BUILD_WS
+    lock = json.loads((build_dir(source) / "lock.json").read_text())
+    assert (lock["holder_pid"], lock["holder_session"]) == (os.getpid(), HOLDER_SESSION)
 
 
 # @spec WS-PROMOTE-008
-@pytest.mark.skip(reason="skeleton: promote_new_usage_error_exits_source_unchanged")
-def test_ws_promote_008_promote_new_usage_error_exits_source_unchanged():
-    pass
+@pytest.mark.parametrize("content", [None, "  \n\t\n"], ids=["missing", "blank"])
+def test_ws_promote_008_promote_new_usage_error_exits_source_unchanged(source, content):
+    if content is None:
+        source["proposal"].unlink()
+    else:
+        source["proposal"].write_text(content)
+    before = source["state_path"].read_text()
+    res = promote(source["clone"], source["ws"])
+    assert res.returncode == 2 and res.stderr
+    source_untouched(source, before)
+    assert not (source["clone"] / ".claude/worktrees" / BUILD_WS).exists()
+    assert not git(source["clone"], "branch", "--list", "feat/42-*")
+
+
+def existing_build(src, task="Custom task.\n", mode="collab-code"):
+    """An open build workstream for the issue marked as promoted from the source, as a failed close leaves it."""
+    res = new(src["clone"], "--issue", "42", "--task-file", task_file(src["tmp"], task, "custom.md"),
+              "--set", f"mode={mode}")
+    assert res.json["status"] == "CREATED", res.json
+    sp = Path(res.json["state_path"])
+    state = read_state(sp)
+    state["identity"]["promoted_from"] = src["ws"]
+    write_state(sp, state)
+    return sp.parent
 
 
 # @spec WS-PROMOTE-009
-@pytest.mark.skip(reason="skeleton: promote_refusals_returned_in_documented_order")
-def test_ws_promote_009_promote_refusals_returned_in_documented_order():
-    pass
+def test_ws_promote_009_promote_refusals_returned_in_documented_order(source, live_pid, fake_gh):
+    clone, ws = source["clone"], source["ws"]
+    good = source["state_path"].read_text()
+
+    def set_state(text):
+        source["state_path"].write_text(text)
+
+    # NOT_HOLDER before STATE_INVALID
+    set_state("{not json")
+    assert promote(clone, ws, pid=live_pid, session="intruder").json["status"] == "NOT_HOLDER"
+    # STATE_INVALID before PROMOTE_NOT_REQUESTED
+    assert promote(clone, ws).json["status"] == "STATE_INVALID"
+    # PROMOTE_NOT_REQUESTED before WORKTREE_DIRTY
+    state = json.loads(good)
+    state["lifecycle"]["promote"] = None
+    set_state(json.dumps(state))
+    (source["worktree"] / "scratch.txt").write_text("x\n")
+    assert promote(clone, ws, "--remove-worktree").json["status"] == "PROMOTE_NOT_REQUESTED"
+    # WORKTREE_DIRTY before a refusal of new
+    set_state(good)
+    fake_gh.fail("issue view", "boom")
+    assert promote(clone, ws, "--remove-worktree").json["status"] == "WORKTREE_DIRTY"
+    # a refusal of new comes next
+    assert promote(clone, ws).json["status"] == "GH_FAILED"
+
+
+# @spec WS-PROMOTE-009
+def test_ws_promote_009_worktree_dirty_before_locked(source, live_pid):
+    existing = existing_build(source)
+    write_lock({"state_path": existing / "state.json"}, live_pid)
+    (source["worktree"] / "scratch.txt").write_text("x\n")
+    assert promote(source["clone"], source["ws"], "--remove-worktree").json["status"] == "WORKTREE_DIRTY"
+    assert promote(source["clone"], source["ws"]).json["status"] == "LOCKED"
 
 
 # @spec WS-PROMOTE-010
-@pytest.mark.skip(reason="skeleton: promote_retry_reuses_open_build_with_promoted_from")
-def test_ws_promote_010_promote_retry_reuses_open_build_with_promoted_from():
-    pass
+def test_ws_promote_010_promote_retry_reuses_open_build_with_promoted_from(source):
+    existing = existing_build(source)
+    config_before = read_state(existing / "state.json")["config"]
+    res = promote(source["clone"], source["ws"])
+    assert res.json["status"] == "PROMOTED", res.json
+    assert res.json["identity"]["workstream"] == BUILD_WS
+    assert (existing / "task.md").read_text() == "Custom task.\n"  # not replaced with the proposal
+    assert read_state(existing / "state.json")["config"] == config_before  # mode not copied from the source
+    assert config_before["mode"] == "collab-code"
+    assert not source["state_path"].parent.exists() and len(archived(source, source["ws"])) == 1
+    assert sorted(p.name for p in existing.parent.iterdir()) == [BUILD_WS]
+
+
+# @spec WS-PROMOTE-010
+@pytest.mark.parametrize("marker", ["idea-someone-else", None])
+def test_ws_promote_010_build_without_this_promoted_from_is_not_taken(source, marker):
+    existing = existing_build(source)
+    state = read_state(existing / "state.json")
+    state["identity"]["promoted_from"] = marker
+    write_state(existing / "state.json", state)
+    before = source["state_path"].read_text()
+    res = promote(source["clone"], source["ws"])
+    assert res.json["status"] == "DUPLICATE" and res.json["workstream"] == BUILD_WS
+    assert source["state_path"].read_text() == before
 
 
 # @spec WS-PROMOTE-011
-@pytest.mark.skip(reason="skeleton: promote_retry_acquires_existing_build_lock")
-def test_ws_promote_011_promote_retry_acquires_existing_build_lock():
-    pass
+@pytest.mark.parametrize("held", ["none", "dead", "same-holder"])
+def test_ws_promote_011_promote_retry_acquires_existing_build_lock(source, dead_pid, held):
+    existing = existing_build(source)
+    lock = existing / "lock.json"
+    if held == "none":
+        lock.unlink()
+    elif held == "dead":
+        write_lock({"state_path": existing / "state.json"}, dead_pid)
+    res = promote(source["clone"], source["ws"])
+    assert res.json["status"] == "PROMOTED"
+    held_by = json.loads(lock.read_text())
+    assert (held_by["holder_pid"], held_by["holder_session"]) == (os.getpid(), HOLDER_SESSION)
 
 
 # @spec WS-PROMOTE-012
-@pytest.mark.skip(reason="skeleton: promote_retry_locked_by_other_holder_returns_locked")
-def test_ws_promote_012_promote_retry_locked_by_other_holder_returns_locked():
-    pass
+@pytest.mark.parametrize("where", ["live-local", "other-host"])
+def test_ws_promote_012_promote_retry_locked_by_other_holder_returns_locked(source, live_pid, dead_pid, where):
+    existing = existing_build(source)
+    if where == "live-local":
+        write_lock({"state_path": existing / "state.json"}, live_pid)
+        pid = live_pid
+    else:
+        write_lock({"state_path": existing / "state.json"}, dead_pid, host="elsewhere.example")
+        pid = dead_pid
+    lock_before = (existing / "lock.json").read_text()
+    state_before = (existing / "state.json").read_text()
+    source_before = source["state_path"].read_text()
+    res = promote(source["clone"], source["ws"])
+    assert res.json["status"] == "LOCKED"
+    assert "other-session" in json.dumps(res.json) and str(pid) in json.dumps(res.json)
+    assert (existing / "lock.json").read_text() == lock_before
+    assert (existing / "state.json").read_text() == state_before
+    assert source["state_path"].read_text() == source_before
+    assert (source["state_path"].parent / "lock.json").is_file() and not archived(source, source["ws"])
 
 
 # @spec WS-PROMOTE-013
-@pytest.mark.skip(reason="skeleton: promote_close_failure_returns_close_status_keeps_build_open")
-def test_ws_promote_013_promote_close_failure_returns_close_status_keeps_build_open():
-    pass
+def test_ws_promote_013_promote_close_failure_returns_close_status_keeps_build_open(source):
+    clone = source["clone"]
+    git(clone, "worktree", "lock", str(source["worktree"]))  # makes `git worktree remove` fail on a clean tree
+    res = promote(clone, source["ws"], "--remove-worktree")
+    assert res.returncode == 0 and res.json["status"] == "WORKTREE_DIRTY"
+    assert res.json["detail"]
+    assert BUILD_WS in json.dumps(res.json)
+    assert (build_dir(source) / "state.json").is_file()
+    lock = json.loads((build_dir(source) / "lock.json").read_text())
+    assert (lock["holder_pid"], lock["holder_session"]) == (os.getpid(), HOLDER_SESSION)
+    assert source["state_path"].is_file() and source["worktree"].exists() and not archived(source, source["ws"])
+    # a repeated promote finishes the close against the same build workstream
+    git(clone, "worktree", "unlock", str(source["worktree"]))
+    res = promote(clone, source["ws"], "--remove-worktree")
+    assert res.json["status"] == "PROMOTED", res.json
+    assert res.json["identity"]["workstream"] == BUILD_WS
+    assert not source["worktree"].exists() and len(archived(source, source["ws"])) == 1
+    assert sorted(p.name for p in build_dir(source).parent.iterdir()) == [BUILD_WS]
