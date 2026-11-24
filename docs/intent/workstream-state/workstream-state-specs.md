@@ -30,7 +30,7 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 - [x] **WS-NEW-004**: When `new` is given neither `--type` nor `--issue`, `resolve_state.py` shall use type `feat`.
 - [x] **WS-NEW-005**: If `new` is given a `--type` other than `feat`, `fix`, `chore`, `docs`, or `refactor`, then `resolve_state.py` shall exit with a usage error.
 - [x] **WS-NEW-006**: When `new` creates a `build`-flow workstream without `--branch`, `resolve_state.py` shall create branch `<type>/<slug>` and workstream `<type>-<slug>` with `git worktree add --no-track <worktree root>/<workstream> -b <branch> <base>`.
-- [ ] **WS-NEW-007**: When `new` creates a `build`, `idea`, or `triage` workstream without `--base`, `resolve_state.py` shall use the default branch — the target of `refs/remotes/origin/HEAD`, else `main` or else `master` among the `origin` branches, else `main` or else `master` among the local branches, else `main` — as `origin/<default>` after `git fetch origin <default>`, or as the local branch when the repository has no `origin`.
+- [ ] **WS-NEW-007**: When `new` creates a `build`, `idea`, or `triage` workstream without `--base`, including a `build` workstream adopting a branch with `--branch`, `resolve_state.py` shall use the default branch — the target of `refs/remotes/origin/HEAD`, else `main` or else `master` among the `origin` branches, else `main` or else `master` among the local branches, else `main` — as `origin/<default>` after `git fetch origin <default>`, or as the local branch when the repository has no `origin`.
 - [x] **WS-NEW-008**: If the base for `new` is not the default branch and `--base-confirmed` is absent, then `resolve_state.py` shall return `BASE_CONFIRM_REQUIRED` and create nothing.
 - [x] **WS-NEW-009**: When `new` creates a workstream, `resolve_state.py` shall record the base as a local branch name in `identity.base_branch` and the base commit in `anchors.workstream_base_sha`.
 - [x] **WS-NEW-010**: When the base branch of a new workstream equals `identity.branch` of another open workstream of the same repository, `resolve_state.py` shall record that workstream in `identity.parent_workstream`.
@@ -60,7 +60,7 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 - [ ] **WS-NEW-034**: If `new` is given `--idea` or `--triage` in a repository that WS-ID-002 names `local`, then `resolve_state.py` shall return `NO_TRACKER` and create nothing.
 - [ ] **WS-NEW-035**: If `new` is given `--idea` or `--triage` in a repository with no commits, then `resolve_state.py` shall return `NO_COMMITS` and create nothing.
 - [ ] **WS-NEW-036**: If `git fetch origin <default>` fails while `new` resolves the default branch as its base per WS-NEW-007, then `resolve_state.py` shall return `FETCH_FAILED` with git's message and create nothing.
-- [ ] **WS-NEW-037**: If the base of `new` — `--base` when given, otherwise the default branch as resolved per WS-NEW-007 — names no commit, then `resolve_state.py` shall return `BASE_NOT_FOUND` and create nothing.
+- [ ] **WS-NEW-037**: If the base of `new` — `--base` when given; otherwise, for a `build`, `idea`, or `triage` workstream, the default branch as resolved per WS-NEW-007 — names no commit, then `resolve_state.py` shall return `BASE_NOT_FOUND` and create nothing.
 - [ ] **WS-NEW-038**: When more than one of `NO_TRACKER`, `NO_COMMITS`, `GH_FAILED`, `DUPLICATE`, `STATE_EXISTS`, `BRANCH_EXISTS`, `BASE_CONFIRM_REQUIRED`, `FETCH_FAILED`, `BASE_NOT_FOUND`, and `BRANCH_CHECKED_OUT` applies to `new`, `resolve_state.py` shall return the first of them in that order.
 
 ## State file
@@ -118,13 +118,15 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 
 ## Promotion
 
-- [ ] **WS-PROMOTE-001**: If `promote` is called for a source workstream whose `lifecycle.promote` is `null`, then `resolve_state.py` shall return `PROMOTE_NOT_REQUESTED` and change nothing.
+- [ ] **WS-PROMOTE-001**: If `promote` is called for a source workstream whose `lifecycle.promote` is `null` or absent, then `resolve_state.py` shall return `PROMOTE_NOT_REQUESTED` and change nothing.
 - [ ] **WS-PROMOTE-002**: When `promote` is given `--remove-worktree` and `git status --porcelain` lists any path in the source workstream's worktree, `resolve_state.py` shall return `WORKTREE_DIRTY` with those paths before creating anything, and change nothing.
 - [ ] **WS-PROMOTE-003**: When `promote` creates the build workstream, `resolve_state.py` shall create it as `new --issue <lifecycle.promote.issue> --task-file <lifecycle.promote.proposal>` would, with `promote`'s `--worktree-root`, `--holder-pid`, and `--holder-session`, and with `config.mode` set to the source workstream's `config.mode`.
 - [ ] **WS-PROMOTE-004**: When `promote` checks the new build workstream for `DUPLICATE` (WS-NEW-015), `resolve_state.py` shall ignore the source workstream.
 - [ ] **WS-PROMOTE-005**: If creating the build workstream during `promote` returns a status other than `CREATED`, then `resolve_state.py` shall return that status with its details and leave the source workstream unchanged.
 - [ ] **WS-PROMOTE-006**: When `promote` has created the build workstream, `resolve_state.py` shall close the source workstream as `close` does (WS-CLOSE-001 to WS-CLOSE-005), with `--remove-worktree` when `promote` was given it.
 - [ ] **WS-PROMOTE-007**: When `promote` has closed the source workstream, `resolve_state.py` shall return `PROMOTED` with the build workstream's identity and `worktree_path`, the caller holding the build workstream's lock.
+- [ ] **WS-PROMOTE-008**: If creating the build workstream during `promote` meets a usage error of `new` (such as a `lifecycle.promote.proposal` that cannot be read or holds only whitespace, per WS-NEW-025), then `resolve_state.py` shall exit with that usage error and leave the source workstream unchanged.
+- [ ] **WS-PROMOTE-009**: When more than one of `NOT_HOLDER`, `STATE_INVALID`, `PROMOTE_NOT_REQUESTED`, and `WORKTREE_DIRTY` applies to `promote`, `resolve_state.py` shall return the first of them in that order.
 
 ## Command interface
 
