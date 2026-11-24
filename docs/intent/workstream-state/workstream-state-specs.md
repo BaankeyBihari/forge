@@ -15,7 +15,7 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 - [x] **WS-ID-003**: `resolve_state.py` shall turn `<org>`, `<repo>`, and every branch-derived workstream name into a slug by lowercasing, replacing each character outside `[a-z0-9._-]` with `-`, collapsing runs of `-`, and trimming leading and trailing `-` and `.`.
 - [x] **WS-ID-004**: `resolve_state.py` shall resolve the workstream from the `--workstream` argument if given, else from the `FORGE_WORKSTREAM` environment variable if set, else from the current branch.
 - [x] **WS-ID-005**: If a workstream name given by `--workstream` or `FORGE_WORKSTREAM` is not already a valid slug, then `resolve_state.py` shall exit with a usage error instead of sanitizing it.
-- [x] **WS-ID-006**: While `HEAD` is detached, `resolve_state.py` shall use `detached-<7-character short SHA>` as the branch-derived workstream name.
+- [ ] **WS-ID-006**: While `HEAD` is detached, `resolve_state.py` shall use as the branch-derived workstream the open workstream of the current repository whose `identity.worktree_path` equals the current worktree root (`git rev-parse --show-toplevel`), or `detached-<7-character short SHA>` when no open workstream has that path.
 - [x] **WS-ID-007**: While the repository has no commits, `resolve_state.py` shall take the current branch from `git symbolic-ref --short HEAD`.
 - [x] **WS-ID-008**: When `wake` resolves the workstream from the current branch, that branch is `main` or `master`, and no state exists for it, `resolve_state.py` shall return status `LIST` with the repository's workstream list.
 - [x] **WS-ID-009**: When `wake` finds state whose `identity.git_common_dir` differs from the current repository's absolute git common directory, `resolve_state.py` shall return `IDENTITY_MISMATCH`.
@@ -30,15 +30,15 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 - [x] **WS-NEW-004**: When `new` is given neither `--type` nor `--issue`, `resolve_state.py` shall use type `feat`.
 - [x] **WS-NEW-005**: If `new` is given a `--type` other than `feat`, `fix`, `chore`, `docs`, or `refactor`, then `resolve_state.py` shall exit with a usage error.
 - [x] **WS-NEW-006**: When `new` creates a `build`-flow workstream without `--branch`, `resolve_state.py` shall create branch `<type>/<slug>` and workstream `<type>-<slug>` with `git worktree add --no-track <worktree root>/<workstream> -b <branch> <base>`.
-- [x] **WS-NEW-007**: When `new` is given no `--base`, `resolve_state.py` shall use the default branch — the target of `refs/remotes/origin/HEAD`, else `main` or else `master` among the `origin` branches, else `main` or else `master` among the local branches, else `main` — as `origin/<default>` after `git fetch origin <default>`, or as the local branch when the repository has no `origin`.
+- [ ] **WS-NEW-007**: When `new` creates a `build`, `idea`, or `triage` workstream without `--base`, `resolve_state.py` shall use the default branch — the target of `refs/remotes/origin/HEAD`, else `main` or else `master` among the `origin` branches, else `main` or else `master` among the local branches, else `main` — as `origin/<default>` after `git fetch origin <default>`, or as the local branch when the repository has no `origin`.
 - [x] **WS-NEW-008**: If the base for `new` is not the default branch and `--base-confirmed` is absent, then `resolve_state.py` shall return `BASE_CONFIRM_REQUIRED` and create nothing.
 - [x] **WS-NEW-009**: When `new` creates a workstream, `resolve_state.py` shall record the base as a local branch name in `identity.base_branch` and the base commit in `anchors.workstream_base_sha`.
 - [x] **WS-NEW-010**: When the base branch of a new workstream equals `identity.branch` of another open workstream of the same repository, `resolve_state.py` shall record that workstream in `identity.parent_workstream`.
 - [x] **WS-NEW-011**: When `new` is given `--branch`, `resolve_state.py` shall add a worktree for that existing branch at `<worktree root>/<branch slug>` without creating a branch, record the branch's current `HEAD` as `anchors.workstream_base_sha`, and record `--base` or, without it, the default branch as `identity.base_branch`.
 - [x] **WS-NEW-012**: If `new` is given `--branch` for a branch checked out in another worktree, then `resolve_state.py` shall return `BRANCH_CHECKED_OUT` with that worktree's path and create nothing.
 - [x] **WS-NEW-013**: When `new` is given `--pr`, `resolve_state.py` shall read `number`, `url`, `headRefName`, and `baseRefName` with `gh pr view --json`, name the workstream `pr-<number>`, fetch `pull/<number>/head` from `origin`, and add a detached worktree at the fetched commit.
-- [x] **WS-NEW-014**: When `new` creates a workstream from `--pr`, `resolve_state.py` shall set `identity.flow` to `pr_review`, `identity.branch` to `null`, `identity.pr` to the pull request URL, and `identity.base_branch` to the pull request's base branch; every other `new` shall set `identity.flow` to `build`.
-- [x] **WS-NEW-015**: If an open workstream of the same repository has `identity.issue` or `identity.pr` equal to the URL `new` is asked to start from, then `resolve_state.py` shall return `DUPLICATE` naming that workstream and create nothing.
+- [x] **WS-NEW-014**: When `new` creates a workstream from `--pr`, `resolve_state.py` shall set `identity.flow` to `pr_review`, `identity.branch` to `null`, `identity.pr` to the pull request URL, and `identity.base_branch` to the pull request's base branch; a `new` given `--issue`, `--branch`, or `--name` without `--idea` shall set `identity.flow` to `build`.
+- [ ] **WS-NEW-015**: If an open workstream of the same repository, of any flow, has `identity.issue`, `identity.pr`, or — for an `idea`-flow workstream — `lifecycle.report_url` equal to the issue or pull request URL `new` is asked to start from, then `resolve_state.py` shall return `DUPLICATE` naming that workstream and create nothing; a `null` field never matches.
 - [x] **WS-NEW-016**: If state already exists for the workstream `new` would create, then `resolve_state.py` shall return `STATE_EXISTS` and create nothing.
 - [x] **WS-NEW-017**: If the branch `new` would create already exists, then `resolve_state.py` shall return `BRANCH_EXISTS` and create nothing.
 - [x] **WS-NEW-018**: If `gh` fails to read the issue or pull request given to `new`, then `resolve_state.py` shall return `GH_FAILED` with `gh`'s message and create nothing.
@@ -49,6 +49,19 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 - [x] **WS-NEW-023**: If `new` is given `--branch` for a name that is not a local branch, then `resolve_state.py` shall exit with a usage error and create nothing.
 - [x] **WS-NEW-024**: When `new` is given `--task-file FILE` and creates a workstream, `resolve_state.py` shall copy the file's text unchanged to `task.md` in the workstream's state directory.
 - [x] **WS-NEW-025**: If `new` is given a `--task-file` that cannot be read or holds only whitespace, then `resolve_state.py` shall exit with a usage error and create no worktree, branch, or state.
+- [ ] **WS-NEW-026**: When `new` is given `--idea` or `--triage`, `resolve_state.py` shall add a worktree detached at the default branch, resolved per WS-NEW-007, with `git worktree add --detach <worktree root>/<workstream> <default>`, and create no branch.
+- [ ] **WS-NEW-027**: When `new` creates an `idea` or `triage` workstream, `resolve_state.py` shall set `identity.branch` to `null`, `identity.base_branch` to the default branch's local name, and `anchors.workstream_base_sha` to the commit the worktree is detached at.
+- [ ] **WS-NEW-028**: When `new` is given `--idea`, `resolve_state.py` shall name the workstream `idea-<slug>` with the slug from `--name`, and set `identity.flow` to `idea` and `identity.issue` to `null`.
+- [ ] **WS-NEW-029**: If `new` is given `--idea` without `--name` or without `--task-file`, then `resolve_state.py` shall exit with a usage error and create nothing.
+- [ ] **WS-NEW-030**: When `new` is given `--triage REF`, `resolve_state.py` shall read `number`, `title`, `labels`, and `url` with `gh issue view --json`, name the workstream `triage-<number>`, and set `identity.flow` to `triage` and `identity.issue` to the issue's URL.
+- [ ] **WS-NEW-031**: If `new` is given `--idea` or `--triage` together with `--base`, `--branch`, `--type`, `--base-confirmed`, `--issue`, or `--pr`, or `--idea` together with `--triage`, or `--triage` together with `--name`, then `resolve_state.py` shall exit with a usage error and create nothing.
+- [ ] **WS-NEW-032**: When `new` creates a workstream, `resolve_state.py` shall set `identity.tracker` to `github` when the workstream's `identity.issue` is not `null` or its `identity.flow` is `idea` or `triage`, and to `null` otherwise.
+- [ ] **WS-NEW-033**: When `new` creates a workstream, `resolve_state.py` shall set `anchors.last_known_head_sha` to `anchors.workstream_base_sha` for an `idea` or `triage` workstream and to `null` for every other flow.
+- [ ] **WS-NEW-034**: If `new` is given `--idea` or `--triage` in a repository that WS-ID-002 names `local`, then `resolve_state.py` shall return `NO_TRACKER` and create nothing.
+- [ ] **WS-NEW-035**: If `new` is given `--idea` or `--triage` in a repository with no commits, then `resolve_state.py` shall return `NO_COMMITS` and create nothing.
+- [ ] **WS-NEW-036**: If `git fetch origin <default>` fails while `new` resolves the default branch as its base per WS-NEW-007, then `resolve_state.py` shall return `FETCH_FAILED` with git's message and create nothing.
+- [ ] **WS-NEW-037**: If the base of `new` — `--base` when given, otherwise the default branch as resolved per WS-NEW-007 — names no commit, then `resolve_state.py` shall return `BASE_NOT_FOUND` and create nothing.
+- [ ] **WS-NEW-038**: When more than one of `NO_TRACKER`, `NO_COMMITS`, `GH_FAILED`, `DUPLICATE`, `STATE_EXISTS`, `BRANCH_EXISTS`, `BASE_CONFIRM_REQUIRED`, `FETCH_FAILED`, `BASE_NOT_FOUND`, and `BRANCH_CHECKED_OUT` applies to `new`, `resolve_state.py` shall return the first of them in that order.
 
 ## State file
 
@@ -64,7 +77,7 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 - [x] **WS-LOCK-005**: If `wake` finds a lock held by another running process on this host, or by any holder on another host, then `resolve_state.py` shall return `LOCKED` with the holder's details.
 - [x] **WS-LOCK-006**: When `wake` is given `--steal`, `resolve_state.py` shall replace any existing lock with one held by the caller.
 - [x] **WS-LOCK-007**: When `release` is called by the lock's holder, `resolve_state.py` shall delete the lock.
-- [x] **WS-LOCK-008**: If `release` or `close` is called by a process that does not hold the lock, then `resolve_state.py` shall return `NOT_HOLDER` and change nothing.
+- [ ] **WS-LOCK-008**: If `release`, `close`, or `promote` is called by a process that does not hold the lock, then `resolve_state.py` shall return `NOT_HOLDER` and change nothing.
 
 ## Drift
 
@@ -75,7 +88,7 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 - [x] **WS-DRIFT-005**: If `anchors.last_known_head_sha` does not exist in the repository, then `resolve_state.py` shall return `DRIFT_UNKNOWN`.
 - [x] **WS-DRIFT-006**: When reporting new commits for `ahead` or `diverged` drift, `resolve_state.py` shall list the first-parent commits from `last_known_head_sha` (exclusive) to `HEAD`, oldest first, each marked `forge` if it carries a `Forge-Agent` trailer and `human` otherwise.
 - [x] **WS-DRIFT-007**: When drift is `behind` or `diverged`, `resolve_state.py` shall append every commit reachable from `last_known_head_sha` but not from `HEAD` to `anchors.stale_shas` as a full SHA, skipping SHAs already present.
-- [x] **WS-DRIFT-008**: `resolve_state.py` shall never change `anchors.last_known_head_sha` or any memory file.
+- [x] **WS-DRIFT-008**: After `new` creates a workstream, `resolve_state.py` shall never change its `anchors.last_known_head_sha`, and `resolve_state.py` shall never change any memory file.
 - [x] **WS-DRIFT-009**: When `wake` returns `OK`, `resolve_state.py` shall report as `dirty` every path listed by `git status --porcelain`, including untracked files.
 
 ## Wake
@@ -83,7 +96,8 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 - [x] **WS-WAKE-001**: When more than one of `STATE_INVALID`, `IDENTITY_MISMATCH`, `ELSEWHERE`, `LOCKED`, and `DRIFT_UNKNOWN` applies, `resolve_state.py` shall return the first of them in that order.
 - [x] **WS-WAKE-002**: When `wake` returns `STATE_INVALID`, `IDENTITY_MISMATCH`, or `ELSEWHERE`, `resolve_state.py` shall leave any existing lock unchanged and acquire none.
 - [x] **WS-WAKE-003**: When `wake` finds no state for the resolved workstream and `LIST` does not apply, `resolve_state.py` shall return `NO_STATE` and create nothing.
-- [x] **WS-WAKE-004**: `resolve_state.py` shall include `identity` (as derived from the current checkout), `state_path`, and `lock` in every `wake` report, and also `drift` and `dirty` when the status is `OK`.
+- [ ] **WS-WAKE-004**: `resolve_state.py` shall include `identity` (as derived from the current checkout), `state_path`, and `lock` in every `wake` report, also `drift` and `dirty` when the status is `OK`, and also `base_behind` (WS-WAKE-005) when the status is `OK` and the workstream's `identity.flow` is `idea` or `triage`.
+- [ ] **WS-WAKE-005**: When `wake` returns `OK` for an `idea` or `triage` workstream, `resolve_state.py` shall report as `base_behind` the number of commits reachable from `origin/<default>` — or, in a repository with no `origin`, from the local default branch — and not from `anchors.workstream_base_sha`, without fetching.
 
 ## Listing
 
@@ -101,6 +115,16 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 - [x] **WS-CLOSE-006**: When `close` is given `--reason-file FILE`, `resolve_state.py` shall, after any worktree removal succeeds, write `dropped` `{reason, at}` into `state.json`, with `reason` the file's text with surrounding whitespace removed and `at` the current UTC time in ISO 8601, and then archive the workstream directory per WS-CLOSE-001 whatever `config.retention` says.
 - [x] **WS-CLOSE-007**: If `close` is given a `--reason-file` that cannot be read or whose text is empty after removing surrounding whitespace, then `resolve_state.py` shall exit with a usage error and change nothing.
 - [x] **WS-CLOSE-008**: When `close` runs without `--reason-file`, `resolve_state.py` shall write no `dropped` field.
+
+## Promotion
+
+- [ ] **WS-PROMOTE-001**: If `promote` is called for a source workstream whose `lifecycle.promote` is `null`, then `resolve_state.py` shall return `PROMOTE_NOT_REQUESTED` and change nothing.
+- [ ] **WS-PROMOTE-002**: When `promote` is given `--remove-worktree` and `git status --porcelain` lists any path in the source workstream's worktree, `resolve_state.py` shall return `WORKTREE_DIRTY` with those paths before creating anything, and change nothing.
+- [ ] **WS-PROMOTE-003**: When `promote` creates the build workstream, `resolve_state.py` shall create it as `new --issue <lifecycle.promote.issue> --task-file <lifecycle.promote.proposal>` would, with `promote`'s `--worktree-root`, `--holder-pid`, and `--holder-session`, and with `config.mode` set to the source workstream's `config.mode`.
+- [ ] **WS-PROMOTE-004**: When `promote` checks the new build workstream for `DUPLICATE` (WS-NEW-015), `resolve_state.py` shall ignore the source workstream.
+- [ ] **WS-PROMOTE-005**: If creating the build workstream during `promote` returns a status other than `CREATED`, then `resolve_state.py` shall return that status with its details and leave the source workstream unchanged.
+- [ ] **WS-PROMOTE-006**: When `promote` has created the build workstream, `resolve_state.py` shall close the source workstream as `close` does (WS-CLOSE-001 to WS-CLOSE-005), with `--remove-worktree` when `promote` was given it.
+- [ ] **WS-PROMOTE-007**: When `promote` has closed the source workstream, `resolve_state.py` shall return `PROMOTED` with the build workstream's identity and `worktree_path`, the caller holding the build workstream's lock.
 
 ## Command interface
 
