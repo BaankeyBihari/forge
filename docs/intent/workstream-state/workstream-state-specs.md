@@ -133,7 +133,8 @@ Design: `workstream-state-design.md`. Implementation: `reference/scripts/resolve
 - [x] **WS-PROMOTE-011**: When `promote` takes an existing build workstream per WS-PROMOTE-010, `resolve_state.py` shall acquire that workstream's lock for the caller as `wake` does per WS-LOCK-001 to WS-LOCK-004.
 - [x] **WS-PROMOTE-012**: If the build workstream `promote` takes per WS-PROMOTE-010 has a lock held by another running process on this host, or by any holder on another host, then `resolve_state.py` shall return `LOCKED` with the holder's details and leave the source and the build workstream unchanged.
 - [x] **WS-PROMOTE-013**: If closing the source workstream during `promote` fails, then `resolve_state.py` shall return the status `close` returned (such as `WORKTREE_DIRTY`) with git's message and the build workstream's name, leaving the build workstream open with its lock held by the caller.
-- [ ] **WS-PROMOTE-014**: If `promote` is called for a source workstream whose `lifecycle.promote` is present and not `null` but is not an object holding a non-empty string `issue` and a non-empty string `proposal`, then `resolve_state.py` shall return `STATE_INVALID` with a `detail` naming the missing or wrong field, and change nothing.
+- [ ] **WS-PROMOTE-014**: If `promote` is called for a source workstream whose `lifecycle.promote` is a JSON object in which `issue` or `proposal` is absent or is not a string of at least one character (as in `{}`), then `resolve_state.py` shall return `STATE_INVALID` with a `detail` naming every one of `issue` and `proposal` that is absent or not such a string, and change nothing.
+- [ ] **WS-PROMOTE-015**: If `promote` is called for a source workstream whose `lifecycle.promote` is present, not `null`, and not a JSON object (such as `""`, `0`, `false`, or `[]`), then `resolve_state.py` shall return `STATE_INVALID` with a `detail` naming `lifecycle.promote`, and change nothing.
 
 ## Command interface
 
