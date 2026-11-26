@@ -33,7 +33,7 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 - [x] **ROUTE-REDO-002**: When called with no event while `lifecycle.dispatched` is set, no drift is reported, and ROUTE-DRIFT-008 does not apply, `next_step.py` shall return the invocation envelope stored in `lifecycle.invoke` again, unchanged except for `agent_prefix` and `dispatch_as`, which it shall set per ROUTE-DISP-010.
 - [x] **ROUTE-REDO-003**: When called with no event while `lifecycle.current_phase` is `INIT`, `next_step.py` shall return `stop` with `NOT_STARTED` and change no state.
 - [x] **ROUTE-REDO-004**: When called with no event while `lifecycle.current_phase` is `DONE` and `lifecycle.promote` is `null` or absent, `next_step.py` shall return `done`.
-- [ ] **ROUTE-REDO-005**: When called with no event while `lifecycle.current_phase` is `DONE` and `lifecycle.promote` is not `null`, `next_step.py` shall return `close` with `promote` equal to `lifecycle.promote` and change no state.
+- [ ] **ROUTE-REDO-005**: When called with no event while `lifecycle.current_phase` is `DONE`, `lifecycle.promote` is not `null`, and no drift is reported, `next_step.py` shall return `close` with `promote` equal to `lifecycle.promote` and change no state.
 
 ## Dispatch
 
@@ -148,10 +148,12 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 - [ ] **ROUTE-IDEA-019**: If a `result` event with status `PROPOSAL_READY` arrives while `proposal.md` in the workstream's state directory is missing or holds only whitespace, then `next_step.py` shall return `stop` with `ENVELOPE_INVALID` and change no state.
 - [ ] **ROUTE-IDEA-020**: If a `result` event with status `PROPOSAL_READY` has a non-empty `files_touched`, then `next_step.py` shall return `stop` with `ENVELOPE_INVALID` and change no state.
 - [ ] **ROUTE-IDEA-021**: If a `result` event with status `REPORT_SENT` in an `idea`- or `triage`-flow workstream has no `report.url` that is a non-empty string, then `next_step.py` shall return `stop` with `ENVELOPE_INVALID` and change no state.
-- [ ] **ROUTE-IDEA-022**: If a `result` event with status `REPORT_SENT` in an `idea`-flow workstream has a `report.url` not of the form `https://<host>/<path>/issues/<number>`, with `<number>` one or more decimal digits and `<path>` two or more `/`-separated segments from which WS-ID-001 and WS-ID-003 derive `identity.org` and `identity.repo`, then `next_step.py` shall return `stop` with `ENVELOPE_INVALID` and change no state.
-- [ ] **ROUTE-IDEA-023**: If a `result` event with status `PROPOSAL_READY` arrives while `proposal.md` in the workstream's state directory does not exist or has an `st_mtime_ns` equal to `lifecycle.dispatched.proposal_mtime_ns`, then `next_step.py` shall return `stop` with `ENVELOPE_INVALID` and change no state.
+- [ ] **ROUTE-IDEA-022**: If a `result` event with status `REPORT_SENT` in an `idea`-flow workstream has a `report.url` that is not, as a whole string, `https://<host>/<path>/issues/<number>`, with `<number>` one or more decimal digits and `<path>` two or more non-empty `/`-separated segments from which WS-ID-001 and WS-ID-003 derive values equal to the workstream's `identity.org` and `identity.repo`, then `next_step.py` shall return `stop` with `ENVELOPE_INVALID` and change no state.
+- [ ] **ROUTE-IDEA-023**: If a `result` event with status `PROPOSAL_READY` arrives while `proposal.md` in the workstream's state directory exists and has an `st_mtime_ns` equal to `lifecycle.dispatched.proposal_mtime_ns`, then `next_step.py` shall return `stop` with `ENVELOPE_INVALID` and change no state.
 - [ ] **ROUTE-IDEA-024**: When `next_step.py` dispatches `PROPOSE`, it shall set `lifecycle.dispatched.proposal_mtime_ns` to the `st_mtime_ns` of `proposal.md` in the workstream's state directory, or to `null` when that file does not exist.
 - [ ] **ROUTE-IDEA-025**: When `next_step.py` returns a stored `PROPOSE` invocation again per ROUTE-REDO-002, it shall leave `lifecycle.dispatched.proposal_mtime_ns` at the value recorded when that dispatch was made.
+- [ ] **ROUTE-IDEA-026**: Whenever `next_step.py` dispatches `PROPOSE`, including after a council ruling, `leave_open`, or `replan`, it shall dispatch `forge-planner` with mode `propose`.
+- [ ] **ROUTE-IDEA-027**: Whenever `next_step.py` dispatches `RECON` in an `idea`- or `triage`-flow workstream, including a dispatch after an `AGENT_ERROR` stop, it shall dispatch `forge-scout` with mode `IDEA` in an `idea`-flow workstream and `TRIAGE` in a `triage`-flow workstream.
 
 ## Entry guards
 
