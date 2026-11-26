@@ -236,7 +236,7 @@ def stage_for(ctx, phase):
 # @spec ROUTE-LIMIT-001, ROUTE-LIMIT-002, ROUTE-LIMIT-006, ROUTE-BLK-004, ROUTE-BLK-015
 # @spec ROUTE-DISP-005, ROUTE-DISP-006, ROUTE-DISP-007, ROUTE-DRIFT-008, ROUTE-BUILD-033, ROUTE-BLK-021
 # @spec ROUTE-DISP-009, ROUTE-IDEA-003, ROUTE-IDEA-005, ROUTE-IDEA-006, ROUTE-IDEA-024, ROUTE-IDEA-026
-# @spec ROUTE-IDEA-027
+# @spec ROUTE-IDEA-025, ROUTE-IDEA-027
 def dispatch(ctx, phase, opts):
     head = ctx.head()
     if phase == "REVIEW_INTERNAL" and ctx.anchors.get("verifier_pass_sha") != head:
@@ -386,7 +386,7 @@ def apply_ruling(ctx, blocker, ruling, option, approved_by):
 # ------------------------------------------------------------- result events
 
 
-# @spec ROUTE-ENV-001, ROUTE-ENV-002, ROUTE-ENV-003, ROUTE-ENV-004, ROUTE-ENV-005, ROUTE-ENV-012
+# @spec ROUTE-ENV-001, ROUTE-ENV-002, ROUTE-ENV-003, ROUTE-ENV-004, ROUTE-ENV-005, ROUTE-ENV-012, ROUTE-IDEA-017
 def validate_envelope(ctx, env):
     d = ctx.lc.get("dispatched")
     if not d or env.get("dispatch_id") != d["dispatch_id"] or env.get("agent") != d["agent"]:
