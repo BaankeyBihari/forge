@@ -2736,6 +2736,27 @@ def test_idea_013_council_signoff_options_approve_reject_leave_open(study):
     assert pauses(decision, "council_signoff") and set(decision["options"]) == {"approve", "reject", "leave_open"}
 
 
+# @spec ROUTE-IDEA-008
+def test_idea_008_build_report_approval_options_approve_revise_skip(r):
+    at_report(r)
+    assert set(r.result("REPORT_DRAFTED")["options"]) == {"approve", "revise", "skip"}
+
+
+# @spec ROUTE-IDEA-008
+def test_idea_008_pr_review_report_approval_options_approve_revise_skip(pr):
+    pr.start()
+    pr.result("OK")
+    pr.result("PR_REVIEW_READY")
+    assert set(pr.result("REPORT_DRAFTED")["options"]) == {"approve", "revise", "skip"}
+
+
+# @spec ROUTE-IDEA-014
+def test_idea_014_build_council_signoff_options_approve_reject(r):
+    raise_blocker(r, "TESTS_FAILED", "VERIFY_FINAL")
+    decision = r.result("COUNCIL_RULING", ruling=ruling(["forge-dev"]))
+    assert pauses(decision, "council_signoff") and set(decision["options"]) == {"approve", "reject"}
+
+
 # @spec ROUTE-IDEA-015
 def test_idea_015_leave_open_records_council_decision_and_removes_blocker(study):
     at_propose_council_signoff(study)
