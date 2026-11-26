@@ -2852,6 +2852,7 @@ def test_idea_021_report_sent_without_url_is_envelope_invalid(study, fields):
     "https://example.com/local/other/issues/5",
     "https://example.com//project/issues/5",
     "example.com/local/project/issues/5",
+    "https://example.com/group/sub/local/project/issues/12",
 ], ids=lambda u: u.replace("/", "_"))
 def test_idea_022_idea_report_url_not_matching_repo_issue_is_envelope_invalid(idea, url):
     at_report_send(idea)
@@ -2859,8 +2860,12 @@ def test_idea_022_idea_report_url_not_matching_repo_issue_is_envelope_invalid(id
 
 
 # @spec ROUTE-IDEA-022
-@pytest.mark.parametrize("url", [ISSUE_URL, "https://example.com/group/sub/local/project/issues/12"])
-def test_idea_022_idea_report_url_matching_repo_issue_is_accepted(idea, url):
+@pytest.mark.parametrize("org, url", [
+    ("local", ISSUE_URL),
+    ("group-sub", "https://example.com/group/sub/project/issues/12"),
+], ids=["local", "group-sub"])
+def test_idea_022_idea_report_url_matching_repo_issue_is_accepted(idea, org, url):
+    idea.patch(identity={"org": org, "repo": "project"})
     at_report_send(idea)
     assert pauses(idea.result("REPORT_SENT", report={"url": url}), "promotion")
 
