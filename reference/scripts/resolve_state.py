@@ -712,6 +712,7 @@ def close(cwd, args):
 
 # @spec WS-PROMOTE-001, WS-PROMOTE-002, WS-PROMOTE-003, WS-PROMOTE-004, WS-PROMOTE-005, WS-PROMOTE-006, WS-PROMOTE-007
 # @spec WS-PROMOTE-008, WS-PROMOTE-009, WS-PROMOTE-010, WS-PROMOTE-011, WS-PROMOTE-012, WS-PROMOTE-013
+# @spec WS-PROMOTE-014, WS-PROMOTE-015
 def promote(cwd, args):
     checkout = Checkout(cwd)
     ws = args.workstream
@@ -722,8 +723,14 @@ def promote(cwd, args):
     if err:
         return {"status": "STATE_INVALID", "detail": err}
     request = (state.get("lifecycle") or {}).get("promote")
-    if not request:
+    if request is None:
         return {"status": "PROMOTE_NOT_REQUESTED"}
+    if not isinstance(request, dict):
+        return {"status": "STATE_INVALID", "detail": "lifecycle.promote must be an object"}
+    bad = [k for k in ("issue", "proposal") if not isinstance(request.get(k), str) or not request[k]]
+    if bad:
+        return {"status": "STATE_INVALID",
+                "detail": f"lifecycle.promote needs a non-empty string for: {', '.join(bad)}"}
     if args.remove_worktree:
         wt = state["identity"].get("worktree_path")
         dirty = dirty_paths(Checkout(wt)) if wt and Path(wt).is_dir() else []
