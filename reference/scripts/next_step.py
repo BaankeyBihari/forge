@@ -12,6 +12,7 @@ Prints one JSON decision and exits 0; a non-zero exit is a usage error.
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import uuid
@@ -38,6 +39,7 @@ MUTATING = set(PLAN_STAGES) | {"PLAN", "QA_SKEL", "DEV_STUB", "QA_FULL", "DEV_FU
 
 ALLOWED = {
     "RECON": {"OK"},
+    "PROPOSE": {"PROPOSAL_READY", "CONCERNS"},
     "PLAN": {"READY_FOR_QA", "CONCERNS"},
     "POST_PLAN": {"PASS", "AUDIT_FAILED"},
     "PRE_QA": {"PARTIAL_REMAINING", "NOTHING_REMAINING"},
@@ -100,7 +102,23 @@ PAUSES = {
     "human_code_approval": (["approve", "reject"], "An agent asks to change human-authored lines. Approve?"),
     "dirty_tree": (["checkpoint", "stash"], "The working tree has uncommitted changes. Checkpoint or stash them."),
     "attempt_limit": (["retry", "stop"], "This step has repeated three times. Retry or stop?"),
+    "promotion": (["promote", "close"], "The report is filed. Promote the proposal to a build workstream, or close?"),
 }
+STUDY_FLOWS = ("idea", "triage")
+
+
+# @spec ROUTE-IDEA-007, ROUTE-IDEA-008, ROUTE-IDEA-013, ROUTE-IDEA-014, ROUTE-DRIFT-011
+def options_of(ctx, kind):
+    """The answers a pause of this kind offers in this workstream's flow."""
+    options = list(PAUSES[kind][0])
+    if ctx.study:
+        if kind == "report_approval":
+            options = ["approve", "revise", "replan"]
+        elif kind == "council_signoff":
+            options.append("leave_open")
+        elif kind == "dirty_tree":
+            options = ["stash"]
+    return options
 
 
 def stop(status, detail="", write=True):
@@ -116,8 +134,8 @@ def pause(kind, phase, payload=None, question=None, context_refs=None):
             "question": question, "context_refs": context_refs or []}
 
 
-def close():
-    return {"kind": "close"}
+def close(promote=None):
+    return {"kind": "close", "promote": promote}
 
 
 class Ctx:
@@ -154,6 +172,14 @@ class Ctx:
         return self.config("repo_mode") == "LID"
 
     @property
+    def study(self):
+        return self.state["identity"].get("flow") in STUDY_FLOWS
+
+    @property
+    def proposal(self):
+        return self.sd / "proposal.md"
+
+    @property
     def mode(self):
         return self.config("mode", "collab")
 
@@ -171,8 +197,10 @@ def agent_and_mode(ctx, phase, opts):
         if opts.get("agent_mode"):
             return "forge-planner", opts["agent_mode"]
         return "forge-planner", "strict" if ctx.mode in STAGE_PAUSE_MODES else "auto"
+    if phase == "RECON" and ctx.study:
+        return "forge-scout", ctx.state["identity"]["flow"].upper()
     fixed = {
-        "RECON": ("forge-scout", "PRE_PLAN"), "PLAN": ("forge-planner", "naive"),
+        "PROPOSE": ("forge-planner", "propose"), "RECON": ("forge-scout", "PRE_PLAN"), "PLAN": ("forge-planner", "naive"),
         "QA_SKEL": ("forge-qa", "skeleton"), "DEV_STUB": ("forge-dev", "stub"),
         "QA_FULL": ("forge-qa", "full"), "DEV_FULL": ("forge-dev", "full"),
         "REVIEW_INTERNAL": ("forge-reviewer", "internal"), "PR_FETCH": ("forge-scout", "PR_FETCH"),
@@ -207,7 +235,8 @@ def stage_for(ctx, phase):
 # @spec ROUTE-DISP-001, ROUTE-DISP-002, ROUTE-DISP-004, ROUTE-GUARD-001, ROUTE-GUARD-002, ROUTE-DRIFT-005
 # @spec ROUTE-LIMIT-001, ROUTE-LIMIT-002, ROUTE-LIMIT-006, ROUTE-BLK-004, ROUTE-BLK-015
 # @spec ROUTE-DISP-005, ROUTE-DISP-006, ROUTE-DISP-007, ROUTE-DRIFT-008, ROUTE-BUILD-033, ROUTE-BLK-021
-# @spec ROUTE-DISP-009
+# @spec ROUTE-DISP-009, ROUTE-IDEA-003, ROUTE-IDEA-005, ROUTE-IDEA-006, ROUTE-IDEA-024, ROUTE-IDEA-026
+# @spec ROUTE-IDEA-027
 def dispatch(ctx, phase, opts):
     head = ctx.head()
     if phase == "REVIEW_INTERNAL" and ctx.anchors.get("verifier_pass_sha") != head:
@@ -234,7 +263,9 @@ def dispatch(ctx, phase, opts):
     if opts.get("redispatch") and phase == ctx.prev_phase and ctx.lc.get("invoke"):
         # Same invocation as the outstanding dispatch, under a fresh ID and the current HEAD.
         invoke = {**ctx.lc["invoke"], "dispatch_id": uuid.uuid4().hex, "base_sha": head}
-        ctx.lc["dispatched"] = {"dispatch_id": invoke["dispatch_id"], "agent": agent, "mode": mode, "base_sha": head}
+        kept = {k: v for k, v in (ctx.lc.get("dispatched") or {}).items() if k == "proposal_mtime_ns"}
+        ctx.lc["dispatched"] = {"dispatch_id": invoke["dispatch_id"], "agent": agent, "mode": mode, "base_sha": head,
+                                **kept}
         ctx.lc["invoke"] = invoke
         return {"kind": "dispatched", "phase": phase, "invoke": invoke}
     refs = list(opts.get("context_refs", []))
@@ -250,13 +281,16 @@ def dispatch(ctx, phase, opts):
         notes, refs = item.get("notes"), item_refs + [x for x in refs if x not in item_refs]
     if agent == "forge-reporter":
         refs = [ctx.lc.get("report_input")]
+        if ctx.study and mode == "draft":
+            refs.append(str(ctx.proposal))
     task = ctx.sd / "task.md"
-    if (agent == "forge-planner" or phase == "REVIEW_INTERNAL") and task.is_file():
+    if (agent == "forge-planner" or phase == "REVIEW_INTERNAL" or (phase == "RECON" and ctx.study)) \
+            and task.is_file():
         refs = [str(task)] + [x for x in refs if x != str(task)]
     invoke = {"dispatch_id": uuid.uuid4().hex, "agent": agent, "mode": mode, "state_path": str(ctx.sp),
               "base_sha": head, "assigned_scope": scope, "context_refs": refs, "notes": notes}
     stage = stage_for(ctx, phase)
-    if agent in BUILDERS:
+    if agent in BUILDERS and mode != "propose":
         invoke["stage"] = stage
     if phase == "COUNCIL":
         blocker = ctx.state["blockers"][-1]
@@ -264,6 +298,9 @@ def dispatch(ctx, phase, opts):
         invoke["context_refs"] = [str(ctx.sd / "council" / f"{blocker['id']}.json")] \
             + blocker.get("context_refs", []) + refs
     ctx.lc["dispatched"] = {"dispatch_id": invoke["dispatch_id"], "agent": agent, "mode": mode, "base_sha": head}
+    if phase == "PROPOSE":
+        ctx.lc["propose_context_refs"] = list(invoke["context_refs"])
+        ctx.lc["dispatched"]["proposal_mtime_ns"] = ctx.proposal.stat().st_mtime_ns if ctx.proposal.exists() else None
     ctx.lc["invoke"] = invoke
     ctx.lc["current_phase"] = phase
     if not ctx.anchors.get("last_known_head_sha"):
@@ -362,17 +399,54 @@ def validate_envelope(ctx, env):
     if not ctx.git("cat-file", "-e", f"{head_sha}^{{commit}}", check=False).returncode == 0 \
             or not ctx.is_ancestor(head_sha, ctx.head()):
         return f"head_sha {head_sha} is not HEAD or an ancestor of it"
-    if d["agent"] in NON_COMMITTING and head_sha != d["base_sha"]:
+    if (d["agent"] in NON_COMMITTING or d.get("mode") == "propose") and head_sha != d["base_sha"]:
         return f"{d['agent']} does not commit, but head_sha differs from the dispatch's base_sha"
     if d["agent"] == "forge-council" and env.get("status") == "COUNCIL_RULING":
         ruling = env.get("ruling") or {}
         routes = [ruling.get("route_to") or []] + [o.get("route_to") or [] for o in ruling.get("options") or []]
         if any(a not in BUILDERS for route in routes for a in route):
             return f"ruling routes to an agent outside {BUILDERS}"
+        if ctx.state["blockers"] and ctx.state["blockers"][-1]["phase"] == "PROPOSE" \
+                and any(route not in ([], ["forge-planner"]) for route in routes):
+            return "a ruling on a PROPOSE blocker may route only to forge-planner or to nobody"
+    return study_envelope_problem(ctx, env)
+
+
+# @spec ROUTE-IDEA-019, ROUTE-IDEA-020, ROUTE-IDEA-021, ROUTE-IDEA-022, ROUTE-IDEA-023
+def study_envelope_problem(ctx, env):
+    status = env.get("status")
+    if status == "PROPOSAL_READY":
+        try:
+            text, mtime = ctx.proposal.read_text(), ctx.proposal.stat().st_mtime_ns
+        except OSError:
+            return "proposal.md is missing"
+        if not text.strip():
+            return "proposal.md is empty"
+        if env.get("files_touched"):
+            return "a PROPOSE dispatch must not touch files"
+        if mtime == ctx.lc["dispatched"].get("proposal_mtime_ns"):
+            return "proposal.md was not rewritten during the dispatch"
+    if status == "REPORT_SENT" and ctx.study:
+        report = env.get("report")
+        url = report.get("url") if isinstance(report, dict) else None
+        if not isinstance(url, str) or not url:
+            return "REPORT_SENT needs a report.url"
+        if ctx.state["identity"].get("flow") == "idea" and not repo_issue_url(ctx, url):
+            return f"report.url {url} is not an issue URL of this repository"
     return None
 
 
-# @spec ROUTE-ENV-015, ROUTE-ENV-016
+def repo_issue_url(ctx, url):
+    m = re.fullmatch(r"https://([^/]+)/(.+)/issues/[0-9]+", url)
+    if not m or "" in m.group(2).split("/"):
+        return False
+    parsed = resolve_state.parse_remote(f"https://{m.group(1)}/{m.group(2)}")
+    ident = ctx.state["identity"]
+    return bool(parsed) and (resolve_state.slug(parsed[0]), resolve_state.slug(parsed[1])) \
+        == (ident.get("org"), ident.get("repo"))
+
+
+# @spec ROUTE-ENV-015, ROUTE-ENV-016, ROUTE-ENV-017
 def guard_inactive(ctx, d):
     """None when the dispatch's guard record lists the dispatched agent; otherwise the stop's detail."""
     path = ctx.sd / "envelopes" / f"{d['dispatch_id']}.guard.json"
@@ -382,9 +456,16 @@ def guard_inactive(ctx, d):
         agents = None
     if isinstance(agents, list) and d["agent"] in agents:
         return None
-    return (f"the guard did not run for {d['agent']}: {path} does not list it. Known causes: a project-scope "
-            "install in a -p session or in a folder whose workspace trust was not accepted, a managed policy that allows only managed hooks, "
-            "or no python3 on PATH")
+    detail = (f"the guard did not run for {d['agent']}: {path} does not list it. Known causes: a project-scope "
+              "install in a -p session or in a folder whose workspace trust was not accepted, a managed policy that allows only managed hooks, "
+              "or no python3 on PATH")
+    if ctx.study:
+        head = ctx.head()
+        porcelain = ctx.git("status", "--porcelain").stdout.rstrip("\n")
+        detail += (f". HEAD {head} " + (f"differs from the dispatch's base_sha {d['base_sha']}"
+                                         if head != d["base_sha"] else f"equals the dispatch's base_sha {d['base_sha']}")
+                   + ". git status --porcelain: " + (porcelain.replace("\n", "; ") or "clean"))
+    return detail
 
 
 def record_commits(ctx, env):
@@ -412,13 +493,16 @@ def record_scope(ctx, env):
 # @spec ROUTE-BUILD-017, ROUTE-BUILD-018, ROUTE-BUILD-019, ROUTE-BUILD-020, ROUTE-BUILD-021, ROUTE-BUILD-023
 # @spec ROUTE-BUILD-024, ROUTE-BUILD-026, ROUTE-BUILD-027, ROUTE-BUILD-029, ROUTE-BUILD-030, ROUTE-BUILD-031
 # @spec ROUTE-BUILD-032, ROUTE-PR-002, ROUTE-PR-003, ROUTE-BLK-005, ROUTE-BLK-006, ROUTE-BLK-016, ROUTE-HC-001
-# @spec ROUTE-BLK-018, ROUTE-BLK-024, ROUTE-BUILD-034, ROUTE-BUILD-035, ROUTE-ENV-013
+# @spec ROUTE-BLK-018, ROUTE-BLK-024, ROUTE-BUILD-034, ROUTE-BUILD-035, ROUTE-ENV-013, ROUTE-IDEA-002
+# @spec ROUTE-IDEA-004, ROUTE-IDEA-010
 def apply_result(ctx, env):
     d = ctx.lc.get("dispatched")
     if d and env.get("dispatch_id") == d["dispatch_id"] and env.get("agent") == d["agent"]:
         inactive = guard_inactive(ctx, d)
         if inactive:
             return stop("GUARD_INACTIVE", inactive, write=False)
+        if ctx.study and ctx.head() != ctx.anchors.get("last_known_head_sha"):  # @spec ROUTE-IDEA-018
+            return stop("WORKTREE_MOVED", "commits appeared in the idea or triage worktree", write=False)
     problem = validate_envelope(ctx, env)
     if problem:
         return stop("ENVELOPE_INVALID", problem, write=False)
@@ -431,7 +515,7 @@ def apply_result(ctx, env):
         return stop("AGENT_ERROR", escalation.get("details", ""))
     record_commits(ctx, env)
     ctx.lc["dispatched"] = None
-    if status in ("PUBLISHED", "PR_REVIEW_READY", "REPORT_DRAFTED"):
+    if status in ("PUBLISHED", "PR_REVIEW_READY", "PROPOSAL_READY", "REPORT_DRAFTED"):
         ctx.lc["report_input"] = str(ctx.sd / "envelopes" / f"{d['dispatch_id']}.json")
     if agent in BUILDERS:
         ctx.anchors["last_known_head_sha"] = env["head_sha"]
@@ -447,7 +531,10 @@ def apply_result(ctx, env):
                      question=f"{agent} asks to change human-authored lines: "
                      f"{json.dumps(payload['ranges'] or payload['paths'])}. {escalation.get('details', '')}")
     if phase == "RECON":
-        return goto(first_planning_phase(ctx), context_refs=[str(ctx.sd / "scout")])
+        nxt = "PROPOSE" if ctx.study else first_planning_phase(ctx)
+        return goto(nxt, context_refs=[str(ctx.sd / "scout")])
+    if status == "PROPOSAL_READY":
+        return goto("REPORT", mode="draft")
     if phase == "PR_FETCH":
         return goto("PR_REVIEW", context_refs=[str(ctx.sd / "scout")])
     if status == "STAGE_COMPLETE":
@@ -524,6 +611,10 @@ def apply_result(ctx, env):
     if status == "REPORT_DRAFTED":
         return pause("report_approval", phase, context_refs=[ctx.lc["report_input"]])
     if status == "REPORT_SENT":
+        if ctx.study:
+            ctx.lc["report_url"] = env["report"]["url"]
+            return pause("promotion", phase, question=f"The report is filed at {ctx.lc['report_url']}. "
+                         "Promote the proposal to a build workstream, or close?")
         return report_done(ctx)
     if phase == "RECONCILE":
         record_scope(ctx, env)
@@ -621,7 +712,7 @@ def apply_user(ctx, event):
         return stop("EVENT_INVALID", "the event does not answer the pending pause", write=False)
     kind, payload = awaiting["kind"], awaiting.get("payload") or {}
     decision, notes, option = event.get("decision"), event.get("notes"), event.get("option")
-    if decision not in PAUSES[kind][0]:
+    if decision not in options_of(ctx, kind):
         return stop("EVENT_INVALID", f"{decision} is not an option of {kind}", write=False)
     if kind == "publish_approval" and decision == "approve" and option not in ("push", "merge"):
         return stop("EVENT_INVALID", "approve needs option push or merge", write=False)
@@ -636,6 +727,8 @@ def apply_user(ctx, event):
             return stop("EVENT_INVALID", f"{option} is not an option of the ruling", write=False)
         ctx.lc["awaiting"] = None
         return apply_ruling(ctx, blocker, ruling, chosen, "user")
+    if kind == "council_signoff" and decision == "leave_open":
+        return leave_open(ctx, payload, notes)
     ctx.lc["awaiting"] = None
     user = {"user_caused": True}
     prior_refs = list((ctx.lc.get("invoke") or {}).get("context_refs", []))
@@ -666,7 +759,18 @@ def apply_user(ctx, event):
     if kind == "report_approval":
         if decision == "skip":
             return report_done(ctx)
+        if decision == "replan":  # @spec ROUTE-IDEA-009
+            held = list(ctx.lc.get("propose_context_refs") or [])
+            refs = held + [x for x in (str(ctx.proposal), ctx.lc.get("report_input")) if x not in held]
+            return goto("PROPOSE", notes=notes, context_refs=refs, **user)
         return goto("REPORT", mode="send" if decision == "approve" else "draft", notes=notes, **user)
+    if kind == "promotion":  # @spec ROUTE-IDEA-011, ROUTE-IDEA-012
+        if decision == "close":
+            return close()
+        issue = ctx.state["identity"].get("issue") if ctx.state["identity"]["flow"] == "triage" \
+            else ctx.lc.get("report_url")
+        ctx.lc["promote"] = {"issue": issue, "proposal": str(ctx.proposal)}
+        return close(ctx.lc["promote"])
     if kind == "ci_none":
         return close() if decision == "approve" else goto("CI_WATCH", mode="CI_WATCH", **user)
     if kind == "council_signoff":  # reject; approve is applied above
@@ -711,6 +815,22 @@ def apply_user(ctx, event):
     raise ValueError(f"unhandled pause {kind}")
 
 
+# @spec ROUTE-IDEA-015, ROUTE-IDEA-016
+def leave_open(ctx, payload, notes):
+    blocker = next(b for b in ctx.state["blockers"] if b["id"] == payload["blocker_id"])
+    ruling = blocker.get("ruling") or {}
+    ctx.lc["awaiting"] = None
+    remove_blocker(ctx, blocker["id"])
+    ctx.state["council_decisions"].append({"id": f"cd-{uuid.uuid4().hex[:8]}", "blocker_id": blocker["id"],
+                                           "panel": ruling.get("panel"), "option": None, "left_open": True,
+                                           "approved_by": "user"})
+    matrix = [ruling["matrix_ref"]] if ruling.get("matrix_ref") else []
+    told = ("Present the council's options and its recommendation in the proposal as an open decision, "
+            "left unresolved for the readers of the issue.")
+    return goto("PROPOSE", context_refs=blocker.get("context_refs", []) + matrix,
+                notes="\n".join(n for n in (told, notes) if n), user_caused=True)
+
+
 # ------------------------------------------------------------------- routing
 
 
@@ -738,7 +858,7 @@ def apply_event(ctx, event):
         if phase == "INIT":
             return stop("NOT_STARTED", "send a start event first", write=False)
         if phase == "DONE":
-            return {"kind": "done"}
+            return close(ctx.lc["promote"]) if ctx.lc.get("promote") else {"kind": "done"}  # @spec ROUTE-REDO-005
         queued = ctx.lc.pop("next_dispatch", None)
         if queued:  # what a pause answered by a mode switch leads to
             return goto(queued["phase"], **queued["opts"])
@@ -749,6 +869,8 @@ def apply_event(ctx, event):
             return stop("EVENT_INVALID", "the workstream has already started", write=False)
         if ctx.state["identity"].get("flow") == "pr_review":
             return goto("PR_FETCH")
+        if ctx.study:  # @spec ROUTE-IDEA-001
+            return goto("RECON")
         return goto("RECON" if ctx.state["identity"].get("issue") else first_planning_phase(ctx))
     if etype == "result":
         return apply_result(ctx, event.get("envelope") or {})
@@ -810,8 +932,8 @@ def handle_drift(ctx, outcome):
         return outcome
     if not unaccounted_drift(ctx):
         return outcome
-    if ctx.state["identity"].get("flow") == "pr_review":
-        return stop("WORKTREE_MOVED", "commits appeared in the pull request review worktree", write=False)
+    if ctx.state["identity"].get("flow") == "pr_review" or ctx.study:
+        return stop("WORKTREE_MOVED", "commits appeared in the detached review or study worktree", write=False)
     ctx.anchors["verifier_pass_sha"] = None
     ctx.anchors["reviewer_pass_sha"] = None
     ctx.anchors["last_known_head_sha"] = ctx.head()
@@ -894,7 +1016,7 @@ def route(cwd, workstream, pid, session, event, dry_run=False):
         if not outcome["write"]:
             return decision
     elif kind in ("pause", "repause"):
-        options, default_q = PAUSES[outcome["awaiting"]]
+        options, default_q = options_of(ctx, outcome["awaiting"]), PAUSES[outcome["awaiting"]][1]
         question = outcome.get("question") or default_q
         if kind == "pause":
             payload = {**outcome["payload"], "_question": question, "_context_refs": outcome["context_refs"]}
@@ -915,6 +1037,8 @@ def route(cwd, workstream, pid, session, event, dry_run=False):
     elif kind == "close":
         ctx.lc["current_phase"] = "DONE"
         decision = {"action": "close", "phase": "DONE", "summary": "Workstream finished; close it"}
+        if outcome.get("promote"):
+            decision["promote"] = outcome["promote"]
     else:
         decision = {"action": "done", "phase": "DONE", "summary": "Workstream already closed"}
     if not dry_run and json.dumps(state, sort_keys=True) != before:
