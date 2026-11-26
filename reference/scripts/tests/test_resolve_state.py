@@ -1926,13 +1926,42 @@ def test_ws_promote_013_promote_close_failure_returns_close_status_keeps_build_o
     assert sorted(p.name for p in build_dir(source).parent.iterdir()) == [BUILD_WS]
 
 
+def set_promote(src, value):
+    state = read_state(src["state_path"])
+    state["lifecycle"]["promote"] = value
+    write_state(src["state_path"], state)
+
+
+def assert_invalid_promote_changes_nothing(src, detail_names, absent=()):
+    before = src["state_path"].read_text()
+    res = promote(src["clone"], src["ws"])
+    assert res.json["status"] == "STATE_INVALID", res.json
+    for name in detail_names:
+        assert name in res.json["detail"]
+    for name in absent:
+        assert name not in res.json["detail"]
+    source_untouched(src, before)
+    assert not git(src["clone"], "branch", "--list", "feat/42-*")
+
+
 # @spec WS-PROMOTE-014
-@pytest.mark.skip(reason="skeleton: WS-PROMOTE-014")
-def test_ws_promote_014_promote_object_missing_or_empty_issue_or_proposal_returns_state_invalid_naming_fields():
-    pass
+@pytest.mark.parametrize("value,named", [
+    ({}, ["issue", "proposal"]),
+    ({"issue": "https://example.com/i/1"}, ["proposal"]),
+    ({"proposal": "/some/proposal.md"}, ["issue"]),
+    ({"issue": "", "proposal": "/some/proposal.md"}, ["issue"]),
+    ({"issue": "https://example.com/i/1", "proposal": ""}, ["proposal"]),
+    ({"issue": 42, "proposal": None}, ["issue", "proposal"]),
+    ({"issue": ["x"], "proposal": "/some/proposal.md"}, ["issue"]),
+], ids=["empty-object", "no-proposal", "no-issue", "empty-issue", "empty-proposal", "wrong-types", "list-issue"])
+def test_ws_promote_014_promote_object_missing_or_empty_issue_or_proposal_returns_state_invalid_naming_fields(source, value, named):
+    set_promote(source, value)
+    assert_invalid_promote_changes_nothing(source, named, absent=[n for n in ("issue", "proposal") if n not in named])
 
 
 # @spec WS-PROMOTE-015
-@pytest.mark.skip(reason="skeleton: WS-PROMOTE-015")
-def test_ws_promote_015_promote_non_object_lifecycle_promote_returns_state_invalid_naming_lifecycle_promote():
-    pass
+@pytest.mark.parametrize("value", ["", 0, False, [], "text", 5, True, ["a"]],
+                         ids=["empty-string", "zero", "false", "empty-list", "string", "number", "true", "list"])
+def test_ws_promote_015_promote_non_object_lifecycle_promote_returns_state_invalid_naming_lifecycle_promote(source, value):
+    set_promote(source, value)
+    assert_invalid_promote_changes_nothing(source, ["lifecycle.promote"])
