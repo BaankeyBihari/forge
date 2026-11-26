@@ -2514,172 +2514,391 @@ def test_invalid_user_event(r):
     unchanged_stop(r, lambda: r.user("merge"), "EVENT_INVALID")
 
 
-# --- Skeleton placeholders: idea and triage flows (no assertions yet) ---
+# ------------------------------------------------------------- idea and triage flows
+
+MODE_OF = {"idea": "IDEA", "triage": "TRIAGE"}
+ISSUE_URL = "https://example.com/local/project/issues/5"
+TRIAGE_ISSUE = "https://github.com/acme/widgets/issues/9"
+
+
+@pytest.fixture(params=["idea", "triage"])
+def study(r, request):
+    ident = {"flow": request.param}
+    if request.param == "triage":
+        ident["issue"] = TRIAGE_ISSUE
+    r.patch(identity=ident)
+    r.flow = request.param
+    return r
+
+
+@pytest.fixture
+def idea(r):
+    r.patch(identity={"flow": "idea"})
+    return r
+
+
+def proposal_path(r):
+    return r.sd / "proposal.md"
+
+
+def write_proposal(r, text="# proposal\n"):
+    """Write proposal.md and push its mtime a second past any earlier value."""
+    path = proposal_path(r)
+    path.write_text(text)
+    st = path.stat()
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
+    return path.stat().st_mtime_ns
+
+
+def at_propose(r):
+    r.start()
+    return r.result("OK")
+
+
+def at_report_draft(r):
+    at_propose(r)
+    write_proposal(r)
+    return r.result("PROPOSAL_READY")
+
+
+def at_report_approval(r):
+    at_report_draft(r)
+    return r.result("REPORT_DRAFTED")
+
+
+def at_report_send(r):
+    at_report_approval(r)
+    return r.user("approve")
+
+
+def at_promotion(r, url=ISSUE_URL):
+    at_report_send(r)
+    return r.result("REPORT_SENT", report={"url": url})
+
+
+def propose_ruling():
+    return ruling([], alt_route=["forge-planner"])
+
+
+def at_propose_council_signoff(r):
+    blocked = at_propose(r)["invoke"]["context_refs"]
+    r.result("CONCERNS", escalation={"details": "open question"})
+    assert pauses(r.result("COUNCIL_RULING", ruling=propose_ruling()), "council_signoff")
+    return blocked
 
 
 # @spec ROUTE-REDO-005
-@pytest.mark.skip(reason="skeleton")
-def test_redo_005_done_with_promote_returns_close_again():
-    pass
+def test_redo_005_done_with_promote_returns_close_again(study):
+    promote = {"issue": ISSUE_URL, "proposal": str(proposal_path(study))}
+    study.patch(lifecycle={"current_phase": "DONE", "promote": promote})
+    before = study.sp.read_bytes()
+    decision = study.run()
+    assert decision["action"] == "close" and decision["promote"] == promote
+    assert study.sp.read_bytes() == before
 
 
 # @spec ROUTE-ENV-017
-@pytest.mark.skip(reason="skeleton")
-def test_env_017_guard_inactive_detail_reports_head_and_porcelain_in_idea_triage():
-    pass
+def test_env_017_guard_inactive_detail_reports_head_and_porcelain_in_idea_triage(study):
+    study.start()
+    base = study.state()["lifecycle"]["dispatched"]["base_sha"]
+    Path(study.wt, "wip.txt").write_text("wip\n")
+    detail = unguarded_result(study, status="OK")["detail"]
+    assert "wip.txt" in detail and base in detail
+    moved = study.human_commit({"other.txt": "o\n"})
+    detail = unguarded_result(study, status="OK")["detail"]
+    assert moved in detail and base in detail
+
+
+# @spec ROUTE-ENV-017
+def test_env_017_build_flow_detail_has_no_porcelain(r):
+    r.start()
+    Path(r.wt, "wip.txt").write_text("wip\n")
+    assert "wip.txt" not in unguarded_result(r)["detail"]
 
 
 # @spec ROUTE-DRIFT-011
-@pytest.mark.skip(reason="skeleton")
-def test_drift_011_dirty_tree_offers_only_stash_in_idea_triage():
-    pass
+def test_drift_011_dirty_tree_offers_only_stash_in_idea_triage(study):
+    Path(study.wt, "wip.txt").write_text("wip\n")
+    decision = study.goto("PROPOSE")
+    assert pauses(decision, "dirty_tree") and set(decision["options"]) == {"stash"}
 
 
 # @spec ROUTE-IDEA-001
-@pytest.mark.skip(reason="skeleton")
-def test_idea_001_idea_triage_start_dispatches_scout_idea_or_triage_mode():
-    pass
+def test_idea_001_idea_triage_start_dispatches_scout_idea_or_triage_mode(study):
+    assert dispatches(study.start(), "forge-scout", MODE_OF[study.flow])
+    assert study.state()["lifecycle"]["current_phase"] == "RECON"
 
 
 # @spec ROUTE-IDEA-002
-@pytest.mark.skip(reason="skeleton")
-def test_idea_002_idea_triage_recon_ok_dispatches_propose_with_scout_dir():
-    pass
+def test_idea_002_idea_triage_recon_ok_dispatches_propose_with_scout_dir(study):
+    study.start()
+    decision = study.result("OK")
+    assert dispatches(decision, "forge-planner", "propose")
+    assert str(study.sd / "scout") in [c.rstrip("/") for c in decision["invoke"]["context_refs"]]
+    assert study.state()["lifecycle"]["current_phase"] == "PROPOSE"
 
 
 # @spec ROUTE-IDEA-003
-@pytest.mark.skip(reason="skeleton")
-def test_idea_003_propose_dispatch_sets_propose_context_refs():
-    pass
+def test_idea_003_propose_dispatch_sets_propose_context_refs(study):
+    decision = at_propose(study)
+    assert study.state()["lifecycle"]["propose_context_refs"] == decision["invoke"]["context_refs"]
 
 
 # @spec ROUTE-IDEA-004
-@pytest.mark.skip(reason="skeleton")
-def test_idea_004_proposal_ready_goes_to_report_draft():
-    pass
+def test_idea_004_proposal_ready_goes_to_report_draft(study):
+    assert dispatches(at_report_draft(study), "forge-reporter", "draft")
+    assert study.state()["lifecycle"]["current_phase"] == "REPORT"
 
 
 # @spec ROUTE-IDEA-005
-@pytest.mark.skip(reason="skeleton")
-def test_idea_005_report_draft_context_refs_report_input_then_proposal():
-    pass
+def test_idea_005_report_draft_context_refs_report_input_then_proposal(study):
+    at_propose(study)
+    write_proposal(study)
+    planner = dispatched_id(study)
+    decision = study.result("PROPOSAL_READY")
+    assert decision["invoke"]["context_refs"] == [envelope_file(study, planner), str(proposal_path(study))]
+    study.result("REPORT_DRAFTED")
+    drafted = study.state()["lifecycle"]["report_input"]
+    revised = study.user("revise", notes="shorter")
+    assert dispatches(revised, "forge-reporter", "draft")
+    assert revised["invoke"]["context_refs"] == [drafted, str(proposal_path(study))]
 
 
 # @spec ROUTE-IDEA-006
-@pytest.mark.skip(reason="skeleton")
-def test_idea_006_report_send_context_refs_only_report_input():
-    pass
+def test_idea_006_report_send_context_refs_only_report_input(study):
+    at_report_approval(study)
+    report_input = study.state()["lifecycle"]["report_input"]
+    decision = study.user("approve")
+    assert dispatches(decision, "forge-reporter", "send")
+    assert decision["invoke"]["context_refs"] == [report_input]
 
 
 # @spec ROUTE-IDEA-007
-@pytest.mark.skip(reason="skeleton")
-def test_idea_007_report_approval_options_approve_revise_replan():
-    pass
+def test_idea_007_report_approval_options_approve_revise_replan(study):
+    assert set(at_report_approval(study)["options"]) == {"approve", "revise", "replan"}
 
 
 # @spec ROUTE-IDEA-009
-@pytest.mark.skip(reason="skeleton")
-def test_idea_009_report_approval_replan_redispatches_propose():
-    pass
+def test_idea_009_report_approval_replan_redispatches_propose(study):
+    propose = at_propose(study)["invoke"]["context_refs"]
+    write_proposal(study)
+    study.result("PROPOSAL_READY")
+    study.result("REPORT_DRAFTED")
+    report_input = study.state()["lifecycle"]["report_input"]
+    decision = study.user("replan", notes="cover the cache")
+    assert dispatches(decision, "forge-planner", "propose")
+    assert "cover the cache" in json.dumps(decision["invoke"]["notes"])
+    assert decision["invoke"]["context_refs"] == [*propose, str(proposal_path(study)), report_input]
+    assert study.state()["lifecycle"]["current_phase"] == "PROPOSE"
+
+
+# @spec ROUTE-IDEA-009
+def test_idea_009_replan_leaves_out_refs_already_held(study):
+    at_report_approval(study)
+    report_input = study.state()["lifecycle"]["report_input"]
+    held = [str(study.sd / "scout"), str(proposal_path(study)), report_input]
+    study.patch(lifecycle={"propose_context_refs": held})
+    decision = study.user("replan")
+    assert decision["invoke"]["context_refs"] == held
 
 
 # @spec ROUTE-IDEA-010
-@pytest.mark.skip(reason="skeleton")
-def test_idea_010_report_sent_sets_report_url_and_pauses_promotion():
-    pass
+def test_idea_010_report_sent_sets_report_url_and_pauses_promotion(study):
+    decision = at_promotion(study)
+    assert pauses(decision, "promotion") and set(decision["options"]) == {"promote", "close"}
+    assert ISSUE_URL in decision["question"]
+    assert study.state()["lifecycle"]["report_url"] == ISSUE_URL
 
 
 # @spec ROUTE-IDEA-011
-@pytest.mark.skip(reason="skeleton")
-def test_idea_011_promotion_promote_sets_promote_and_closes():
-    pass
+def test_idea_011_promotion_promote_sets_promote_and_closes(study):
+    at_promotion(study)
+    decision = study.user("promote")
+    issue = ISSUE_URL if study.flow == "idea" else TRIAGE_ISSUE
+    expected = {"issue": issue, "proposal": str(proposal_path(study))}
+    assert decision["action"] == "close" and decision["promote"] == expected
+    assert study.state()["lifecycle"]["promote"] == expected
 
 
 # @spec ROUTE-IDEA-012
-@pytest.mark.skip(reason="skeleton")
-def test_idea_012_promotion_close_closes_without_promote():
-    pass
+def test_idea_012_promotion_close_closes_without_promote(study):
+    at_promotion(study)
+    decision = study.user("close")
+    assert decision["action"] == "close" and "promote" not in decision
+    assert study.state()["lifecycle"].get("promote") is None
 
 
 # @spec ROUTE-IDEA-013
-@pytest.mark.skip(reason="skeleton")
-def test_idea_013_council_signoff_options_approve_reject_leave_open():
-    pass
+def test_idea_013_council_signoff_options_approve_reject_leave_open(study):
+    at_propose(study)
+    study.result("CONCERNS", escalation={"details": "open question"})
+    decision = study.result("COUNCIL_RULING", ruling=propose_ruling())
+    assert pauses(decision, "council_signoff") and set(decision["options"]) == {"approve", "reject", "leave_open"}
 
 
 # @spec ROUTE-IDEA-015
-@pytest.mark.skip(reason="skeleton")
-def test_idea_015_leave_open_records_council_decision_and_removes_blocker():
-    pass
+def test_idea_015_leave_open_records_council_decision_and_removes_blocker(study):
+    at_propose_council_signoff(study)
+    blocker_id = study.state()["blockers"][0]["id"]
+    study.user("leave_open")
+    state = study.state()
+    assert state["blockers"] == []
+    [entry] = state["council_decisions"]
+    assert entry.get("id")
+    assert {k: v for k, v in entry.items() if k != "id"} == {
+        "blocker_id": blocker_id, "panel": ["debugger", "senior-dev"], "option": None,
+        "left_open": True, "approved_by": "user"}
 
 
 # @spec ROUTE-IDEA-016
-@pytest.mark.skip(reason="skeleton")
-def test_idea_016_leave_open_redispatches_propose_with_matrix_ref_and_notes():
-    pass
+def test_idea_016_leave_open_redispatches_propose_with_matrix_ref_and_notes(study):
+    blocked = at_propose_council_signoff(study)
+    decision = study.user("leave_open", notes="keep both designs")
+    assert dispatches(decision, "forge-planner", "propose")
+    assert decision["invoke"]["context_refs"] == [*blocked, "council/matrix.md"]
+    notes = json.dumps(decision["invoke"]["notes"])
+    assert "keep both designs" in notes and "recommend" in notes.lower()
 
 
 # @spec ROUTE-IDEA-017
-@pytest.mark.skip(reason="skeleton")
-def test_idea_017_propose_council_route_to_other_than_planner_is_envelope_invalid():
-    pass
+@pytest.mark.parametrize("bad", [
+    ruling(["forge-dev"], alt_route=["forge-planner"]),
+    ruling([], alt_route=["forge-qa"]),
+    ruling(["forge-planner", "forge-dev"], alt_route=[]),
+], ids=["route_to", "option", "mixed"])
+def test_idea_017_propose_council_route_to_other_than_planner_is_envelope_invalid(study, bad):
+    at_propose(study)
+    study.result("CONCERNS", escalation={"details": "open question"})
+    unchanged_stop(study, lambda: study.result("COUNCIL_RULING", ruling=bad))
+
+
+# @spec ROUTE-IDEA-017
+@pytest.mark.parametrize("good", [propose_ruling(), ruling(["forge-planner"], alt_route=[])], ids=["empty", "planner"])
+def test_idea_017_propose_council_planner_or_empty_route_accepted(study, good):
+    at_propose(study)
+    study.result("CONCERNS", escalation={"details": "open question"})
+    assert pauses(study.result("COUNCIL_RULING", ruling=good), "council_signoff")
 
 
 # @spec ROUTE-IDEA-018
-@pytest.mark.skip(reason="skeleton")
-def test_idea_018_idea_triage_result_with_moved_head_is_worktree_moved():
-    pass
+def test_idea_018_idea_triage_result_with_moved_head_is_worktree_moved(study):
+    study.start()
+    study.human_commit({"h.txt": "h\n"})
+    unchanged_stop(study, lambda: study.result("OK"), "WORKTREE_MOVED")
+
+
+# @spec ROUTE-IDEA-018
+def test_idea_018_guard_check_comes_first(study):
+    study.start()
+    study.human_commit({"h.txt": "h\n"})
+    unchanged_stop(study, lambda: unguarded_result(study, status="OK"), "GUARD_INACTIVE")
 
 
 # @spec ROUTE-IDEA-019
-@pytest.mark.skip(reason="skeleton")
-def test_idea_019_proposal_ready_missing_or_blank_proposal_is_envelope_invalid():
-    pass
+@pytest.mark.parametrize("content", [None, "", " \n\t\n"], ids=["missing", "empty", "blank"])
+def test_idea_019_proposal_ready_missing_or_blank_proposal_is_envelope_invalid(study, content):
+    at_propose(study)
+    if content is not None:
+        write_proposal(study, content)
+    unchanged_stop(study, lambda: study.result("PROPOSAL_READY"))
 
 
 # @spec ROUTE-IDEA-020
-@pytest.mark.skip(reason="skeleton")
-def test_idea_020_proposal_ready_with_files_touched_is_envelope_invalid():
-    pass
+def test_idea_020_proposal_ready_with_files_touched_is_envelope_invalid(study):
+    at_propose(study)
+    write_proposal(study)
+    unchanged_stop(study, lambda: study.result("PROPOSAL_READY", files_touched=["src/a.py"]))
 
 
 # @spec ROUTE-IDEA-021
-@pytest.mark.skip(reason="skeleton")
-def test_idea_021_report_sent_without_url_is_envelope_invalid():
-    pass
+@pytest.mark.parametrize("fields", [{}, {"report": {}}, {"report": {"url": ""}}, {"report": {"url": 5}},
+                                    {"report": "https://x"}],
+                         ids=["no-report", "no-url", "empty", "non-string", "not-object"])
+def test_idea_021_report_sent_without_url_is_envelope_invalid(study, fields):
+    at_report_send(study)
+    unchanged_stop(study, lambda: study.result("REPORT_SENT", **fields))
 
 
 # @spec ROUTE-IDEA-022
-@pytest.mark.skip(reason="skeleton")
-def test_idea_022_idea_report_url_not_matching_repo_issue_is_envelope_invalid():
-    pass
+@pytest.mark.parametrize("url", [
+    "https://example.com/local/project/pull/5",
+    "https://example.com/local/project/issues/",
+    "https://example.com/local/project/issues/x5",
+    "https://example.com/local/project/issues/5/",
+    "https://example.com/local/project/issues/5#c1",
+    "https://example.com/project/issues/5",
+    "https://example.com/other/project/issues/5",
+    "https://example.com/local/other/issues/5",
+    "https://example.com//project/issues/5",
+    "example.com/local/project/issues/5",
+], ids=lambda u: u.replace("/", "_"))
+def test_idea_022_idea_report_url_not_matching_repo_issue_is_envelope_invalid(idea, url):
+    at_report_send(idea)
+    unchanged_stop(idea, lambda: idea.result("REPORT_SENT", report={"url": url}))
+
+
+# @spec ROUTE-IDEA-022
+@pytest.mark.parametrize("url", [ISSUE_URL, "https://example.com/group/sub/local/project/issues/12"])
+def test_idea_022_idea_report_url_matching_repo_issue_is_accepted(idea, url):
+    at_report_send(idea)
+    assert pauses(idea.result("REPORT_SENT", report={"url": url}), "promotion")
+
+
+# @spec ROUTE-IDEA-022
+def test_idea_022_triage_report_url_is_not_pattern_checked(r):
+    r.patch(identity={"flow": "triage", "issue": TRIAGE_ISSUE})
+    at_report_send(r)
+    assert pauses(r.result("REPORT_SENT", report={"url": "https://example.com/elsewhere/comment-1"}), "promotion")
 
 
 # @spec ROUTE-IDEA-023
-@pytest.mark.skip(reason="skeleton")
-def test_idea_023_proposal_ready_with_unchanged_proposal_mtime_is_envelope_invalid():
-    pass
+def test_idea_023_proposal_ready_with_unchanged_proposal_mtime_is_envelope_invalid(study):
+    write_proposal(study, "# old\n")
+    at_propose(study)
+    unchanged_stop(study, lambda: study.result("PROPOSAL_READY"))
+    write_proposal(study, "# new\n")
+    assert dispatches(study.result("PROPOSAL_READY"), "forge-reporter", "draft")
 
 
 # @spec ROUTE-IDEA-024
-@pytest.mark.skip(reason="skeleton")
-def test_idea_024_propose_dispatch_records_proposal_mtime_ns():
-    pass
+def test_idea_024_propose_dispatch_records_proposal_mtime_ns(study):
+    study.start()
+    assert "proposal_mtime_ns" not in study.state()["lifecycle"]["dispatched"]
+    study.result("OK")
+    assert study.state()["lifecycle"]["dispatched"]["proposal_mtime_ns"] is None
+    mtime = write_proposal(study)
+    study.result("PROPOSAL_READY")
+    study.result("REPORT_DRAFTED")
+    study.user("replan")
+    assert study.state()["lifecycle"]["dispatched"]["proposal_mtime_ns"] == mtime
 
 
 # @spec ROUTE-IDEA-025
-@pytest.mark.skip(reason="skeleton")
-def test_idea_025_redo_of_propose_keeps_proposal_mtime_ns():
-    pass
+def test_idea_025_redo_of_propose_keeps_proposal_mtime_ns(study):
+    study.start()
+    mtime = write_proposal(study, "# old\n")
+    study.result("OK")
+    write_proposal(study, "# rewritten\n")
+    again = study.run()
+    assert dispatches(again, "forge-planner", "propose")
+    assert study.state()["lifecycle"]["dispatched"]["proposal_mtime_ns"] == mtime
 
 
 # @spec ROUTE-IDEA-026
-@pytest.mark.skip(reason="skeleton")
-def test_idea_026_every_propose_dispatch_uses_planner_propose_mode():
-    pass
+def test_idea_026_every_propose_dispatch_uses_planner_propose_mode(study):
+    assert dispatches(at_propose(study), "forge-planner", "propose")
+    study.result("CONCERNS", escalation={"details": "open question"})
+    study.result("COUNCIL_RULING", ruling=propose_ruling())
+    assert dispatches(study.user("leave_open"), "forge-planner", "propose")
+    write_proposal(study)
+    study.result("PROPOSAL_READY")
+    study.result("REPORT_DRAFTED")
+    assert dispatches(study.user("replan"), "forge-planner", "propose")
 
 
 # @spec ROUTE-IDEA-027
-@pytest.mark.skip(reason="skeleton")
-def test_idea_027_every_idea_triage_recon_dispatch_uses_scout_idea_or_triage_mode():
-    pass
+def test_idea_027_every_idea_triage_recon_dispatch_uses_scout_idea_or_triage_mode(study):
+    study.start()
+    assert stops(study.result("ERROR", escalation={"details": "boom"}), "AGENT_ERROR")
+    assert dispatches(study.run(), "forge-scout", MODE_OF[study.flow])
+    assert dispatches(study.goto("RECON"), "forge-scout", MODE_OF[study.flow])
