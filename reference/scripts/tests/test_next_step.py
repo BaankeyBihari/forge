@@ -2512,3 +2512,174 @@ def test_invalid_user_event(r):
     r.result("READY_FOR_QA", scope={"assigned": ["src/**"]})
     unchanged_stop(r, lambda: r.user("approve", awaiting="edit_window"), "EVENT_INVALID")
     unchanged_stop(r, lambda: r.user("merge"), "EVENT_INVALID")
+
+
+# --- Skeleton placeholders: idea and triage flows (no assertions yet) ---
+
+
+# @spec ROUTE-REDO-005
+@pytest.mark.skip(reason="skeleton")
+def test_redo_005_done_with_promote_returns_close_again():
+    pass
+
+
+# @spec ROUTE-ENV-017
+@pytest.mark.skip(reason="skeleton")
+def test_env_017_guard_inactive_detail_reports_head_and_porcelain_in_idea_triage():
+    pass
+
+
+# @spec ROUTE-DRIFT-011
+@pytest.mark.skip(reason="skeleton")
+def test_drift_011_dirty_tree_offers_only_stash_in_idea_triage():
+    pass
+
+
+# @spec ROUTE-IDEA-001
+@pytest.mark.skip(reason="skeleton")
+def test_idea_001_idea_triage_start_dispatches_scout_idea_or_triage_mode():
+    pass
+
+
+# @spec ROUTE-IDEA-002
+@pytest.mark.skip(reason="skeleton")
+def test_idea_002_idea_triage_recon_ok_dispatches_propose_with_scout_dir():
+    pass
+
+
+# @spec ROUTE-IDEA-003
+@pytest.mark.skip(reason="skeleton")
+def test_idea_003_propose_dispatch_sets_propose_context_refs():
+    pass
+
+
+# @spec ROUTE-IDEA-004
+@pytest.mark.skip(reason="skeleton")
+def test_idea_004_proposal_ready_goes_to_report_draft():
+    pass
+
+
+# @spec ROUTE-IDEA-005
+@pytest.mark.skip(reason="skeleton")
+def test_idea_005_report_draft_context_refs_report_input_then_proposal():
+    pass
+
+
+# @spec ROUTE-IDEA-006
+@pytest.mark.skip(reason="skeleton")
+def test_idea_006_report_send_context_refs_only_report_input():
+    pass
+
+
+# @spec ROUTE-IDEA-007
+@pytest.mark.skip(reason="skeleton")
+def test_idea_007_report_approval_options_approve_revise_replan():
+    pass
+
+
+# @spec ROUTE-IDEA-009
+@pytest.mark.skip(reason="skeleton")
+def test_idea_009_report_approval_replan_redispatches_propose():
+    pass
+
+
+# @spec ROUTE-IDEA-010
+@pytest.mark.skip(reason="skeleton")
+def test_idea_010_report_sent_sets_report_url_and_pauses_promotion():
+    pass
+
+
+# @spec ROUTE-IDEA-011
+@pytest.mark.skip(reason="skeleton")
+def test_idea_011_promotion_promote_sets_promote_and_closes():
+    pass
+
+
+# @spec ROUTE-IDEA-012
+@pytest.mark.skip(reason="skeleton")
+def test_idea_012_promotion_close_closes_without_promote():
+    pass
+
+
+# @spec ROUTE-IDEA-013
+@pytest.mark.skip(reason="skeleton")
+def test_idea_013_council_signoff_options_approve_reject_leave_open():
+    pass
+
+
+# @spec ROUTE-IDEA-015
+@pytest.mark.skip(reason="skeleton")
+def test_idea_015_leave_open_records_council_decision_and_removes_blocker():
+    pass
+
+
+# @spec ROUTE-IDEA-016
+@pytest.mark.skip(reason="skeleton")
+def test_idea_016_leave_open_redispatches_propose_with_matrix_ref_and_notes():
+    pass
+
+
+# @spec ROUTE-IDEA-017
+@pytest.mark.skip(reason="skeleton")
+def test_idea_017_propose_council_route_to_other_than_planner_is_envelope_invalid():
+    pass
+
+
+# @spec ROUTE-IDEA-018
+@pytest.mark.skip(reason="skeleton")
+def test_idea_018_idea_triage_result_with_moved_head_is_worktree_moved():
+    pass
+
+
+# @spec ROUTE-IDEA-019
+@pytest.mark.skip(reason="skeleton")
+def test_idea_019_proposal_ready_missing_or_blank_proposal_is_envelope_invalid():
+    pass
+
+
+# @spec ROUTE-IDEA-020
+@pytest.mark.skip(reason="skeleton")
+def test_idea_020_proposal_ready_with_files_touched_is_envelope_invalid():
+    pass
+
+
+# @spec ROUTE-IDEA-021
+@pytest.mark.skip(reason="skeleton")
+def test_idea_021_report_sent_without_url_is_envelope_invalid():
+    pass
+
+
+# @spec ROUTE-IDEA-022
+@pytest.mark.skip(reason="skeleton")
+def test_idea_022_idea_report_url_not_matching_repo_issue_is_envelope_invalid():
+    pass
+
+
+# @spec ROUTE-IDEA-023
+@pytest.mark.skip(reason="skeleton")
+def test_idea_023_proposal_ready_with_unchanged_proposal_mtime_is_envelope_invalid():
+    pass
+
+
+# @spec ROUTE-IDEA-024
+@pytest.mark.skip(reason="skeleton")
+def test_idea_024_propose_dispatch_records_proposal_mtime_ns():
+    pass
+
+
+# @spec ROUTE-IDEA-025
+@pytest.mark.skip(reason="skeleton")
+def test_idea_025_redo_of_propose_keeps_proposal_mtime_ns():
+    pass
+
+
+# @spec ROUTE-IDEA-026
+@pytest.mark.skip(reason="skeleton")
+def test_idea_026_every_propose_dispatch_uses_planner_propose_mode():
+    pass
+
+
+# @spec ROUTE-IDEA-027
+@pytest.mark.skip(reason="skeleton")
+def test_idea_027_every_idea_triage_recon_dispatch_uses_scout_idea_or_triage_mode():
+    pass
