@@ -1924,3 +1924,15 @@ def test_ws_promote_013_promote_close_failure_returns_close_status_keeps_build_o
     assert res.json["identity"]["workstream"] == BUILD_WS
     assert not source["worktree"].exists() and len(archived(source, source["ws"])) == 1
     assert sorted(p.name for p in build_dir(source).parent.iterdir()) == [BUILD_WS]
+
+
+# @spec WS-PROMOTE-014
+@pytest.mark.skip(reason="skeleton: WS-PROMOTE-014")
+def test_ws_promote_014_promote_object_missing_or_empty_issue_or_proposal_returns_state_invalid_naming_fields():
+    pass
+
+
+# @spec WS-PROMOTE-015
+@pytest.mark.skip(reason="skeleton: WS-PROMOTE-015")
+def test_ws_promote_015_promote_non_object_lifecycle_promote_returns_state_invalid_naming_lifecycle_promote():
+    pass
