@@ -37,7 +37,7 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 
 ## Dispatch
 
-- [x] **ROUTE-DISP-001**: When `next_step.py` dispatches an agent, it shall record `{dispatch_id, agent, mode, base_sha}` in `lifecycle.dispatched` with a new unique `dispatch_id` and `base_sha` equal to `HEAD`.
+- [x] **ROUTE-DISP-001**: When `next_step.py` dispatches an agent, it shall record exactly `{dispatch_id, agent, mode, base_sha}` in `lifecycle.dispatched`, plus `proposal_mtime_ns` per ROUTE-IDEA-024 for a `PROPOSE` dispatch, with a new unique `dispatch_id` and `base_sha` equal to `HEAD`.
 - [ ] **ROUTE-DISP-002**: When `next_step.py` dispatches an agent, the invocation envelope shall carry `dispatch_id`, `agent`, `mode`, `state_path`, `base_sha`, `assigned_scope`, `context_refs`, and `notes`, plus `stage` for `forge-qa`, `forge-dev`, and `forge-planner` in every mode but `propose`.
 - [x] **ROUTE-DISP-003**: `next_step.py` shall set the envelope's `stage` to `LID-S<n>` for LID planning stage `n`, `NAIVE-PLAN` for naive planning, `COLLAB-SKEL` for QA skeletons, `COLLAB-STUB` for dev stubs, `LID-S5` or `NAIVE-TESTS` for QA full tests in a LID or naive repository, `LID-S6` or `NAIVE-IMPL` for dev full implementation in a LID or naive repository, and `REPAIR` for repair dispatches.
 - [x] **ROUTE-DISP-004**: When dispatching `forge-qa` or `forge-dev` in `QA_SKEL`, `DEV_STUB`, `QA_FULL`, or `DEV_FULL`, `next_step.py` shall set `assigned_scope` to `scope_manifest.remaining`.
@@ -149,6 +149,9 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 - [ ] **ROUTE-IDEA-020**: If a `result` event with status `PROPOSAL_READY` has a non-empty `files_touched`, then `next_step.py` shall return `stop` with `ENVELOPE_INVALID` and change no state.
 - [ ] **ROUTE-IDEA-021**: If a `result` event with status `REPORT_SENT` in an `idea`- or `triage`-flow workstream has no `report.url` that is a non-empty string, then `next_step.py` shall return `stop` with `ENVELOPE_INVALID` and change no state.
 - [ ] **ROUTE-IDEA-022**: If a `result` event with status `REPORT_SENT` in an `idea`-flow workstream has a `report.url` not of the form `https://<host>/<path>/issues/<number>`, with `<number>` one or more decimal digits and `<path>` two or more `/`-separated segments from which WS-ID-001 and WS-ID-003 derive `identity.org` and `identity.repo`, then `next_step.py` shall return `stop` with `ENVELOPE_INVALID` and change no state.
+- [ ] **ROUTE-IDEA-023**: If a `result` event with status `PROPOSAL_READY` arrives while `proposal.md` in the workstream's state directory does not exist or has an `st_mtime_ns` equal to `lifecycle.dispatched.proposal_mtime_ns`, then `next_step.py` shall return `stop` with `ENVELOPE_INVALID` and change no state.
+- [ ] **ROUTE-IDEA-024**: When `next_step.py` dispatches `PROPOSE`, it shall set `lifecycle.dispatched.proposal_mtime_ns` to the `st_mtime_ns` of `proposal.md` in the workstream's state directory, or to `null` when that file does not exist.
+- [ ] **ROUTE-IDEA-025**: When `next_step.py` returns a stored `PROPOSE` invocation again per ROUTE-REDO-002, it shall leave `lifecycle.dispatched.proposal_mtime_ns` at the value recorded when that dispatch was made.
 
 ## Entry guards
 
