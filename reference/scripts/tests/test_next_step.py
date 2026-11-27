@@ -2366,7 +2366,7 @@ def test_pr_review_drift_stops_with_worktree_moved(pr):
     pr.start()
     pr.result("OK")
     pr.human_commit({"src/h.py": "h\n"})
-    assert stops(pr.run(), "WORKTREE_MOVED")
+    unchanged_stop(pr, pr.run, "WORKTREE_MOVED")
 
 
 # @spec ROUTE-DRIFT-010
