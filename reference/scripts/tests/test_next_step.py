@@ -2910,6 +2910,12 @@ def test_idea_025_redo_of_propose_keeps_proposal_mtime_ns(study):
     assert study.state()["lifecycle"]["dispatched"]["proposal_mtime_ns"] == mtime
 
 
+# @spec ROUTE-IDEA-025
+@pytest.mark.skip(reason="skeleton")
+def test_idea_025_dirty_tree_redispatch_of_propose_keeps_proposal_mtime_ns(study):
+    pass
+
+
 # @spec ROUTE-IDEA-026
 def test_idea_026_every_propose_dispatch_uses_planner_propose_mode(study):
     assert dispatches(at_propose(study), "forge-planner", "propose")
