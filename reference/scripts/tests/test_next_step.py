@@ -2911,9 +2911,19 @@ def test_idea_025_redo_of_propose_keeps_proposal_mtime_ns(study):
 
 
 # @spec ROUTE-IDEA-025
-@pytest.mark.skip(reason="skeleton")
 def test_idea_025_dirty_tree_redispatch_of_propose_keeps_proposal_mtime_ns(study):
-    pass
+    study.start()
+    mtime = write_proposal(study, "# old\n")
+    first = study.result("OK")
+    wip = Path(study.wt, "wip.txt")
+    wip.write_text("wip\n")
+    assert pauses(study.run(), "dirty_tree")
+    wip.unlink()
+    write_proposal(study, "# rewritten\n")
+    again = study.user("stash")
+    assert dispatches(again, "forge-planner", "propose")
+    assert again["invoke"]["dispatch_id"] != first["invoke"]["dispatch_id"]
+    assert study.state()["lifecycle"]["dispatched"]["proposal_mtime_ns"] == mtime
 
 
 # @spec ROUTE-IDEA-026
