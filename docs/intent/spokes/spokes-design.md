@@ -26,7 +26,7 @@ Two tenets shape every spoke:
 | `dev/` | `SPOKE-DEV` | `forge-dev`: stubs, implementation, production repairs |
 | `verifier/` | `SPOKE-VER` | `forge-verifier` and `lid_check.py`: mechanical checks and the scope delta |
 | `reviewer/` | `SPOKE-REV` | `forge-reviewer`: internal review and external pull request review |
-| `scout/` | `SPOKE-SCOUT` | `forge-scout`: issue and pull request recon, CI watching |
+| `scout/` | `SPOKE-SCOUT` | `forge-scout`: issue, related-work, and pull request recon, CI watching |
 | `publisher/` | `SPOKE-PUB` | `forge-publisher`: push, or confirm a merge is possible |
 | `reporter/` | `SPOKE-REP` | `forge-reporter`: pull request text and review submissions |
 | `council/` | `SPOKE-COUNCIL` | `forge-council` and its six personas |
@@ -72,7 +72,7 @@ Each spoke has a Claude Code agent profile, `claude/agents/forge-<role>.md`:
 | `forge-dev` | `sonnet` | Read, Grep, Glob, Bash, Write, Edit | `forge-spoke`, `forge-memory`, `forge-dev` |
 | `forge-verifier` | `sonnet` | Read, Grep, Glob, Bash, Write | `forge-spoke`, `forge-memory`, `forge-verifier` |
 | `forge-reviewer` | `opus` | Read, Grep, Glob, Bash, Write | `forge-spoke`, `forge-memory`, `forge-reviewer` |
-| `forge-scout` | `haiku` | Read, Grep, Glob, Bash, Write | `forge-spoke`, `forge-memory`, `forge-scout` |
+| `forge-scout` | `haiku` | Read, Grep, Glob, Bash, Write | `forge-spoke`, `forge-memory`, `forge-scout`, `forge-github-gh` |
 | `forge-publisher` | `haiku` | Read, Bash, Write | `forge-spoke`, `forge-memory`, `forge-publisher` |
 | `forge-reporter` | `haiku` | Read, Grep, Glob, Bash, Write | `forge-spoke`, `forge-memory`, `forge-reporter` |
 | `forge-council` | `sonnet` | Read, Grep, Glob, Bash, Write, Agent | `forge-spoke`, `forge-memory`, `forge-council` |
