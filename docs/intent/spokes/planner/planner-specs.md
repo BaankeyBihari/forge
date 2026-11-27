@@ -21,8 +21,8 @@ Every spec here describes what the `forge-planner` skill tells the planner to do
 
 ## Forks
 
-- [D] **SPOKE-PLAN-FORK-001**: The `forge-planner` skill shall tell the planner, when a requirement has more than one plausible reading that the task, the issue, and the repository do not settle, to return `CONCERNS` with each reading and its consequences in `escalation.details`, and never to choose a reading itself.
-- [D] **SPOKE-PLAN-FORK-002**: The `forge-planner` skill shall tell the planner to commit the work finished before a fork, before returning `CONCERNS`.
+- [D] **SPOKE-PLAN-FORK-001**: The `forge-planner` skill shall tell the planner in modes `strict`, `auto`, and `naive`, when a requirement has more than one plausible reading that the task, the issue, and the repository do not settle, to return `CONCERNS` with each reading and its consequences in `escalation.details`, and never to choose a reading itself.
+- [D] **SPOKE-PLAN-FORK-002**: The `forge-planner` skill shall tell the planner in modes `strict`, `auto`, and `naive` to commit the work finished before a fork, before returning `CONCERNS`.
 - [D] **SPOKE-PLAN-FORK-003**: The `forge-planner` skill shall tell the planner in mode `repair` to return `ERROR` describing a fork it finds, instead of `CONCERNS`.
 - [D] **SPOKE-PLAN-FORK-004**: When re-dispatched after a council ruling, the `forge-planner` skill shall tell the planner to apply the chosen option's `delta` from `notes`, reading the decision matrix in `context_refs` for its reasons.
 
@@ -32,7 +32,31 @@ Every spec here describes what the `forge-planner` skill tells the planner to do
 - [D] **SPOKE-PLAN-REV-001**: When re-dispatched after `revise`, the `forge-planner` skill shall tell the planner to change what the user's `notes` ask for and commit each change under the stage it belongs to.
 - [D] **SPOKE-PLAN-DEFER-001**: The `forge-planner` skill shall tell the planner to mark with `D` each spec whose behavior no automated test can verify, and to state in that spec file why it is deferred.
 
+## Proposal
+
+- [D] **SPOKE-PLAN-PROP-001**: When dispatched with mode `propose`, the `forge-planner` skill shall tell the planner to investigate the code in the worktree without committing and without changing any file in the worktree.
+- [D] **SPOKE-PLAN-PROP-002**: The `forge-planner` skill shall tell the planner in mode `propose` that its one write, besides its result envelope and memory entry, is `proposal.md` in the workstream's state directory, the directory holding `state.json`.
+- [D] **SPOKE-PLAN-PROP-003**: The `forge-planner` skill shall tell the planner in mode `propose` to return `PROPOSAL_READY` once `proposal.md` holds the proposal.
+- [D] **SPOKE-PLAN-PROP-004**: The `forge-planner` skill shall tell the planner in mode `propose` to write `proposal.md` whole on every dispatch that returns `PROPOSAL_READY`, even when its content stands unchanged.
+- [D] **SPOKE-PLAN-PROP-005**: The `forge-planner` skill shall tell the planner in mode `propose`, when `context_refs` name an earlier `proposal.md`, to start from it and change only what `notes` ask for, keeping every part `notes` do not question, open decisions included.
+- [D] **SPOKE-PLAN-PROP-006**: The `forge-planner` skill shall tell the planner in mode `propose`, when `context_refs` name no earlier `proposal.md`, to write the proposal from `task.md` when `context_refs` name it, the files of the `scout/` directory `context_refs` name, and the code.
+- [D] **SPOKE-PLAN-PROP-007**: The `forge-planner` skill shall tell the planner in mode `propose` to leave `proposal.md` as it was when returning `CONCERNS` or `ERROR`.
+- [D] **SPOKE-PLAN-PROP-008**: The `forge-planner` skill shall tell the planner in mode `propose` to write `proposal.md` as Markdown holding, in this order, a `#` title naming the proposed change and sections headed Problem, Findings, Proposal, and Done when, followed by a section headed Open decisions only when the user left a decision open.
+- [D] **SPOKE-PLAN-PROP-009**: The `forge-planner` skill shall tell the planner in mode `propose` to state under Problem what the idea or issue asks for and why, as the planner reads it.
+- [D] **SPOKE-PLAN-PROP-010**: The `forge-planner` skill shall tell the planner in mode `propose` to state under Findings what the code does today where the change would land, citing repository paths, and the related issues and pull requests the scout found, by number.
+- [D] **SPOKE-PLAN-PROP-011**: The `forge-planner` skill shall tell the planner in mode `propose` to state under Proposal the approach, the areas of the repository it would change, the design nodes it would change while `config.repo_mode` is `LID`, and each alternative weighed with why it was not chosen.
+- [D] **SPOKE-PLAN-PROP-012**: The `forge-planner` skill shall tell the planner in mode `propose` to state under Done when the observable outcomes that show the change is complete.
+- [D] **SPOKE-PLAN-PROP-013**: The `forge-planner` skill shall tell the planner in mode `propose` to state under Open decisions, for each decision the user left open, the question, the council's options with their consequences, and the council's recommendation, marked as unresolved.
+- [D] **SPOKE-PLAN-PROP-014**: The `forge-planner` skill shall tell the planner in mode `propose` to name no path in the workstream's state directory in `proposal.md`, and to carry as text what the proposal needs from the scout's files or a decision matrix.
+- [D] **SPOKE-PLAN-PROP-015**: The `forge-planner` skill shall tell the planner in mode `propose` to put in `proposal.md` no question its inputs settle and no fork the user has not left open.
+- [D] **SPOKE-PLAN-PROP-016**: The `forge-planner` skill shall tell the planner in mode `propose`, when a requirement has more than one plausible reading that the task, the issue, the scout's context, and the code do not settle, to return `CONCERNS` with each reading and its consequences in `escalation.details`, and never to choose a reading itself.
+- [D] **SPOKE-PLAN-PROP-017**: The `forge-planner` skill shall tell the planner in mode `propose`, when it returns `CONCERNS` from a dispatch whose `notes` are not empty, to restate those `notes` in `escalation.details`.
+- [D] **SPOKE-PLAN-PROP-018**: The `forge-planner` skill shall tell the planner in mode `propose` that the decision matrix a council ruling or `leave_open` refers to is the last entry of `context_refs`.
+- [D] **SPOKE-PLAN-PROP-019**: When re-dispatched in mode `propose` with `notes` telling it to present the council's options and recommendation as an open decision, the `forge-planner` skill shall tell the planner to add that decision to Open decisions from the decision matrix and to settle nothing in it.
+- [D] **SPOKE-PLAN-PROP-020**: When re-dispatched in mode `propose` with `notes` telling it to present the council's options and recommendation as an open decision, the `forge-planner` skill shall tell the planner to apply the user's text that follows that instruction in `notes`, when there is any.
+- [D] **SPOKE-PLAN-PROP-021**: The `forge-planner` skill shall tell the planner in mode `propose`, when `context_refs` hold the reporter's rejected draft envelope, to read that draft for what the user saw before changing the proposal as `notes` ask.
+
 ## Boundaries
 
-- [D] **SPOKE-PLAN-BOUND-001**: The `forge-planner` skill shall tell the planner to change only `PLAN.md` at the repository root and paths under `docs/`.
+- [D] **SPOKE-PLAN-BOUND-001**: The `forge-planner` skill shall tell the planner in every mode other than `propose` to change only `PLAN.md` at the repository root and paths under `docs/`.
 - [D] **SPOKE-PLAN-BOUND-002**: The `forge-planner` skill shall tell the planner to plan with LID stages only while `config.repo_mode` is `LID`, and never to add LID structure to a repository that has none.
