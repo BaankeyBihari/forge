@@ -2924,6 +2924,74 @@ def test_idea_025_dirty_tree_redispatch_of_propose_keeps_proposal_mtime_ns(study
     assert dispatches(again, "forge-planner", "propose")
     assert again["invoke"]["dispatch_id"] != first["invoke"]["dispatch_id"]
     assert study.state()["lifecycle"]["dispatched"]["proposal_mtime_ns"] == mtime
+    changed = {"dispatch_id", "base_sha", "agent_prefix", "dispatch_as"}
+    assert {k: v for k, v in again["invoke"].items() if k not in changed} == \
+        {k: v for k, v in first["invoke"].items() if k not in changed}
+
+
+# @spec ROUTE-DISP-002
+def test_disp_002_propose_invocation_has_no_stage(study):
+    assert "stage" not in at_propose(study)["invoke"]
+
+
+# @spec ROUTE-DISP-009
+def test_disp_009_task_first_in_recon_and_propose_refs(study):
+    task = with_task(study)
+    for decision in (study.start(), study.result("OK")):
+        refs = decision["invoke"]["context_refs"]
+        assert refs[0] == task and refs.count(task) == 1
+
+
+# @spec ROUTE-ENV-004
+def test_env_004_propose_head_sha_differing_from_base_sha_is_envelope_invalid(study):
+    at_propose(study)
+    write_proposal(study)
+    other = "0" * 40
+    assert other != head(study.wt)
+    unchanged_stop(study, lambda: study.result("PROPOSAL_READY", head_sha=other))
+
+
+# @spec ROUTE-ENV-013
+def test_env_013_proposal_ready_sets_report_input_to_planner_envelope(study):
+    at_propose(study)
+    write_proposal(study)
+    planner = dispatched_id(study)
+    study.result("PROPOSAL_READY")
+    assert study.state()["lifecycle"]["report_input"] == envelope_file(study, planner)
+
+
+# @spec ROUTE-ENV-002, ROUTE-ENV-014
+@pytest.mark.parametrize("status", ["READY_FOR_QA", "STAGE_COMPLETE", "OK"])
+def test_env_014_propose_rejects_statuses_outside_its_table(study, status):
+    at_propose(study)
+    unchanged_stop(study, lambda: study.result(status))
+
+
+# @spec ROUTE-BLK-002
+def test_blk_002_propose_concerns_sets_resume_phase_propose(study):
+    at_propose(study)
+    study.result("CONCERNS", escalation={"details": "open question"})
+    assert study.state()["lifecycle"]["resume_phase"] == "PROPOSE"
+
+
+# @spec ROUTE-BLK-009, ROUTE-IDEA-026
+def test_blk_009_propose_concerns_ruling_redispatches_propose(study):
+    blocked = at_propose_council_signoff(study)
+    decision = study.user("approve", option="B")
+    assert dispatches(decision, "forge-planner", "propose")
+    assert study.state()["lifecycle"]["current_phase"] == "PROPOSE"
+    assert decision["invoke"]["context_refs"] == [*blocked, "council/matrix.md"]
+    assert DELTA_B in json.dumps(decision["invoke"]["notes"])
+
+
+# @spec ROUTE-DRIFT-009
+@pytest.mark.parametrize("phase", ["RECON", "PROPOSE"])
+def test_drift_009_idea_triage_drift_stops_with_worktree_moved(study, phase):
+    study.start()
+    if phase == "PROPOSE":
+        study.result("OK")
+    study.human_commit({"src/h.py": "h\n"})
+    assert stops(study.run(), "WORKTREE_MOVED")
 
 
 # @spec ROUTE-IDEA-026
