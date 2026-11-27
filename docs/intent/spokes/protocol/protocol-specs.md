@@ -75,11 +75,12 @@ Specs under *Skill instructions* describe what the `forge-spoke` skill tells eve
 - [x] **SPOKE-PROTO-PROF-002**: `claude/agents/forge-qa.md` and `claude/agents/forge-dev.md` shall each set `model: sonnet`, tools Read, Grep, Glob, Bash, Write, Edit, and preload `forge-spoke`, `forge-memory`, and the skill of the same name as the agent.
 - [x] **SPOKE-PROTO-PROF-003**: `claude/agents/forge-verifier.md` shall set `model: sonnet`, tools Read, Grep, Glob, Bash, Write, and preload `forge-spoke`, `forge-memory`, and `forge-verifier`.
 - [x] **SPOKE-PROTO-PROF-004**: `claude/agents/forge-reviewer.md` shall set `model: opus`, tools Read, Grep, Glob, Bash, Write, and preload `forge-spoke`, `forge-memory`, and `forge-reviewer`.
-- [x] **SPOKE-PROTO-PROF-005**: `claude/agents/forge-scout.md` and `claude/agents/forge-reporter.md` shall each set `model: haiku`, tools Read, Grep, Glob, Bash, Write, and preload `forge-spoke`, `forge-memory`, and the skill of the same name as the agent.
+- [x] **SPOKE-PROTO-PROF-005**: `claude/agents/forge-reporter.md` shall set `model: haiku`, tools Read, Grep, Glob, Bash, Write, and preload `forge-spoke`, `forge-memory`, and `forge-reporter`.
 - [x] **SPOKE-PROTO-PROF-006**: `claude/agents/forge-publisher.md` shall set `model: haiku`, tools Read, Bash, Write, and preload `forge-spoke`, `forge-memory`, and `forge-publisher`.
 - [x] **SPOKE-PROTO-PROF-007**: `claude/agents/forge-council.md` shall set `model: sonnet`, tools Read, Grep, Glob, Bash, Write, Agent, and preload `forge-spoke`, `forge-memory`, and `forge-council`.
 - [x] **SPOKE-PROTO-PROF-008**: For each of `pm`, `architect`, `sec-ops`, `debugger`, `senior-dev`, and `critic`, `claude/agents/forge-council-<persona>.md` shall set `model: opus` and tools Read, Grep, Glob only, and preload no skill.
 - [x] **SPOKE-PROTO-PROF-009**: The body of each spoke profile other than the persona profiles shall name the agent and tell it to follow the `forge-spoke` skill for the dispatch it receives.
+- [ ] **SPOKE-PROTO-PROF-010**: `claude/agents/forge-scout.md` shall set `model: haiku`, tools Read, Grep, Glob, Bash, Write, and preload `forge-spoke`, `forge-memory`, `forge-scout`, and `forge-github-gh`.
 
 ## Skill instructions
 
