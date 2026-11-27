@@ -2991,7 +2991,7 @@ def test_drift_009_idea_triage_drift_stops_with_worktree_moved(study, phase):
     if phase == "PROPOSE":
         study.result("OK")
     study.human_commit({"src/h.py": "h\n"})
-    assert stops(study.run(), "WORKTREE_MOVED")
+    unchanged_stop(study, study.run, "WORKTREE_MOVED")
 
 
 # @spec ROUTE-IDEA-026
