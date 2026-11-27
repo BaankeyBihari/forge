@@ -13,7 +13,7 @@ Names used below:
 - `<worktree>`: `identity.worktree_path`.
 - `<scratchpad>`: the session scratchpad directory.
 
-<!-- @spec SPOKE-SCOUT-GH-001 -->
+<!-- @spec SPOKE-SCOUT-GH-001, SPOKE-SCOUT-GH-002 -->
 ## 1. The `gh` commands
 
 Before running a mode's `gh` commands, read the `forge-github-gh` reference file for that mode: `references/issues.md` for `PRE_PLAN`, `TRIAGE`, and `IDEA`; `references/pulls.md` for `PR_FETCH`; `references/ci.md` for `CI_WATCH` and `CI_RERUN`.

@@ -2,6 +2,7 @@
 name: forge-github-gh
 description: The gh commands Forge roles run against GitHub issues, pull requests, and workflow runs, and the rules every gh call shares. Preloaded by roles that use GitHub.
 ---
+<!-- @spec GH-LAYOUT-001, GH-LAYOUT-002 -->
 
 # Forge GitHub `gh` commands
 

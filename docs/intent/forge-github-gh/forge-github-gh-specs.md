@@ -6,8 +6,8 @@ Specs under *Layout* are tested with pytest. Every other spec describes what the
 
 ## Layout
 
-- [ ] **GH-LAYOUT-001**: `reference/skills/forge-github-gh/` shall hold `SKILL.md`, `references/issues.md`, `references/pulls.md`, and `references/ci.md`.
-- [ ] **GH-LAYOUT-002**: `claude/skills/forge-github-gh` shall be a symbolic link to `../../reference/skills/forge-github-gh`.
+- [x] **GH-LAYOUT-001**: `reference/skills/forge-github-gh/` shall hold `SKILL.md`, `references/issues.md`, `references/pulls.md`, and `references/ci.md`.
+- [x] **GH-LAYOUT-002**: `claude/skills/forge-github-gh` shall be a symbolic link to `../../reference/skills/forge-github-gh`.
 
 ## Index
 

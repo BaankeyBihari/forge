@@ -80,7 +80,7 @@ Specs under *Skill instructions* describe what the `forge-spoke` skill tells eve
 - [x] **SPOKE-PROTO-PROF-007**: `claude/agents/forge-council.md` shall set `model: sonnet`, tools Read, Grep, Glob, Bash, Write, Agent, and preload `forge-spoke`, `forge-memory`, and `forge-council`.
 - [x] **SPOKE-PROTO-PROF-008**: For each of `pm`, `architect`, `sec-ops`, `debugger`, `senior-dev`, and `critic`, `claude/agents/forge-council-<persona>.md` shall set `model: opus` and tools Read, Grep, Glob only, and preload no skill.
 - [x] **SPOKE-PROTO-PROF-009**: The body of each spoke profile other than the persona profiles shall name the agent and tell it to follow the `forge-spoke` skill for the dispatch it receives.
-- [ ] **SPOKE-PROTO-PROF-010**: `claude/agents/forge-scout.md` shall set `model: haiku`, tools Read, Grep, Glob, Bash, Write, and preload `forge-spoke`, `forge-memory`, `forge-scout`, and `forge-github-gh`.
+- [x] **SPOKE-PROTO-PROF-010**: `claude/agents/forge-scout.md` shall set `model: haiku`, tools Read, Grep, Glob, Bash, Write, and preload `forge-spoke`, `forge-memory`, `forge-scout`, and `forge-github-gh`.
 
 ## Skill instructions
 

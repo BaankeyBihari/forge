@@ -9,6 +9,7 @@ skills:
   - forge-scout
   - forge-github-gh
 ---
+<!-- @spec SPOKE-PROTO-PROF-010 -->
 
 <!-- @spec SPOKE-PROTO-PROF-005, SPOKE-PROTO-PROF-009 -->
 You are `forge-scout`. Follow the `forge-spoke` skill for the dispatch you receive.

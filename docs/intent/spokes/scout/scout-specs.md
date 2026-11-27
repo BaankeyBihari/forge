@@ -29,7 +29,7 @@ Every spec here other than SPOKE-SCOUT-GH-002 describes what the `forge-scout` s
 ## GitHub commands
 
 - [D] **SPOKE-SCOUT-GH-001**: The `forge-scout` skill shall tell the scout to read, before running a mode's `gh` commands, the `forge-github-gh` reference file for that mode: `references/issues.md` for `PRE_PLAN`, `TRIAGE`, and `IDEA`; `references/pulls.md` for `PR_FETCH`; `references/ci.md` for `CI_WATCH` and `CI_RERUN`.
-- [ ] **SPOKE-SCOUT-GH-002**: `reference/skills/forge-scout/SKILL.md` shall hold no fenced code block with a line on which `gh` followed by a space stands at the start of the line or after a space, `(`, `|`, `;`, or `&`.
+- [x] **SPOKE-SCOUT-GH-002**: `reference/skills/forge-scout/SKILL.md` shall hold no fenced code block with a line on which `gh` followed by a space stands at the start of the line or after a space, `(`, `|`, `;`, or `&`.
 
 ## CI watch
 
