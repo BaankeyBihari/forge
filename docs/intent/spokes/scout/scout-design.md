@@ -30,7 +30,7 @@ Reads `identity.issue` with `gh issue view` (title, body, labels, comments, link
 
 ### `TRIAGE`
 
-Reads the issue in `identity.issue` and writes `issue.md` exactly as `PRE_PLAN` does, then searches for related work (below) and writes `related.md`. `task.md`, when the workstream has one, holds what the user wants from the issue; the scout uses it to choose search terms and records nothing from it, since the planner reads it directly.
+Reads the issue in `identity.issue` and writes `issue.md` exactly as `PRE_PLAN` does, then searches for related work (below) and writes `related.md`. `task.md`, when the workstream has one, holds what the user wants from the issue; the scout uses it to choose search terms and records nothing from it beyond those terms, since the planner reads it directly.
 
 ### `IDEA`
 
@@ -38,7 +38,7 @@ There is no issue. The scout reads the idea in `task.md`, searches for related w
 
 ### Searching related work
 
-`TRIAGE` and `IDEA` search the workstream's repository (`identity.org`/`identity.repo`) for issues and pull requests, open or closed, that touch the same problem: two to four searches with terms taken from the idea, or from the issue and `task.md`, each returning at most 20 results. The scout opens a candidate whose title alone does not show whether it relates, and keeps only the ones that do. In `TRIAGE` it leaves out the issue itself and the work `issue.md` already lists under linked work.
+`TRIAGE` and `IDEA` search the workstream's repository (`identity.org`/`identity.repo`) for issues and pull requests, open or closed, that touch the same problem: two to four searches with terms taken from the idea, or from the issue and `task.md`, each set of terms run once for issues and once for pull requests and each run returning at most 20 results. The scout opens a candidate whose title alone does not show whether it relates, and keeps only the ones that do. In `TRIAGE` it leaves out the issue itself and the work `issue.md` already lists under linked work.
 
 `related.md` lists each related issue or pull request by number, with whether it is an issue or a pull request, its state, its title, and one line on how it relates, followed by the searches run. With nothing found it still lists the searches and says none related, so the planner can tell an empty result from a missing search.
 
@@ -58,7 +58,7 @@ Watches the CI runs for `HEAD`:
 2. Wait for every run to finish by polling `gh run list --commit <HEAD>` every 30 seconds.
 3. All passed: `CI_GREEN`. Any failed: for each failed run, `gh run view <id> --log-failed`, and write `ci-<run id>.md` with the run, the failed jobs and steps, and the shortest log excerpt that shows each failure. Return `CI_FAILED` with `escalation.details` naming those files and a one-line cause per run.
 
-Each wait is one shell command that polls for up to 9 minutes, stays within the shell call's 10-minute time limit, exits early when `.STOP_FORGE` exists at the main worktree's root or the workstream worktree's root, and carries its round number, so no two wait calls are identical and the guard's duplicate-call breaker never trips. The scout keeps issuing rounds for up to 60 minutes in total; runs still unfinished then are returned as `ERROR` saying they are in progress, and resuming the workstream watches again. A run's conclusion `success`, `skipped`, or `neutral` passes; `failure`, `timed_out`, `startup_failure`, or `cancelled` fails; a run waiting for approval or `action_required` is returned as `ERROR` naming the run, because only the user can release it.
+Each wait is one shell command that polls for up to 9 minutes, stays within the shell call's 10-minute time limit, exits early when `.STOP_FORGE` exists at the main worktree's root or the workstream worktree's root, and carries its round number, so no two wait calls are identical and the guard's duplicate-call breaker never trips. When a wait prints `STOP_FORGE`, the scout ends its turn at once: the guard blocks every further call. The scout keeps issuing rounds for up to 60 minutes in total; runs still unfinished then are returned as `ERROR` saying they are in progress, and resuming the workstream watches again. A run's conclusion `success`, `skipped`, or `neutral` passes; `failure`, `timed_out`, `startup_failure`, or `cancelled` fails; a run waiting for approval or `action_required` is returned as `ERROR` naming the run, because only the user can release it.
 
 ### `CI_RERUN`
 
