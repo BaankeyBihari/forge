@@ -2944,11 +2944,17 @@ def test_disp_009_task_first_in_recon_and_propose_refs(study):
 
 # @spec ROUTE-ENV-004
 def test_env_004_propose_head_sha_differing_from_base_sha_is_envelope_invalid(study):
+    study.human_commit({"extra.txt": "extra\n"})
     at_propose(study)
     write_proposal(study)
-    other = "0" * 40
-    assert other != head(study.wt)
-    unchanged_stop(study, lambda: study.result("PROPOSAL_READY", head_sha=other))
+    parent = subprocess.run(["git", "-C", str(study.wt), "rev-parse", "HEAD~1"],
+                            capture_output=True, text=True, check=True).stdout.strip()
+    assert parent != head(study.wt)
+    before = study.sp.read_bytes()
+    decision = study.result("PROPOSAL_READY", head_sha=parent)
+    assert stops(decision, "ENVELOPE_INVALID")
+    assert "differs from the dispatch's base_sha" in json.dumps(decision)
+    assert study.sp.read_bytes() == before
 
 
 # @spec ROUTE-ENV-013
