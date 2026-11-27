@@ -84,9 +84,14 @@ def test_reviewer_profile():
 
 
 # @spec SPOKE-PROTO-PROF-005
-@pytest.mark.parametrize("name", ["forge-scout", "forge-reporter"])
-def test_scout_and_reporter_profiles(name):
-    assert_profile(name, "haiku", READ_TOOLS, {"forge-spoke", "forge-memory", name})
+def test_reporter_profile():
+    assert_profile("forge-reporter", "haiku", READ_TOOLS, {"forge-spoke", "forge-memory", "forge-reporter"})
+
+
+# @spec SPOKE-PROTO-PROF-010
+def test_scout_profile():
+    assert_profile("forge-scout", "haiku", READ_TOOLS,
+                   {"forge-spoke", "forge-memory", "forge-scout", "forge-github-gh"})
 
 
 # @spec SPOKE-PROTO-PROF-006
