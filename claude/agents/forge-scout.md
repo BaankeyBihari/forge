@@ -7,6 +7,7 @@ skills:
   - forge-spoke
   - forge-memory
   - forge-scout
+  - forge-github-gh
 ---
 
 <!-- @spec SPOKE-PROTO-PROF-005, SPOKE-PROTO-PROF-009 -->
