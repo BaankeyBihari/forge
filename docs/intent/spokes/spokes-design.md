@@ -21,7 +21,7 @@ Two tenets shape every spoke:
 | Leaf | Prefix | Owns |
 |---|---|---|
 | `protocol/` | `SPOKE-PROTO` | `forge_spoke.py` and the shared `forge-spoke` skill: reading the invocation, committing with trailers, finishing the envelope, scope facts |
-| `planner/` | `SPOKE-PLAN` | `forge-planner`: LID stages 1–4 or a `PLAN.md` |
+| `planner/` | `SPOKE-PLAN` | `forge-planner`: LID stages 1–4 or a `PLAN.md`; a proposal in idea and triage workstreams |
 | `qa/` | `SPOKE-QA` | `forge-qa`: test skeletons, full tests, test repairs |
 | `dev/` | `SPOKE-DEV` | `forge-dev`: stubs, implementation, production repairs |
 | `verifier/` | `SPOKE-VER` | `forge-verifier` and `lid_check.py`: mechanical checks and the scope delta |
@@ -45,7 +45,7 @@ Two tenets shape every spoke:
 
 ### Boundaries
 
-The guard (guard design) confines every spoke's file writes and shell commands; agent profile tool lists narrow them further. Write boundaries come from the gates design's path classes: the planner writes plan paths, `forge-qa` test paths, `forge-dev` production paths, and nobody else writes the repository. Every spoke may write its envelope file and the session scratchpad, and each spoke that has a memory partition (forge-memory design) may write that partition; the scout also writes the workstream's `scout/` directory and the council its `council/` directory.
+The guard (guard design) confines every spoke's file writes and shell commands; agent profile tool lists narrow them further. Write boundaries come from the gates design's path classes: the planner writes plan paths, `forge-qa` test paths, `forge-dev` production paths, and nobody else writes the repository. In idea and triage workstreams nobody writes the repository; the planner writes `proposal.md` in the workstream's state directory instead. Every spoke may write its envelope file and the session scratchpad, and each spoke that has a memory partition (forge-memory design) may write that partition; the scout also writes the workstream's `scout/` directory and the council its `council/` directory.
 
 ### Human-authored code
 

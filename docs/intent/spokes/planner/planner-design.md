@@ -7,7 +7,9 @@ prefix: SPOKE-PLAN
 
 ## Context and Design Philosophy
 
-`forge-planner` turns the task into the intent every later spoke builds against: in a LID repository, the HLD, LLD, EARS, and edge-audit stages of linked-intent development; in any other repository, a `PLAN.md`. It writes plan paths only (`PLAN.md` at the root and anything under `docs/`), and its last act in every plan is naming the scope: the repository path patterns the change will touch, which the verifier and builders work from.
+`forge-planner` turns the task into the intent every later spoke builds against: in a LID repository, the HLD, LLD, EARS, and edge-audit stages of linked-intent development; in any other repository, a `PLAN.md`. In a build workstream it writes plan paths only (`PLAN.md` at the root and anything under `docs/`), and its last act in every plan is naming the scope: the repository path patterns the change will touch, which the verifier and builders work from.
+
+In an idea or triage workstream the planner studies a change instead of planning it: in mode `propose` it investigates the code without changing the repository and writes a proposal, `proposal.md` in the workstream's state directory. The reporter turns the proposal into a new issue (idea) or a comment on the issue (triage), and promotion makes it the task description of the build workstream that follows.
 
 The planner cannot talk to the user. Every point where linked-intent development would stop for the user's judgment is a Forge pause instead: a stage boundary is `plan_approval` in `strict` cadence, and a reading only the user can choose is `CONCERNS`, which goes through the council to the user. The planner never picks one reading of an ambiguous requirement itself.
 
@@ -15,7 +17,7 @@ Bootstrapping linked-intent development in a repository that has none is not par
 
 ## Inputs
 
-The invocation's `context_refs` carry the scout's directory when the workstream came from an issue, and the council's decision matrix after `CONCERNS`. `notes` holds the user's text after `revise`, the chosen council option's `delta` after `CONCERNS`, or the review findings in `repair`.
+The invocation's `context_refs` carry `task.md` first when the workstream has one, the scout's directory when the workstream came from an issue, and the council's decision matrix after `CONCERNS`. `notes` holds the user's text after `revise`, the chosen council option's `delta` after `CONCERNS`, or the review findings in `repair`. The inputs of mode `propose` are listed under *Proposal*.
 
 ## Modes
 
@@ -25,8 +27,9 @@ The invocation's `context_refs` carry the scout's directory when the workstream 
 | `auto` | `PLAN_S1` onward | Every remaining stage in order, in one dispatch | `READY_FOR_QA` |
 | `naive` | `PLAN` | Writes `PLAN.md` | `READY_FOR_QA` |
 | `repair` | `REPAIR` | Applies review findings routed to the planner (`notes`) | `REPAIR_COMMITTED` |
+| `propose` | `PROPOSE` | Investigates the code read-only and writes `proposal.md` in the workstream's state directory | `PROPOSAL_READY` |
 
-`strict`, `auto`, and `naive` may also return `CONCERNS`. `repair` returns only `REPAIR_COMMITTED` or `ERROR`; a repair that reveals a fork returns `ERROR` describing it. The planner never returns `HUMAN_CODE_CHANGE_REQUESTED`: its commits are exempt from the human-code rule.
+`strict`, `auto`, `naive`, and `propose` may also return `CONCERNS`. `repair` returns only `REPAIR_COMMITTED` or `ERROR`; a repair that reveals a fork returns `ERROR` describing it. The planner never returns `HUMAN_CODE_CHANGE_REQUESTED`: its commits are exempt from the human-code rule.
 
 ### LID stages
 
@@ -37,6 +40,29 @@ The skill's instructions to stop for the user are met by Forge's pauses: in `str
 ### Naive plan
 
 `PLAN.md` holds the goal, the approach, the scope patterns, the tests to write, and anything left open. An existing `PLAN.md` from an earlier workstream is replaced.
+
+### Proposal
+
+Mode `propose` runs in `PROPOSE` of an idea or triage workstream, whose worktree is detached at the default branch. The planner reads the code there to ground the proposal and leaves the worktree as it found it: it commits nothing and changes no file in it. Besides its envelope and memory entry, its one write is `proposal.md` in the workstream's state directory, and `PROPOSAL_READY` carries an empty `files_touched`.
+
+**Inputs.** `context_refs` hold `task.md` when the workstream has one (the user's idea, or what the user wants from the issue) and the workstream's `scout/` directory (what the scout gathered from the tracker: the issue itself in triage, related issues and pull requests in both flows). After `replan` they also hold the earlier `proposal.md` and the reporter's rejected draft envelope; after a council ruling or `leave_open`, the council's decision matrix. `notes` hold the user's text after `replan`, the chosen option's `delta` after a ruling, and after `leave_open` the instruction to present the council's options and recommendation as an open decision, followed by the user's text when they gave any.
+
+**Writing.** Every dispatch that returns `PROPOSAL_READY` writes `proposal.md` whole, even when its content stands: the router accepts `PROPOSAL_READY` only when the file was rewritten during the dispatch (router design, *Proposal freshness*). When `context_refs` name an earlier `proposal.md`, the planner starts from it and changes what `notes` ask for, so the parts the user did not question carry over, open decisions included. Otherwise it writes the proposal from its inputs. A dispatch that returns `CONCERNS` or `ERROR` leaves `proposal.md` as it was.
+
+**Contents.** `proposal.md` is Markdown written for three readers: the user approving the reporter's draft, the people reading the issue or comment, and the planner of a promoted build workstream, for whom it is `task.md`. It holds, in this order:
+
+1. A `#` title naming the proposed change.
+2. **Problem**: what the idea or issue asks for and why, as the planner reads it.
+3. **Findings**: what the code does today where the change would land, citing repository paths, and the related issues and pull requests the scout found, by number.
+4. **Proposal**: the approach; the areas of the repository it would change, and in a LID repository the design nodes; the alternatives weighed, each with why it was not chosen.
+5. **Done when**: the observable outcomes that show the change is complete.
+6. **Open decisions**, only when the user left a decision open: for each, the question, the council's options with their consequences, and its recommendation, stated as unresolved.
+
+The proposal is self-contained. It names no path in the workstream's state directory (scout files, the matrix, envelopes) and carries what it needs from them as text. It asks no question the planner could have settled from its inputs, and holds no fork the user has not left open: those are returned as `CONCERNS`.
+
+**Forks.** A requirement with more than one plausible reading that the task, the issue, the scout's context, and the code do not settle is returned as `CONCERNS`, with each reading and its consequences in `escalation.details`; there is no earlier work to commit first. When the dispatch carried `notes`, `escalation.details` also restates them, because the dispatch after the ruling receives only the chosen option's `delta` as its `notes`. After a ruling the planner applies the `delta`, reading the matrix for its reasons. After `leave_open` it adds the decision to **Open decisions** from the matrix, settles nothing in it, and applies the user's text when `notes` carry it. The matrix a ruling or `leave_open` refers to is the last entry of `context_refs`, where the router appends it; earlier matrices there belong to earlier forks.
+
+**Replan.** After `replan` the planner reads the rejected draft for what the user saw, then changes what the user's `notes` ask for, starting from the earlier `proposal.md`.
 
 ### Scope
 
@@ -65,10 +91,16 @@ Every planner commit is exempt from the human-code rule (gates design, *Human-au
 | Edge audit | Stage 4, resolutions applied to the specs in the same stage | A separate verifier pass | The planner already holds the context; the verifier's `POST_PLAN` check comes next anyway. |
 | Scope granularity | Area patterns, chosen by the planner | Every file the plan names | Files a plan cannot foresee still fall inside an area; per-file scope would leave them outside every boundary. |
 | Bootstrap | Not part of Forge | `map-codebase` in stage 1; `CONCERNS` asking the user to bootstrap | Bootstrapping is interactive and repository-wide; it belongs to the user before a workstream starts. |
+| Proposal contents | Fixed parts in a fixed order: title, problem, findings, proposal, done when, open decisions | Free-form text; the finished issue body or comment, sent as written | The reporter shapes the proposal for the tracker and a promoted build planner reads it as its task; both need to find the same parts in every proposal. Sending it as written drops the step that shapes it for the tracker (router design, *Approval before an idea or triage sends*). |
+| Self-contained proposal | No state-directory paths; what the proposal needs from scout files or the matrix is carried as text | Link the scout files and the matrix | The issue's readers cannot open the state directory, and promotion closes the study's workstream, so a promoted planner's task would point at files outside its own workstream. |
+| Re-dispatch with an earlier proposal | Start from it and change what `notes` ask for | Write the proposal again from the inputs | The user's notes address the proposal they saw; a fresh write can drop or reword parts nobody questioned, including an open decision recorded earlier. |
+| `proposal.md` on `CONCERNS` | Left as it was | Write the proposal so far | A later `PROPOSE` dispatch may start from `proposal.md` as the proposal the user saw; a partial write would replace it. |
+| `notes` across a fork | Restated in the `CONCERNS` details | Left to the router | The blocker records the raising dispatch's `context_refs` but not its `notes`, and the dispatch after the ruling receives only the option's `delta`; restated in the details, the council sees the user's request, or an earlier ruling's `delta` not yet in any `proposal.md`, and can carry it into each option's `delta`. |
 
 ## References
 
 - Spokes design (`docs/intent/spokes/`) and protocol design (`spokes/protocol/`).
-- Router design (`docs/intent/router/`) — planning phases, `plan_approval`, `CONCERNS` routing.
+- Router design (`docs/intent/router/`) — planning phases, `plan_approval`, `CONCERNS` routing; idea and triage flows, `replan`, `leave_open`, proposal freshness.
+- Workstream-state design (`docs/intent/workstream-state/`) — `proposal.md` in the state directory; promotion makes it the build workstream's `task.md`.
 - Gates design (`docs/intent/gates/`) — plan path class; planning commits exempt from the human-code check.
 - `linked-intent-dev` skill — the content of each LID stage.
