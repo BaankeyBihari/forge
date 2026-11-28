@@ -279,6 +279,8 @@ def dispatch(ctx, phase, opts):
         item = ctx.lc["repair_queue"][0]
         item_refs = list(item.get("context_refs", []))
         notes, refs = item.get("notes"), item_refs + [x for x in refs if x not in item_refs]
+    if agent == "forge-dev" and ctx.lc.get("plan_input") and ctx.lc["plan_input"] not in refs:
+        refs.append(ctx.lc["plan_input"])  # @spec ROUTE-DISP-012
     if agent == "forge-reporter":
         refs = [ctx.lc.get("report_input")]
         if ctx.study and mode == "draft":
@@ -311,6 +313,7 @@ def dispatch(ctx, phase, opts):
 # ------------------------------------------------------------------- blockers
 
 
+# @spec ROUTE-BLK-027, ROUTE-BUILD-047
 # @spec ROUTE-BLK-001, ROUTE-BLK-002, ROUTE-BLK-003, ROUTE-BLK-013, ROUTE-BLK-014, ROUTE-LIMIT-003
 # @spec ROUTE-LIMIT-004, ROUTE-BLK-025
 def raise_blocker(ctx, kind, agent, phase, details, findings=None, force=False):
@@ -322,7 +325,8 @@ def raise_blocker(ctx, kind, agent, phase, details, findings=None, force=False):
     counts[kind] = counts.get(kind, 0) + 1
     # context_refs: the raising dispatch's, for the council dispatch and the ruling's repairs.
     blocker = {"id": f"blk-{uuid.uuid4().hex[:8]}", "kind": kind, "agent": agent, "phase": phase,
-               "details": details, "context_refs": list(ctx.lc["invoke"]["context_refs"])}
+               "details": details, "context_refs": list(ctx.lc["invoke"]["context_refs"]),
+               "notes": ctx.lc["invoke"].get("notes")}
     ctx.state["blockers"].append(blocker)
     if phase != "REPAIR":
         ctx.lc["resume_phase"] = phase if kind in ("CONCERNS", "TEST_CHANGE_REQUESTED", "CONTRACT_MISMATCH",
@@ -348,6 +352,11 @@ def raise_blocker(ctx, kind, agent, phase, details, findings=None, force=False):
     return goto("COUNCIL")
 
 
+def join_notes(*parts):
+    """@spec ROUTE-BLK-027: non-empty parts joined by a newline; None when none."""
+    return "\n".join(p for p in parts if p) or None
+
+
 def remove_blocker(ctx, blocker_id):
     ctx.state["blockers"] = [b for b in ctx.state["blockers"] if b["id"] != blocker_id]
 
@@ -366,7 +375,8 @@ def apply_ruling(ctx, blocker, ruling, option, approved_by):
     delta, route = option.get("delta"), option.get("route_to") or []
     if kind == "CONCERNS":
         remove_blocker(ctx, blocker["id"])
-        return goto(blocker["phase"], context_refs=blocked + matrix, notes=delta, user_caused=user_caused)
+        return goto(blocker["phase"], context_refs=blocked + matrix, notes=join_notes(blocker.get("notes"), delta),
+                    user_caused=user_caused)
     if not route:
         remove_blocker(ctx, blocker["id"])
         if kind == "CI_FAILED":
@@ -376,7 +386,7 @@ def apply_ruling(ctx, blocker, ruling, option, approved_by):
                 head = ctx.lc["repair_queue"][0]
                 head["notes"] = "\n".join(n for n in (head.get("notes"), delta) if n)
                 return goto("REPAIR", user_caused=user_caused)
-            return goto(blocker["phase"], notes=delta, user_caused=user_caused)
+            return goto(blocker["phase"], notes=join_notes(blocker.get("notes"), delta), user_caused=user_caused)
         return goto(ctx.lc["resume_phase"], user_caused=user_caused)
     ctx.lc["repair_queue"] = [{"agent": a, "notes": delta, "context_refs": matrix + blocked,
                                "blocker_id": blocker["id"]} for a in route] + ctx.lc.get("repair_queue", [])
@@ -541,6 +551,7 @@ def apply_result(ctx, env):
         nxt = f"PLAN_S{int(phase[-1]) + 1}"
         return pause("plan_approval", phase, {"next": nxt}) if ctx.mode in STAGE_PAUSE_MODES else goto(nxt)
     if status == "READY_FOR_QA":
+        ctx.lc["plan_input"] = str(ctx.sd / "envelopes" / f"{d['dispatch_id']}.json")
         ctx.state["scope_manifest"]["assigned"] = (env.get("scope") or {}).get("assigned", [])
         if ctx.mode == "delivery":  # choosing delivery approved the plan in advance
             approve_plan(ctx)
@@ -822,13 +833,12 @@ def leave_open(ctx, payload, notes):
     ctx.lc["awaiting"] = None
     remove_blocker(ctx, blocker["id"])
     ctx.state["council_decisions"].append({"id": f"cd-{uuid.uuid4().hex[:8]}", "blocker_id": blocker["id"],
-                                           "panel": ruling.get("panel"), "option": None, "left_open": True,
-                                           "approved_by": "user"})
+                                           "panel": ruling.get("panel"), "option": None, "approved_by": "user"})
     matrix = [ruling["matrix_ref"]] if ruling.get("matrix_ref") else []
     told = ("Present the council's options and its recommendation in the proposal as an open decision, "
             "left unresolved for the readers of the issue.")
     return goto("PROPOSE", context_refs=blocker.get("context_refs", []) + matrix,
-                notes="\n".join(n for n in (told, notes) if n), user_caused=True)
+                notes=join_notes(blocker.get("notes"), told, notes), user_caused=True)
 
 
 # ------------------------------------------------------------------- routing
