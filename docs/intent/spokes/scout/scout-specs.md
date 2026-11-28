@@ -41,7 +41,7 @@ Every spec here other than SPOKE-SCOUT-GH-002 describes what the `forge-scout` s
 - [D] **SPOKE-SCOUT-CI-006**: The `forge-scout` skill shall tell the scout, when any run failed, to write `scout/ci-<run id>.md` per failed run with the run, the failed jobs and steps, and the shortest log excerpt showing each failure, and return `CI_FAILED` with `escalation.details` naming those files and one cause per run.
 - [D] **SPOKE-SCOUT-CI-007**: The `forge-scout` skill shall tell the scout to return `ERROR` saying the runs are still in progress when they have not finished after 60 minutes of rounds.
 - [D] **SPOKE-SCOUT-CI-008**: When a waiting command prints `STOP_FORGE`, the `forge-scout` skill shall tell the scout to end its turn at once, saying the stop file is set, without running another command.
-- [D] **SPOKE-SCOUT-RERUN-001**: When dispatched with mode `CI_RERUN`, the `forge-scout` skill shall tell the scout to re-run the failed jobs of every run for `HEAD` whose latest attempt failed, then watch as in `CI_WATCH`.
+- [D] **SPOKE-SCOUT-RERUN-001**: When dispatched with mode `CI_RERUN`, the `forge-scout` skill shall tell the scout to re-run the failed jobs of every run for `HEAD` whose latest attempt's conclusion SPOKE-SCOUT-CI-003 counts as failed, then watch as in `CI_WATCH`.
 
 ## Boundaries
 
