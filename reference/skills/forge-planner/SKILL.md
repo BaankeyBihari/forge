@@ -69,11 +69,12 @@ In modes `strict`, `auto`, and `naive` (section 11 for `propose`; section 6 for 
 <!-- @spec SPOKE-PLAN-FORK-004, SPOKE-PLAN-FORK-005, SPOKE-PLAN-FORK-006, SPOKE-PLAN-FORK-007, SPOKE-PLAN-MODE-004 -->
 ## 9. After a council ruling
 
-When re-dispatched after an approved council ruling:
+When re-dispatched in mode `strict`, `auto`, `naive`, or `propose` (section 11) after an approved council ruling:
 
 - The decision matrix is the last entry of `context_refs`; its file name, `council/<blocker id>-matrix-<timestamp>.md`, names the blocker whose `council_decisions` entry holds the approved option's label in `option`. Apply that option as the matrix describes it, reading the matrix for its reasons.
 - `notes` hold the blocked dispatch's `notes`, when it had any, followed by the approved option's `delta`, when the council gave one. Apply the `delta` as a change to the request those earlier `notes` make.
 - When the approved option's `delta` is empty, apply the option from the matrix alone, together with the blocked dispatch's `notes` when `notes` carry any.
+- In mode `repair` (section 6) after an approved ruling, the matrix is the first entry of `context_refs`, and `notes` are the approved option's `delta` alone.
 
 In `auto`, go through every LID stage again in order: keep what still holds under the ruling and complete or change the rest, so a stage left half-done before the fork is finished and no stage is skipped.
 
