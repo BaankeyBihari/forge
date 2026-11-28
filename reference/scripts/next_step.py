@@ -323,7 +323,8 @@ def raise_blocker(ctx, kind, agent, phase, details, findings=None, force=False):
                                                           "details": details, "findings": findings}},
                      question=f"A fourth {kind} blocker was raised. Retry or stop?")
     counts[kind] = counts.get(kind, 0) + 1
-    # context_refs: the raising dispatch's, for the council dispatch and the ruling's repairs.
+    # context_refs and notes: the raising dispatch's, for the council dispatch and the ruling's repairs
+    # (ROUTE-BLK-001).
     blocker = {"id": f"blk-{uuid.uuid4().hex[:8]}", "kind": kind, "agent": agent, "phase": phase,
                "details": details, "context_refs": list(ctx.lc["invoke"]["context_refs"]),
                "notes": ctx.lc["invoke"].get("notes")}

@@ -82,7 +82,7 @@ In `auto`, go through every LID stage again in order: keep what still holds unde
 
 When `notes` carry the user's revision request, change what it asks for and commit each change under the stage it belongs to with that stage's `--stage`.
 
-<!-- @spec SPOKE-PLAN-PROP-022, SPOKE-PLAN-PROP-001, SPOKE-PLAN-PROP-002, SPOKE-PLAN-PROP-003, SPOKE-PLAN-PROP-004, SPOKE-PLAN-PROP-005, SPOKE-PLAN-PROP-006, SPOKE-PLAN-PROP-007, SPOKE-PLAN-PROP-008, SPOKE-PLAN-PROP-009, SPOKE-PLAN-PROP-010, SPOKE-PLAN-PROP-011, SPOKE-PLAN-PROP-012, SPOKE-PLAN-PROP-013, SPOKE-PLAN-PROP-014, SPOKE-PLAN-PROP-015, SPOKE-PLAN-PROP-016, SPOKE-PLAN-PROP-017, SPOKE-PLAN-PROP-018, SPOKE-PLAN-PROP-019, SPOKE-PLAN-PROP-020, SPOKE-PLAN-PROP-021 -->
+<!-- @spec SPOKE-PLAN-PROP-022, SPOKE-PLAN-PROP-001, SPOKE-PLAN-PROP-002, SPOKE-PLAN-PROP-003, SPOKE-PLAN-PROP-004, SPOKE-PLAN-PROP-005, SPOKE-PLAN-PROP-006, SPOKE-PLAN-PROP-007, SPOKE-PLAN-PROP-008, SPOKE-PLAN-PROP-009, SPOKE-PLAN-PROP-010, SPOKE-PLAN-PROP-011, SPOKE-PLAN-PROP-012, SPOKE-PLAN-PROP-013, SPOKE-PLAN-PROP-014, SPOKE-PLAN-PROP-015, SPOKE-PLAN-PROP-016, SPOKE-PLAN-PROP-018, SPOKE-PLAN-PROP-019, SPOKE-PLAN-PROP-020, SPOKE-PLAN-PROP-021 -->
 ## 11. Mode `propose`: a proposal
 
 Mode `propose` runs in an idea or triage workstream. Sections 1 to 10 do not apply to it, except that you cannot talk to the user.
@@ -105,7 +105,7 @@ Mode `propose` runs in an idea or triage workstream. Sections 1 to 10 do not app
 
 The proposal names no path in the workstream's state directory; carry what it needs from the scout's files or a decision matrix as text. It holds no question your inputs settle and no fork the user has not left open.
 
-**Forks.** When a requirement has more than one plausible reading that the task, the issue, the scout's context, and the code do not settle, never choose: return `CONCERNS` with each reading and its consequences in `escalation.details`. When `notes` are not empty, restate them in `escalation.details`.
+**Forks.** When a requirement has more than one plausible reading that the task, the issue, the scout's context, and the code do not settle, never choose: return `CONCERNS` with each reading and its consequences in `escalation.details`.
 
 **After a ruling or `leave_open`.** The decision matrix is the last entry of `context_refs`; earlier matrices belong to earlier forks.
 - After a ruling, apply it as section 9 says.
