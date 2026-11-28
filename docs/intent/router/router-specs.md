@@ -48,7 +48,7 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 - [x] **ROUTE-DISP-009**: While the workstream's state directory holds `task.md`, when `next_step.py` dispatches `forge-planner`, `forge-reviewer` in `REVIEW_INTERNAL`, or `forge-scout` in `RECON` of an `idea`- or `triage`-flow workstream, it shall put the absolute path of `task.md` first in the invocation envelope's `context_refs` and list it nowhere else in them.
 - [x] **ROUTE-DISP-010**: When `next_step.py` dispatches an agent, the invocation envelope shall also carry `agent_prefix`, read from `forge_install.json` in the directory containing `next_step.py` (`""` when that file does not exist), and `dispatch_as`, equal to `agent_prefix` followed by `agent`.
 - [x] **ROUTE-DISP-011**: If `forge_install.json` in the directory containing `next_step.py` exists but is not a JSON object whose `agent_prefix` is a string, then `next_step.py` shall return `stop` with `INSTALL_INVALID`, naming the file, and change no state.
-- [ ] **ROUTE-DISP-012**: When `next_step.py` dispatches `forge-dev` in any phase, `REPAIR` included, while `lifecycle.plan_input` is set, it shall list `lifecycle.plan_input` in the invocation envelope's `context_refs` exactly once.
+- [ ] **ROUTE-DISP-012**: When `next_step.py` dispatches `forge-dev` in any phase, `REPAIR` included, while `lifecycle.plan_input` is set, it shall list `lifecycle.plan_input` in the invocation envelope's `context_refs` exactly once, after every other entry when the dispatch's other `context_refs` do not hold it.
 
 ## Result envelopes
 
@@ -185,7 +185,7 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 - [x] **ROUTE-BLK-012**: When applying a ruling for `CI_FAILED` whose applied option has an empty `route_to`, `next_step.py` shall remove the blocker from `blockers`, go to `CI_WATCH`, and dispatch `forge-scout` with mode `CI_RERUN`.
 - [x] **ROUTE-BLK-013**: When a `CHANGES_REQUESTED` blocker is raised, `next_step.py` shall queue one repair per `route_to` agent among the envelope's `escalation.findings`, ordered `forge-planner`, `forge-qa`, `forge-dev`, each carrying that agent's findings, without dispatching `forge-council`.
 - [x] **ROUTE-BLK-014**: When a `CHANGES_REQUESTED` blocker has a finding routed to `forge-planner`, `next_step.py` shall pause `findings_signoff` presenting the planner findings, and on `approve` go to `REPAIR`.
-- [x] **ROUTE-BLK-015**: While in `REPAIR`, `next_step.py` shall dispatch the head of `lifecycle.repair_queue` with mode `repair`, its `notes`, and its `context_refs`.
+- [x] **ROUTE-BLK-015**: While in `REPAIR`, `next_step.py` shall dispatch the head of `lifecycle.repair_queue` with mode `repair`, its `notes`, and its `context_refs`, to which ROUTE-DISP-012 adds `lifecycle.plan_input` for a `forge-dev` item.
 - [x] **ROUTE-BLK-024**: When `forge-planner` returns `REPAIR_COMMITTED` with `scope.assigned`, `next_step.py` shall replace `scope_manifest.assigned` with it, keep in `scope_manifest.completed` only patterns still assigned, set `scope_manifest.remaining` to the other assigned patterns, and set `lifecycle.resume_phase` to `POST_PLAN`.
 - [x] **ROUTE-BLK-016**: When the queue head's agent returns `REPAIR_COMMITTED`, `next_step.py` shall remove it from `lifecycle.repair_queue` and dispatch the next item, or go to `lifecycle.resume_phase` when the queue is empty.
 - [x] **ROUTE-BLK-017**: When `next_step.py` applies a `CONCERNS` ruling, it shall remove the resolved blocker from `blockers`.
