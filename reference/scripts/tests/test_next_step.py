@@ -2768,7 +2768,7 @@ def test_idea_015_leave_open_records_council_decision_and_removes_blocker(study)
     assert entry.get("id")
     assert {k: v for k, v in entry.items() if k != "id"} == {
         "blocker_id": blocker_id, "panel": ["debugger", "senior-dev"], "option": None,
-        "left_open": True, "approved_by": "user"}
+        "approved_by": "user"}
 
 
 # @spec ROUTE-IDEA-016
@@ -2777,8 +2777,8 @@ def test_idea_016_leave_open_redispatches_propose_with_matrix_ref_and_notes(stud
     decision = study.user("leave_open", notes="keep both designs")
     assert dispatches(decision, "forge-planner", "propose")
     assert decision["invoke"]["context_refs"] == [*blocked, "council/matrix.md"]
-    notes = json.dumps(decision["invoke"]["notes"])
-    assert "keep both designs" in notes and "recommend" in notes.lower()
+    notes = decision["invoke"]["notes"]
+    assert "recommend" in notes.lower() and notes.endswith("\nkeep both designs")
 
 
 # @spec ROUTE-IDEA-017
@@ -3018,3 +3018,122 @@ def test_idea_027_every_idea_triage_recon_dispatch_uses_scout_idea_or_triage_mod
     assert stops(study.result("ERROR", escalation={"details": "boom"}), "AGENT_ERROR")
     assert dispatches(study.run(), "forge-scout", MODE_OF[study.flow])
     assert dispatches(study.goto("RECON"), "forge-scout", MODE_OF[study.flow])
+
+
+def with_notes(r, notes):
+    """Set the outstanding dispatch's stored invocation notes."""
+    state = r.state()
+    state["lifecycle"]["invoke"]["notes"] = notes
+    write_state(r.sp, state)
+
+
+# @spec ROUTE-BUILD-047
+def test_build_047_ready_for_qa_sets_plan_input(r):
+    r.patch(identity={"issue": "https://github.com/acme/widgets/issues/1"})
+    r.start()
+    r.result("OK")
+    dispatch_id = r.state()["lifecycle"]["dispatched"]["dispatch_id"]
+    r.result("READY_FOR_QA", scope={"assigned": ["src/**"]})
+    assert r.state()["lifecycle"]["plan_input"] == str(r.sd / "envelopes" / f"{dispatch_id}.json")
+
+
+# @spec ROUTE-DISP-012
+@pytest.mark.parametrize("phase, mode", [("DEV_STUB", "stub"), ("DEV_FULL", "full")])
+def test_disp_012_dev_dispatch_lists_plan_input_last_once(r, phase, mode):
+    r.patch(lifecycle={"plan_input": "/p/env.json"})
+    decision = r.goto(phase, **({"pass": 1} if phase == "DEV_STUB" else {}))
+    assert dispatches(decision, "forge-dev", mode)
+    assert decision["invoke"]["context_refs"][-1] == "/p/env.json"
+    assert decision["invoke"]["context_refs"].count("/p/env.json") == 1
+
+
+# @spec ROUTE-DISP-012, ROUTE-BLK-015
+def test_disp_012_repair_dev_item_lists_plan_input_last(r):
+    r.patch(lifecycle={"plan_input": "/p/env.json"})
+    decision = r.goto("REPAIR", repair_queue=[{"agent": "forge-dev", "notes": "fix", "context_refs": ["x.md"]}],
+                      resume_phase="VERIFY_FINAL")
+    assert dispatches(decision, "forge-dev", "repair")
+    assert decision["invoke"]["context_refs"] == ["x.md", "/p/env.json"]
+
+
+# @spec ROUTE-DISP-012
+def test_disp_012_repair_dev_item_already_holding_plan_input_lists_it_once(r):
+    r.patch(lifecycle={"plan_input": "/p/env.json"})
+    decision = r.goto("REPAIR", repair_queue=[{"agent": "forge-dev", "notes": "fix",
+                                               "context_refs": ["/p/env.json", "x.md"]}],
+                      resume_phase="VERIFY_FINAL")
+    assert decision["invoke"]["context_refs"].count("/p/env.json") == 1
+
+
+# @spec ROUTE-DISP-012
+def test_disp_012_not_set_adds_nothing(r):
+    decision = r.goto("DEV_FULL")
+    assert all("env.json" not in ref for ref in decision["invoke"]["context_refs"])
+
+
+# @spec ROUTE-DISP-012
+def test_disp_012_non_dev_dispatch_unchanged(r):
+    r.patch(lifecycle={"plan_input": "/p/env.json"})
+    assert "/p/env.json" not in r.goto("QA_FULL")["invoke"]["context_refs"]
+    repair = r.goto("REPAIR", repair_queue=[{"agent": "forge-qa", "notes": "fix", "context_refs": []}],
+                    resume_phase="VERIFY_FINAL")
+    assert "/p/env.json" not in repair["invoke"]["context_refs"]
+
+
+# @spec ROUTE-BLK-001
+def test_blk_001_blocker_copies_dispatch_notes(r):
+    r.goto("DEV_FULL")
+    with_notes(r, "original request")
+    r.result("TEST_CHANGE_REQUESTED", escalation={"details": "d"})
+    [blocker] = r.state()["blockers"]
+    assert blocker["notes"] == "original request"
+
+
+# @spec ROUTE-BLK-027, ROUTE-BLK-023
+def test_blk_027_blocker_notes_then_delta_joined_by_newline(r):
+    r.goto("DEV_FULL")
+    with_notes(r, "original request")
+    r.result("TEST_CHANGE_REQUESTED", escalation={"details": "d"})
+    decision = approve_ruling(r, ruling([]))
+    assert decision["invoke"]["notes"] == f"original request\n{DELTA_A}"
+
+
+# @spec ROUTE-BLK-027, ROUTE-BLK-023
+def test_blk_027_no_blocker_notes_gives_delta_alone(r):
+    r.goto("DEV_FULL")
+    with_notes(r, None)
+    r.result("TEST_CHANGE_REQUESTED", escalation={"details": "d"})
+    assert approve_ruling(r, ruling([]))["invoke"]["notes"] == DELTA_A
+
+
+# @spec ROUTE-BLK-027, ROUTE-BLK-023
+@pytest.mark.parametrize("blocked_notes, delta", [(None, None), ("", ""), (None, ""), ("", None)])
+def test_blk_027_both_absent_or_empty_gives_null(r, blocked_notes, delta):
+    r.goto("DEV_FULL")
+    with_notes(r, blocked_notes)
+    r.result("TEST_CHANGE_REQUESTED", escalation={"details": "d"})
+    shown = ruling([])
+    shown["options"][0]["delta"] = delta
+    assert approve_ruling(r, shown)["invoke"]["notes"] is None
+
+
+# @spec ROUTE-BLK-027, ROUTE-BLK-009
+def test_blk_027_concerns_ruling_joins_blocker_notes_and_delta(r):
+    r.start()
+    r.result("OK")
+    with_notes(r, "original request")
+    r.result("CONCERNS", escalation={"details": "CONCERNS details"})
+    r.result("COUNCIL_RULING", ruling=ruling())
+    decision = r.user("approve", option="B")
+    assert decision["invoke"]["notes"] == f"original request\n{DELTA_B}"
+
+
+# @spec ROUTE-BLK-027, ROUTE-IDEA-016
+def test_blk_027_leave_open_keeps_blocked_notes_before_instruction(study):
+    at_propose(study)
+    with_notes(study, "the original ask")
+    study.result("CONCERNS", escalation={"details": "open question"})
+    study.result("COUNCIL_RULING", ruling=propose_ruling())
+    notes = study.user("leave_open", notes="keep both designs")["invoke"]["notes"]
+    assert notes.startswith("the original ask\n") and notes.endswith("\nkeep both designs")
+    assert "recommend" in notes.lower()
