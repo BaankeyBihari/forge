@@ -6,12 +6,12 @@ Every spec here other than SPOKE-SCOUT-GH-002 describes what the `forge-scout` s
 
 ## Recon
 
-- [D] **SPOKE-SCOUT-PRE-001**: When dispatched with mode `PRE_PLAN`, the `forge-scout` skill shall tell the scout to read `identity.issue` with `gh issue view` and write `scout/issue.md` holding the problem as reported, stated or implied acceptance criteria, constraints from the comments, linked issues and pull requests, and the repository areas the issue's names point to, and return `OK`.
+- [D] **SPOKE-SCOUT-PRE-001**: When dispatched with mode `PRE_PLAN`, the `forge-scout` skill shall tell the scout to read `identity.issue` and the issues and pull requests linked to it and write `scout/issue.md` holding the problem as reported, stated or implied acceptance criteria, constraints from the comments, linked issues and pull requests, and the repository areas the issue's names point to, and return `OK`.
 - [D] **SPOKE-SCOUT-TRI-001**: When dispatched with mode `TRIAGE`, the `forge-scout` skill shall tell the scout to read `identity.issue` and write `scout/issue.md` as in `PRE_PLAN`, then search related work and write `scout/related.md`, and return `OK`.
 - [D] **SPOKE-SCOUT-TRI-002**: While in mode `TRIAGE`, the `forge-scout` skill shall tell the scout to use `task.md`, when `context_refs` name it, only to choose search terms, and to record nothing from it in `scout/` other than the search terms `scout/related.md` lists under the searches run.
 - [D] **SPOKE-SCOUT-IDEA-001**: When dispatched with mode `IDEA`, the `forge-scout` skill shall tell the scout to read the idea in `task.md`, search related work, write `scout/related.md`, and return `OK`.
 - [D] **SPOKE-SCOUT-IDEA-002**: While in mode `IDEA`, the `forge-scout` skill shall tell the scout not to search the repository's code.
-- [D] **SPOKE-SCOUT-PR-001**: When dispatched with mode `PR_FETCH`, the `forge-scout` skill shall tell the scout to write `scout/pr.md` (title, body, author, base, head, head commit, files, and the authenticated user's login), `scout/pr.diff` (`gh pr diff`), and `scout/pr-threads.json` (the pull request's review comments and reviews, read with REST `gh api` calls only), and return `OK`.
+- [D] **SPOKE-SCOUT-PR-001**: When dispatched with mode `PR_FETCH`, the `forge-scout` skill shall tell the scout to write `scout/pr.md` (title, body, author, base, head, head commit, files, and the authenticated user's login), `scout/pr.diff` (the pull request's diff), and `scout/pr-threads.json` (the pull request's review comments and reviews, read with REST `gh api` calls only), and return `OK`.
 
 ## Related work
 
