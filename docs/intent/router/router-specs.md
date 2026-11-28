@@ -48,7 +48,7 @@ Design: `router-design.md`. Implementation: `reference/scripts/next_step.py`.
 - [x] **ROUTE-DISP-009**: While the workstream's state directory holds `task.md`, when `next_step.py` dispatches `forge-planner`, `forge-reviewer` in `REVIEW_INTERNAL`, or `forge-scout` in `RECON` of an `idea`- or `triage`-flow workstream, it shall put the absolute path of `task.md` first in the invocation envelope's `context_refs` and list it nowhere else in them.
 - [x] **ROUTE-DISP-010**: When `next_step.py` dispatches an agent, the invocation envelope shall also carry `agent_prefix`, read from `forge_install.json` in the directory containing `next_step.py` (`""` when that file does not exist), and `dispatch_as`, equal to `agent_prefix` followed by `agent`.
 - [x] **ROUTE-DISP-011**: If `forge_install.json` in the directory containing `next_step.py` exists but is not a JSON object whose `agent_prefix` is a string, then `next_step.py` shall return `stop` with `INSTALL_INVALID`, naming the file, and change no state.
-- [ ] **ROUTE-DISP-012**: When `next_step.py` dispatches `forge-dev` in `DEV_FULL` while `lifecycle.plan_input` is set, it shall list `lifecycle.plan_input` in the invocation envelope's `context_refs` exactly once.
+- [ ] **ROUTE-DISP-012**: When `next_step.py` dispatches `forge-dev` in any phase, `REPAIR` included, while `lifecycle.plan_input` is set, it shall list `lifecycle.plan_input` in the invocation envelope's `context_refs` exactly once.
 
 ## Result envelopes
 
