@@ -50,10 +50,12 @@ Write `PLAN.md` at the repository root, replacing any existing one, with: the go
 
 Change the plan as the findings in `notes` say, commit, and return `REPAIR_COMMITTED`. When the change alters which paths the plan touches, include the new `scope.assigned` (section 7). A fork found during a repair is returned as `ERROR` describing it, **not** `CONCERNS`.
 
-<!-- @spec SPOKE-PLAN-SCOPE-001 -->
+<!-- @spec SPOKE-PLAN-SCOPE-001, SPOKE-PLAN-SCOPE-002 -->
 ## 7. Scope
 
 `READY_FOR_QA` carries `scope.assigned`: path patterns in the gate's glob syntax (`/`-separated; `**` matches any number of directories, `*` matches within one segment). They name the areas the plan treats as units (`src/limits/**`), not every file, and together cover every test and production path the plan expects to add or change. Leave out plan paths. A plan that changes only plan paths returns an empty list.
+
+In the `summary` of a `READY_FOR_QA` envelope, name with its path every edit to a test or production path the plan as a whole makes that no test will check, not only those this dispatch added: an `@spec` tag, a comment, prose in a profile or skill reference.
 
 ```json
 {"status": "READY_FOR_QA", "summary": "...", "scope": {"assigned": ["src/limits/**", "tests/limits/**"]}}
@@ -64,17 +66,23 @@ Change the plan as the findings in `notes` say, commit, and return `REPAIR_COMMI
 
 In modes `strict`, `auto`, and `naive` (section 11 for `propose`; section 6 for `repair`), when a requirement has more than one plausible reading that the task, the issue, and the repository do not settle, **do not pick one**. Commit the work finished before the fork, then return `CONCERNS` with each reading and its consequences in `escalation.details`.
 
-<!-- @spec SPOKE-PLAN-FORK-004, SPOKE-PLAN-MODE-004 -->
+<!-- @spec SPOKE-PLAN-FORK-004, SPOKE-PLAN-FORK-005, SPOKE-PLAN-FORK-006, SPOKE-PLAN-FORK-007, SPOKE-PLAN-MODE-004 -->
 ## 9. After a council ruling
 
-When `notes` carry a council option's `delta`, apply it, reading the decision matrix in `context_refs` for its reasons. In `auto`, go through every LID stage again in order: keep what still holds under the ruling and complete or change the rest, so a stage left half-done before the fork is finished and no stage is skipped.
+When re-dispatched after an approved council ruling:
+
+- The decision matrix is the last entry of `context_refs`; its file name, `council/<blocker id>-matrix-<timestamp>.md`, names the blocker whose `council_decisions` entry holds the approved option's label in `option`. Apply that option as the matrix describes it, reading the matrix for its reasons.
+- `notes` hold the blocked dispatch's `notes`, when it had any, followed by the approved option's `delta`, when the council gave one. Apply the `delta` as a change to the request those earlier `notes` make.
+- When the approved option's `delta` is empty, apply the option from the matrix alone, together with the blocked dispatch's `notes` when `notes` carry any.
+
+In `auto`, go through every LID stage again in order: keep what still holds under the ruling and complete or change the rest, so a stage left half-done before the fork is finished and no stage is skipped.
 
 <!-- @spec SPOKE-PLAN-REV-001 -->
 ## 10. After `revise`
 
 When `notes` carry the user's revision request, change what it asks for and commit each change under the stage it belongs to with that stage's `--stage`.
 
-<!-- @spec SPOKE-PLAN-PROP-001, SPOKE-PLAN-PROP-002, SPOKE-PLAN-PROP-003, SPOKE-PLAN-PROP-004, SPOKE-PLAN-PROP-005, SPOKE-PLAN-PROP-006, SPOKE-PLAN-PROP-007, SPOKE-PLAN-PROP-008, SPOKE-PLAN-PROP-009, SPOKE-PLAN-PROP-010, SPOKE-PLAN-PROP-011, SPOKE-PLAN-PROP-012, SPOKE-PLAN-PROP-013, SPOKE-PLAN-PROP-014, SPOKE-PLAN-PROP-015, SPOKE-PLAN-PROP-016, SPOKE-PLAN-PROP-017, SPOKE-PLAN-PROP-018, SPOKE-PLAN-PROP-019, SPOKE-PLAN-PROP-020, SPOKE-PLAN-PROP-021 -->
+<!-- @spec SPOKE-PLAN-PROP-022, SPOKE-PLAN-PROP-001, SPOKE-PLAN-PROP-002, SPOKE-PLAN-PROP-003, SPOKE-PLAN-PROP-004, SPOKE-PLAN-PROP-005, SPOKE-PLAN-PROP-006, SPOKE-PLAN-PROP-007, SPOKE-PLAN-PROP-008, SPOKE-PLAN-PROP-009, SPOKE-PLAN-PROP-010, SPOKE-PLAN-PROP-011, SPOKE-PLAN-PROP-012, SPOKE-PLAN-PROP-013, SPOKE-PLAN-PROP-014, SPOKE-PLAN-PROP-015, SPOKE-PLAN-PROP-016, SPOKE-PLAN-PROP-017, SPOKE-PLAN-PROP-018, SPOKE-PLAN-PROP-019, SPOKE-PLAN-PROP-020, SPOKE-PLAN-PROP-021 -->
 ## 11. Mode `propose`: a proposal
 
 Mode `propose` runs in an idea or triage workstream. Sections 1 to 10 do not apply to it, except that you cannot talk to the user.
@@ -100,5 +108,5 @@ The proposal names no path in the workstream's state directory; carry what it ne
 **Forks.** When a requirement has more than one plausible reading that the task, the issue, the scout's context, and the code do not settle, never choose: return `CONCERNS` with each reading and its consequences in `escalation.details`. When `notes` are not empty, restate them in `escalation.details`.
 
 **After a ruling or `leave_open`.** The decision matrix is the last entry of `context_refs`; earlier matrices belong to earlier forks.
-- After a ruling, apply the `delta` in `notes`, reading the matrix for its reasons.
-- When `notes` tell you to present the council's options and recommendation as an open decision, apply the user's text that follows that instruction, when there is any. When it picks one of the council's options or otherwise settles the decision, apply that choice to the proposal and record no open decision for it. Otherwise add the decision to `## Open decisions` from the matrix, and settle nothing in it that the user's text leaves open.
+- After a ruling, apply it as section 9 says.
+- When `notes` tell you to present the council's options and recommendation as an open decision, the text before that instruction is the blocked dispatch's `notes`: apply it as the request that dispatch was given. Apply the user's text that follows the instruction, when there is any. When it picks one of the council's options or otherwise settles the decision, apply that choice to the proposal and record no open decision for it. Otherwise add the decision to `## Open decisions` from the matrix, and settle nothing in it that the user's text leaves open.

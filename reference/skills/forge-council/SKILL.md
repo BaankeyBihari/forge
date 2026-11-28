@@ -48,7 +48,7 @@ Write `council/<blocker id>-matrix-<YYYYMMDDTHHMMSSZ>.md` (current UTC time). Th
 - the dissenting risks;
 - the recommended option.
 
-<!-- @spec SPOKE-COUNCIL-RULE-001, SPOKE-COUNCIL-RULE-002, SPOKE-COUNCIL-RULE-003, SPOKE-COUNCIL-RULE-004 -->
+<!-- @spec SPOKE-COUNCIL-RULE-001, SPOKE-COUNCIL-RULE-002, SPOKE-COUNCIL-RULE-003, SPOKE-COUNCIL-RULE-004, SPOKE-COUNCIL-RULE-005 -->
 ## 5. Return the ruling
 
 Return `COUNCIL_RULING` with `ruling`:
@@ -67,6 +67,6 @@ Return `COUNCIL_RULING` with `ruling`:
 
 - `matrix_ref`: the matrix file's **absolute** path. `panel`: the personas actually convened, `sec-ops` included when added.
 - One `options` entry per matrix option. Top-level `route_to` and `delta` are **copies of the recommended option's**.
-- Each `route_to`: the agents whose work carries the option out, from `forge-planner`, `forge-qa`, `forge-dev`, **in that order**; empty when nothing needs changing (a flaky CI failure, a check that should simply run again). Each `delta`: exactly what those agents should change.
+- Each `route_to`: the agents whose work carries the option out, from `forge-planner`, `forge-qa`, `forge-dev`, **in that order**; empty when nothing needs changing (a flaky CI failure, a check that should simply run again). Each `delta`: exactly what those agents should change. A dispatch the ruling runs again receives the blocker file's `notes` followed by the chosen option's `delta`, so state in each `delta` only what changes, without repeating those `notes`.
 - For `TEST_CHANGE_REQUESTED` and `CONTRACT_MISMATCH`, route each option to the side it finds at fault: `forge-qa` for a test, `forge-dev` for code, `forge-planner` for a spec.
 - `requires_user` is `true` for `CONCERNS`, when any option changes specs or a public interface, or when the personas disagree on the recommendation; otherwise `false`.

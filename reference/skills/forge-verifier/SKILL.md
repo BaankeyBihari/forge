@@ -58,14 +58,14 @@ Return `scope.completed` and `scope.remaining`, which together hold **each assig
 
 Tests are expected to fail here. Return `PASS` only when the test suite loads without collection errors and, in a LID repository, `lid_check.py` reports no `UNTESTED` and no `UNKNOWN_ID`; otherwise `AUDIT_FAILED`.
 
-<!-- @spec SPOKE-VER-MODE-006, SPOKE-VER-MODE-008 -->
+<!-- @spec SPOKE-VER-MODE-006, SPOKE-VER-MODE-008, SPOKE-VER-MODE-010 -->
 ## 6. `VERIFY_FINAL`
 
-Run the whole test suite. Failures that predate the workstream still count. In a LID repository, run `lid_check.py`: **any** finding fails. Then read the changed code against its specs and judge whether it does what they say.
+Run the whole test suite. Failures that predate the workstream still count. In a LID repository, run `lid_check.py`: **any** finding fails. Then, for each pattern of `scope_manifest.assigned` whose `forge_spoke.py scope` entry lists no commit in `commits`, report a failing check naming the pattern in `escalation.details`. Then read the changed code against its specs and judge whether it does what they say.
 
 | Outcome | Status |
 |---|---|
-| Suite passes, no finding, code matches specs | `PASS` |
+| Suite passes, no finding, no untouched pattern, code matches specs | `PASS` |
 | Suite passes, a check or the spec judgment fails | `AUDIT_FAILED` |
 | Any test fails | `TESTS_FAILED`, listing the failing check findings too |
 
