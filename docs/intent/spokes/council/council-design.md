@@ -14,7 +14,7 @@ The personas' raw output stays inside the council's own subagent context; the Hu
 ## Inputs
 
 - `invoke.panel` — the personas to convene, chosen by the router per blocker kind.
-- `context_refs[0]` — `council/<blocker id>.json`: the blocker's kind, raising agent, phase, and details (a string from a spoke; `{findings: [...]}` from the commit gate). Later entries are the `context_refs` of the dispatch that raised the blocker.
+- `context_refs[0]` — `council/<blocker id>.json`: the blocker's kind, raising agent, phase, details (a string from a spoke; `{findings: [...]}` from the commit gate), and the raising dispatch's `notes`. When a ruling runs the blocked dispatch again, that dispatch receives those `notes` followed by the chosen option's `delta` (router design), so a `delta` states only what changes. Later entries are the `context_refs` of the dispatch that raised the blocker.
 - `notes` — the user's reasons after rejecting an earlier ruling for the same blocker.
 
 ## Procedure
