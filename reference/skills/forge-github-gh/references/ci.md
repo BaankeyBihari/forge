@@ -33,6 +33,7 @@
 
 - **A failed run's failures**: `gh run view <id> -R <org>/<repo> --json jobs`, keeping the failed jobs and their failed steps (`--jq '.jobs[] | select(.conclusion == "failure") | {name, steps: [.steps[] | select(.conclusion == "failure") | .name]}'`), and `gh run view <id> -R <org>/<repo> --log-failed | tail -n 300`.
 
+<!-- @spec GH-CI-008 -->
 - **Failed runs of a commit**: `gh run list -R <org>/<repo> --commit <sha> --limit 100 --json databaseId,conclusion --jq '.[] | select(.conclusion | IN("failure","timed_out","startup_failure","cancelled")) | .databaseId'`.
 
 - **Re-run failed jobs**: `gh run rerun <id> -R <org>/<repo> --failed`. The only command in this file that changes anything on GitHub.
