@@ -19,6 +19,7 @@ Every spec here describes what the `forge-council` skill and its persona charter
 - [D] **SPOKE-COUNCIL-RULE-002**: The `forge-council` skill shall tell the council to set each option's `route_to` to the agents whose work carries it out among `forge-planner`, `forge-qa`, and `forge-dev`, in that order, or empty when nothing needs changing, and its `delta` to exactly what those agents should change.
 - [D] **SPOKE-COUNCIL-RULE-003**: The `forge-council` skill shall tell the council, for `TEST_CHANGE_REQUESTED` and `CONTRACT_MISMATCH`, to route each option to the side it finds at fault: `forge-qa` for a test, `forge-dev` for code, `forge-planner` for a spec.
 - [D] **SPOKE-COUNCIL-RULE-004**: The `forge-council` skill shall tell the council to set `requires_user` to `true` for `CONCERNS`, when any option changes specs or a public interface, or when the personas disagree on the recommendation, and to `false` otherwise.
+- [D] **SPOKE-COUNCIL-RULE-005**: The `forge-council` skill shall tell the council that a dispatch a ruling runs again receives the blocker file's `notes` followed by the chosen option's `delta`, and to state in each option's `delta` only what changes, without repeating those `notes`.
 
 ## Personas
 
